@@ -1,0 +1,7861 @@
+/**
+ * pdgui_menu_mainmenu.cpp -- ImGui replacement for the CI Main Menu.
+ *
+ * Replaces g_CiMenuViaPcMenuDialog and g_CiMenuViaPauseMenuDialog
+ * ("Perfect Menu" — the Carrington Institute hub).
+ *
+ * Layout: Top-level Play, Social, Public Mods, Agent, Settings, Mods,
+ * Cheats, Stats, and Grid entries.
+ *   Play:     Solo Missions and Combat Simulator
+ *   Settings: Unified settings that merge original PD options + port extended options
+ *
+ * Each Play button invokes the same game functions as the original PD menu handlers
+ * (setting g_MissionConfig, calling menuPushDialog, etc.).
+ *
+ * IMPORTANT: C++ file — must NOT include types.h (#define bool s32 breaks C++).
+ * Use extern "C" forward declarations for all game symbols.
+ *
+ * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+ */
+
+#include <SDL.h>
+#include <PR/ultratypes.h>
+#include <PR/os_thread.h>
+#include <algorithm>
+#include <float.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "glad/glad.h"
+#include "gfx_bgfx.h"
+#include "../external/stb_image.h"
+/* S306: direct.h / unistd.h provide rmdir() for the BATCH 2 theme/mod
+ * deletion flow. MinGW uses _rmdir; POSIX uses rmdir. */
+#ifdef _WIN32
+#  include <direct.h>
+#else
+#  include <unistd.h>
+#endif
+
+#include "imgui/imgui.h"
+#include "imgui/imgui_internal.h"
+#include "versioninfo.h"
+#include "pdgui_hotswap.h"
+#include "pdgui_style.h"
+#include "pdgui_glyphs.h"
+#include "pdgui_theme_loader.h"
+#include "pdgui_theme.h"
+#include "pdgui_font_mod.h"
+#include "pdgui_menu_stats.h"
+#include "pdgui_menu_theme_editor.h"
+#include "pdgui_forge.h"
+#include "pdgui_menu_grid.h"
+#include "pdgui_grid_browser_data.h"
+#include "pdgui_grid_browser_logic.h"
+#include "pdgui_friends.h"
+#include "pdgui_scaling.h"
+#include "pdgui_audio.h"
+#include "pdgui_nav_input.h"
+#include "pdgui_menu_readiness.h"
+#include "pdgui_layout.h"
+#include "pdgui_widgets.h"   /* Priority L: shared label-left widget helpers */
+#include "pdgui_settings_ui.h"
+#include "pdgui_settings_save_status.h"
+#include "pdgui_input_profile_state.h"
+#include "modmgr_apply.h"
+#include "config.h"
+#include "system.h"
+#include "inputctx.h"
+#include "input.h"
+#include "input_vk.h"
+#include "input_device_identity.h"
+#include "assetcatalog.h"
+#include "asset_source_debug.h"
+#include "net/netmanifest.h"
+
+extern "C" {
+void modmgrRescanDirectory(void);
+void pdguiModManagerRefreshSnapshot(void);
+#include "pdgui_nav.h"
+#include "actionmap.h"
+#include "menupool.h"
+#include "menugraph.h"
+#include "game/forgemode.h"
+/* net/matchsetup.h has no extern "C" wrap of its own; pull it in
+ * under the C linkage block so matchConfigInit() etc. resolve to the
+ * unmangled C definitions in port/src/net/matchsetup.c. */
+#include "net/matchsetup.h"
+#include "testscenarios.h"
+#include "swarm_test.h" /* S594h-Unit-A item 6 UI: team mode picker */
+}
+
+/* ========================================================================
+ * Forward declarations for game symbols
+ * ======================================================================== */
+
+extern "C" {
+
+/* Dialog definitions we're replacing */
+extern struct menudialogdef g_CiMenuViaPcMenuDialog;
+extern struct menudialogdef g_CiMenuViaPauseMenuDialog;
+
+/* Options dialog — needed for navigation */
+extern struct menudialogdef g_CiOptionsViaPcMenuDialog;
+extern struct menudialogdef g_CiOptionsViaPauseMenuDialog;
+
+/* S195 Batch 3 — CI Options sub-dialogs.  Registered with redirect renderer
+ * that pops the CI dialog and opens the unified Settings view on the
+ * matching sub-tab.  P2 variants are dead (no split-screen).  The
+ * "Dialog2" PAL-only variant (mainmenu.c:3316 inside #if VERSION >=
+ * VERSION_PAL_FINAL) is not present in NTSC builds; S196 drops the
+ * unconditional extern that was causing link failures on NTSC. */
+extern struct menudialogdef g_CiControlOptionsMenuDialog;
+extern struct menudialogdef g_CiControlStyleMenuDialog;
+extern struct menudialogdef g_CiDisplayMenuDialog;
+extern struct menudialogdef g_CiControlStylePlayer2MenuDialog;
+extern struct menudialogdef g_CiDisplayPlayer2MenuDialog;
+extern struct menudialogdef g_CiControlPlayer2MenuDialog;
+
+/* Play target dialogs */
+extern struct menudialogdef g_SelectMissionMenuDialog;
+extern struct menudialogdef g_CombatSimulatorMenuDialog;
+extern struct menudialogdef g_ChangeAgentMenuDialog;
+extern struct menudialogdef g_FilemgrFileSelectMenuDialog; /* canonical agent picker */
+extern struct menudialogdef g_CheatsMenuDialog;
+
+/* D5 P3 Batch 4 -- Cinema dialog (cutscene viewer). */
+extern struct menudialogdef g_CinemaMenuDialog;
+
+/* Match setup init (from matchsetup.c) -- now provided via
+ * port/include/net/matchsetup.h (included above); keeping the comment
+ * as a breadcrumb. */
+
+/* Extended options (port-added) */
+extern struct menudialogdef g_ExtendedMenuDialog;
+extern struct menudialogdef g_ExtendedVideoMenuDialog;
+extern struct menudialogdef g_ExtendedAudioMenuDialog;
+extern struct menudialogdef g_ExtendedMouseMenuDialog;
+
+/* Mission config — set before opening mission select */
+struct missionconfig {
+    /* Layout matches types.h — only the fields we need */
+    u8 _pad[0x00];
+    s32 stageindex;     /* ... more fields ... */
+};
+
+/* We only need iscoop / isanti — which are bitfield-ish bools.
+ * In the real struct they sit at specific offsets. Since we just
+ * need to set them to true/false, we'll call the handlers directly
+ * or use the real extern. Let's forward-declare the struct opaquely
+ * and access the fields we know about. */
+
+/* g_MissionConfig — direct access to the two bool fields we need.
+ * In the real types.h, missionconfig has iscoop at offset 0x10 and
+ * isanti at 0x11.  But since we can't include types.h, we'll use
+ * the handler functions approach instead. */
+
+/* Game state functions */
+s32 menuIsDialogOpen(struct menudialogdef *dialogdef);
+s32 menuDialogIsCurrent(const struct menudialog *dialog);
+void mainChangeToStage(s32 stagenum);
+/* Normal-scrolling-credits launcher (src/game/credits.c) -- shared with the
+ * --launch-credits boot fast-path so the main-menu Credits button seeds the
+ * credits stage identically (numplayers=1, Bond player 0, DIFF_A). */
+void creditsEnterNormalScroll(void);
+
+/* Pause/control restoration — needed when ImGui menu close bypasses
+ * the legacy menutick bg-transition that normally calls func0f0fa6ac. */
+void playerUnpause(void);
+/* SP-75: these are the game's C definitions, which use the project bool
+ * (s32). This file does not include types.h, so `bool` here would be the
+ * one-byte C++ keyword and would not match them. */
+void lvSetPaused(s32 paused);
+s32 lvIsPaused(void);
+extern s32 g_PlayersWithControl[];
+
+/* Handlers we invoke to match original behavior */
+struct menuitem;
+union handlerdata;
+typedef s32 MenuItemHandlerResult;
+
+MenuItemHandlerResult menuhandlerMainMenuSoloMissions(s32 operation, struct menuitem *item, union handlerdata *data);
+MenuItemHandlerResult menuhandlerMainMenuCombatSimulator(s32 operation, struct menuitem *item, union handlerdata *data);
+MenuItemHandlerResult menuhandlerMainMenuCooperative(s32 operation, struct menuitem *item, union handlerdata *data);
+MenuItemHandlerResult menuhandlerMainMenuCounterOperative(s32 operation, struct menuitem *item, union handlerdata *data);
+
+/* MENUOP_* opcodes (from src/include/constants.h).
+ * Full set needed for the Batch 4 Cinema list delegation. */
+#define MENUOP_GETOPTIONCOUNT      1
+#define MENUOP_GETOPTGROUPCOUNT    2
+#define MENUOP_GETOPTIONTEXT       3
+#define MENUOP_GETOPTGROUPTEXT     4
+#define MENUOP_GETGROUPSTARTINDEX  5
+#define MENUOP_SET                 6
+#define MENUOP_GETSELECTEDINDEX    7
+#define MENUOP_GET                 8
+
+/* Player count check (for Counter-Op disabled state) */
+u32 joyGetConnectedControllers(void);
+
+/* Change agent handler */
+MenuItemHandlerResult menuhandlerChangeAgent(s32 operation, struct menuitem *item, union handlerdata *data);
+
+/* D-005: unified Agent Profile persistence. Declared here because
+ * prefs_agent.h lives in port/include/ and C++ ABI guard (#define bool
+ * s32) blocks including it directly. */
+s32 prefsAgentSave(void);
+void prefsAgentMarkDirty(void);
+const char *prefsAgentGetActive(void);
+/* B-172: refresh pd.ini baseline after a pre-sign-in visual change so
+ * the next Agent Select reset doesn't clobber the user's new theme. */
+void prefsAgentRefreshVisualsBaseline(void);
+
+/* Font atlas rebuild — triggers at the start of the next frame so the
+ * new font is active immediately without requiring a restart. */
+extern "C" void pdguiRequestFontAtlasRebuild(void);
+
+/* Audio API — legacy (still used by original menus) */
+s32 optionsGetMusicVolume(void);
+void optionsSetMusicVolume(s32 vol);
+void sndSetSfxVolume(s32 vol);
+
+/* Look inversion — options.c */
+s32 optionsGetForwardPitch(s32 mpchrnum);
+void optionsSetForwardPitch(s32 mpchrnum, s32 enable);
+
+/* Volume layer system — from port/include/audio.h */
+f32 audioGetMasterVolume(void);
+void audioSetMasterVolume(f32 vol);
+f32 audioGetMusicVolume(void);
+void audioSetMusicVolume(f32 vol);
+f32 audioGetGameplayVolume(void);
+void audioSetGameplayVolume(f32 vol);
+f32 audioGetUiVolume(void);
+void audioSetUiVolume(f32 vol);
+
+/* Video API — from port/include/video.h */
+s32 videoGetFullscreen(void);
+void videoSetFullscreen(s32 fs);
+s32 videoGetFullscreenMode(void);
+void videoSetFullscreenMode(s32 mode);
+s32 videoGetVsync(void);
+void videoSetVsync(s32 vsync);
+s32 videoGetFramerateLimit(void);
+void videoSetFramerateLimit(s32 limit);
+s32 videoGetMSAA(void);
+void videoSetMSAA(s32 msaa);
+u32 videoGetTextureFilter(void);
+void videoSetTextureFilter(u32 filter);
+s32 videoGetTextureFilter2D(void);
+void videoSetTextureFilter2D(s32 filter);
+s32 videoGetDetailTextures(void);
+void videoSetDetailTextures(s32 detail);
+s32 videoGetDisplayFPS(void);
+void videoSetDisplayFPS(s32 displayfps);
+s32 videoGetCenterWindow(void);
+void videoSetCenterWindow(s32 center);
+s32 videoGetMaximizeWindow(void);
+void videoSetMaximizeWindow(s32 fs);
+f32 videoGetUiScaleMult(void);
+void videoSetUiScaleMult(f32 mult);
+
+/* Display mode */
+typedef struct {
+    s32 width;
+    s32 height;
+} displaymode;
+s32 videoGetNumDisplayModes(void);
+s32 videoGetDisplayMode(displaymode *out, s32 index);
+s32 videoGetDisplayModeIndex(void);
+void videoSetDisplayMode(s32 index);
+
+/* Extended vars — from optionsmenu.c / other port files */
+extern s32 g_TickRateDiv;
+extern s32 g_BgunGeMuzzleFlashes;
+extern s32 g_MusicDisableMpDeath;
+
+/* Sound mode (Mono/Stereo/Headphone/Surround) — from src/game/propsnd.c / snd.c.
+ * Values match SOUNDMODE_* in src/include/constants.h:
+ *   0 = Mono, 1 = Stereo, 2 = Headphone, 3 = Surround */
+extern s32 g_SoundMode;
+void sndSetSoundMode(s32 mode);
+
+extern s32 g_HudCenter;
+extern f32 g_ViShakeIntensityMult;
+
+/* Skip intro — from port/src/main.c, registered as Game.SkipIntro */
+extern s32 g_SkipIntro;
+
+/* Mouse API — from port/include/input.h */
+s32 inputMouseIsEnabled(void);
+void inputMouseEnable(s32 enabled);
+void inputMouseGetSpeed(f32 *x, f32 *y);
+void inputMouseSetSpeed(f32 x, f32 y);
+s32 inputGetMouseLockMode(void);
+void inputSetMouseLockMode(s32 mode);
+
+/* Right stick Y invert — from port/include/input.h */
+s32 inputControllerGetInvertRStickY(s32 cidx);
+void inputControllerSetInvertRStickY(s32 cidx, s32 invert);
+
+/* Stick swap — from port/include/input.h */
+s32 inputControllerGetSticksSwapped(s32 cidx);
+void inputControllerSetSticksSwapped(s32 cidx, s32 swapped);
+
+/* M0.2 Phase D: Input binding now uses actionmap.h API exclusively.
+ * CK_* enum and old bind functions removed. */
+void inputClearLastKey(void);
+s32 inputGetLastKey(void);
+s32 inputGetConnectedInputDevices(s32 *out);
+const char *inputGetConnectedInputDeviceName(s32 id);
+const char *inputGetConnectedInputDeviceStableKey(s32 id);
+s32 inputGetConnectedInputDeviceClass(s32 id);
+const char *inputProfilesGetNamesIni(void);
+void inputProfilesSetNamesIni(const char *str);
+s32 inputProfilesGetActive(void);
+void inputProfilesSetActive(s32 idx);
+const char *inputProfilesGetDeviceRulesIni(void);
+void inputProfilesSetDeviceRulesIni(const char *str);
+
+extern s32 g_MenuMouseControl;
+
+/* Player extended config — must match types.h layout exactly.
+ * struct extplayerconfig (types.h:6114) */
+struct extplayerconfig {
+    f32 fovy;              /* 0x00 */
+    f32 fovzoommult;       /* 0x04 */
+    s32 fovzoom;           /* 0x08 */
+    s32 mouseaimmode;      /* 0x0c */
+    f32 mouseaimspeedx;    /* 0x10 */
+    f32 mouseaimspeedy;    /* 0x14 */
+    s32 crouchmode;        /* 0x18 */
+    f32 radialmenuspeed;   /* 0x1c */
+    f32 crosshairsway;     /* 0x20 */
+    s32 extcontrols;       /* 0x24 */
+    u32 crosshaircolour;   /* 0x28 */
+    u32 crosshairsize;     /* 0x2c */
+    s32 crosshairhealth;   /* 0x30 */
+    s32 usereloads;        /* 0x34 */
+    f32 jumpheight;        /* 0x38 */
+};
+extern struct extplayerconfig g_PlayerExtCfg[];
+
+/* Window dimensions */
+s32 viGetWidth(void);
+s32 viGetHeight(void);
+
+/* Language strings */
+char *langGet(s32 textid);
+char *langSafe(s32 textid);
+
+/* Feature / challenge unlock gate -- used by Grid submenu arena filter. */
+s32 challengeIsFeatureUnlocked(u32 feature);
+
+/* Stage table lookup -- used by Grid submenu assertion at commit time. */
+s32 stageGetIndex(s32 stagenum);
+
+/* Random-meta resolution. Grid picker surfaces the "Random Multi" / "Random
+ * Solo" meta-arenas as selectable rows; commit resolves them to a concrete
+ * stagenum via these helpers. Defined in src/game/mplayer/setup.c. */
+s16 mpChooseRandomMultiStage(void);
+s16 mpChooseRandomSoloStage(void);
+
+/* Meta-arena stagenum sentinels (mirror of constants.h to avoid pulling
+ * the full chain into this C++ TU). */
+#ifndef GRID_STAGE_MP_RANDOM_MULTI
+#define GRID_STAGE_MP_RANDOM_MULTI 0x02
+#define GRID_STAGE_MP_RANDOM_SOLO  0x03
+#endif
+
+/* STAGE_IS_* mirror (values locked in src/include/constants.h:4091+).
+ * Defined locally so the C++ Main Menu TU can reject system / title
+ * stages from the Grid arena picker without pulling in the full
+ * constants.h chain (which risks the project's bool=s32 typedef).
+ * STAGE_TITLE / STAGE_BOOTPAKMENU / STAGE_CREDITS are the three stages
+ * STAGE_IS_SYSTEM covers; Grid must never load one. */
+#ifndef GRID_STAGE_TITLE
+#define GRID_STAGE_TITLE       0x5a
+#define GRID_STAGE_BOOTPAKMENU 0x5b
+#define GRID_STAGE_CREDITS     0x5c
+#endif
+#ifndef NETMODE_NONE
+#define NETMODE_NONE 0
+#endif
+#define GRID_STAGE_IS_SYSTEM(s) \
+    ((s) == GRID_STAGE_TITLE || (s) == GRID_STAGE_BOOTPAKMENU || (s) == GRID_STAGE_CREDITS)
+#define GRID_STAGE_IS_GAMEPLAY(s) (!GRID_STAGE_IS_SYSTEM(s))
+
+extern s32 g_NetMode;
+
+/* MPOPTION_* bit mirrors (values locked in src/include/constants.h).
+ * Grouped here so the C++ Main Menu TU does not need to include the
+ * full constants.h (which pulls the project's bool=s32 typedef). */
+#ifndef MPOPTION_ONEHITKILLS
+#define MPOPTION_ONEHITKILLS    0x00000001u
+#endif
+#ifndef MPOPTION_TEAMSENABLED
+#define MPOPTION_TEAMSENABLED   0x00000002u
+#endif
+#ifndef MPOPTION_SLOWMOTION_ON
+#define MPOPTION_SLOWMOTION_ON  0x00000040u
+#endif
+
+/* g_MpPlayerNum */
+extern s32 g_MpPlayerNum;
+
+
+/* M0.2 Phase D: inputModes API removed — inputmodes.c deleted. */
+
+/* Button edge glow — from pdgui_style */
+void pdguiDrawButtonEdgeGlow(f32 x, f32 y, f32 w, f32 h, s32 isActive);
+
+/* Update UI — from pdgui_menu_update.cpp */
+void pdguiUpdateRenderSettingsTab(void);
+
+/* Updater — from updater.c */
+s32  updaterGetShowDevReleases(void);
+void updaterSetShowDevReleases(s32 show);
+void updaterCheckAsync(void);
+
+/* Modding Hub UI — declared in pdgui_menu_moddinghub.cpp */
+void pdguiModdingHubShow(void);
+void pdguiModdingHubShowTool(s32 tool);  /* S306: jump directly to a tool */
+void pdguiModdingHubHide(void);
+s32  pdguiModdingHubIsVisible(void);
+
+/* Modding Hub tool indices (mirror NUM_TOOLS layout in moddinghub.cpp).
+ * Keep in sync with pdgui_menu_moddinghub.cpp s_ActiveTool comment. */
+#define MODHUB_TOOL_MOD_MANAGER  0
+#define MODHUB_TOOL_INI_EDITOR   1
+#define MODHUB_TOOL_MODEL_SCALE  2
+#define MODHUB_TOOL_PACK         3
+#define MODHUB_TOOL_AUDIO_MODS   4
+#define MODHUB_TOOL_SKIN_EDITOR  5
+#define MODHUB_TOOL_MAP_IMPORT   6
+#define MODHUB_TOOL_MENU_STYLE   7
+#define MODHUB_TOOL_FONT_MOD     8
+
+/* Solo Room screen — open the Room screen in offline (NETMODE_NONE) mode */
+void pdguiSoloRoomOpen(void);
+s32  pdguiSoloRoomIsActive(void);
+void pdguiSoloMissionReset(void); /* F-1.2 */
+
+/* Persistent memory diagnostics -- from memp.c */
+void *mempPCAlloc(u32 size, const char *tag);
+s32 mempPCValidate(const char *context);
+u32 mempPCGetTotalAllocated(void);
+u32 mempPCGetNumAllocations(void);
+extern s32 g_OsMemSizeMb;
+
+/* Screen size / screen split — options.c */
+s32  optionsGetScreenSize(void);
+void optionsSetScreenSize(s32 size);
+
+/* Subtitle options — options.c */
+u8   optionsGetInGameSubtitles(void);
+void optionsSetInGameSubtitles(s32 enable);
+u8   optionsGetCutsceneSubtitles(void);
+void optionsSetCutsceneSubtitles(s32 enable);
+
+/* HUD display options (per-player) — options.c */
+s32  optionsGetSightOnScreen(s32 mpchrnum);
+void optionsSetSightOnScreen(s32 mpchrnum, s32 enable);
+s32  optionsGetAlwaysShowTarget(s32 mpchrnum);
+void optionsSetAlwaysShowTarget(s32 mpchrnum, s32 enable);
+s32  optionsGetShowZoomRange(s32 mpchrnum);
+void optionsSetShowZoomRange(s32 mpchrnum, s32 enable);
+s32  optionsGetAmmoOnScreen(s32 mpchrnum);
+void optionsSetAmmoOnScreen(s32 mpchrnum, s32 enable);
+s32  optionsGetShowGunFunction(s32 mpchrnum);
+void optionsSetShowGunFunction(s32 mpchrnum, s32 enable);
+s32  optionsGetShowMissionTime(s32 mpchrnum);
+void optionsSetShowMissionTime(s32 mpchrnum, s32 enable);
+s32  optionsGetPaintball(s32 mpchrnum);
+void optionsSetPaintball(s32 mpchrnum, s32 enable);
+s32  optionsGetHeadRoll(s32 mpchrnum);
+void optionsSetHeadRoll(s32 mpchrnum, s32 enable);
+
+/* Combat assist options (per-player) — options.c */
+s32  optionsGetAutoAim(s32 mpchrnum);
+void optionsSetAutoAim(s32 mpchrnum, s32 enable);
+s32  optionsGetLookAhead(s32 mpchrnum);
+void optionsSetLookAhead(s32 mpchrnum, s32 enable);
+s32  optionsGetAimControl(s32 mpchrnum);
+void optionsSetAimControl(s32 mpchrnum, s32 index);
+
+/* D5.0a: UI texture bridge — return ImTextureID for a named texture */
+void* pdguiGetUiTexture(const char *id);
+
+/* D5 P3 Batch 4 -- Cinema handler delegation
+ *
+ * menuhandlerCinema in mainmenu.c drives the legacy cutscene viewer.  We
+ * call it through a shadow struct (s202 pattern; see pdgui_menu_cheats.cpp)
+ * so the cinema group math, g_Vars.autocutgroupcur/left writes, and
+ * menuStop trigger all stay inside the legacy handler -- single source of
+ * truth for cinema dispatch. */
+struct cn_handlerdata_list {
+    uintptr_t value;        /* cutscene index (0 = Play All, 1+ = specific) */
+    u32       unk04;
+    s32       groupstartindex;
+    s32       unk0c;
+};
+union cn_handlerdata {
+    struct cn_handlerdata_list list;
+    u8 _pad[64];
+};
+struct cn_menuitem {
+    u8        type;
+    u8        param;
+    u32       flags;
+    intptr_t  param2;
+    intptr_t  param3;
+    uintptr_t (*handler)(s32, struct cn_menuitem *, union cn_handlerdata *);
+};
+uintptr_t menuhandlerCinema(s32 op, struct cn_menuitem *, union cn_handlerdata *);
+
+/* menuStop: stop the menu runtime so the cutscene takes over the screen. */
+void menuStop(void);
+
+} /* extern "C" */
+
+/* Screen size constants (from src/include/constants.h).
+ * Prefixed PD_ to avoid any collision with external headers. */
+#define PD_SCREENSIZE_FULL    0
+#define PD_SCREENSIZE_WIDE    1
+#define PD_SCREENSIZE_CINEMA  2
+
+/* ========================================================================
+ * State
+ * ======================================================================== */
+
+static bool s_RegisteredPc = false;
+static bool s_RegisteredPause = false;
+/* S306: Interface tab inserted between Video and Audio.
+ * 0=Video, 1=Interface, 2=Audio, 3=Input, 4=Game, 5=Updates,
+ * 6=Debug (PD_DEV_BUILD only), 6/7=Catalog. */
+static s32 s_SettingsSubTab = 0;
+static s32 s_PrevView = -1;     /* Previous menu view, for sound on switch */
+static s32 s_PrevSubTab = -1;
+static bool s_ViewJustChanged = false; /* true on frame after s_MenuView changes */
+static bool s_NeedsFocus = false;      /* one-shot: give nav focus to first widget */
+
+static PdguiSettingsSaveStatus s_SettingsSaveStatus;
+
+static bool settingsSaveMachine(void *)
+{
+    return configSave(CONFIG_PATH) == 1;
+}
+
+static bool settingsSaveAgent(const char *expectedAgent, void *)
+{
+    const char *active = prefsAgentGetActive();
+    return active && active[0] && strcmp(active, expectedAgent) == 0 && prefsAgentSave() == 0;
+}
+
+static PdguiSettingsSaveCallbacks settingsSaveCallbacks()
+{
+    return { settingsSaveMachine, settingsSaveAgent, nullptr };
+}
+
+static void settingsRequestMachineSave()
+{
+    s_SettingsSaveStatus.requestMachineSave();
+}
+
+/* Visible above the scrolling tabs. Returning intent keeps persistence at the
+ * one shared end-of-render boundary; parent Back disables this native button. */
+static bool renderSettingsSaveStatus()
+{
+    bool retry = false;
+    if (s_SettingsSaveStatus.machineFailed())
+        ImGui::TextWrapped("Changes are active, but machine settings could not be saved to the save folder's pd.ini.");
+    if (s_SettingsSaveStatus.agentFailed())
+        ImGui::TextWrapped("Changes are active, but Agent %s could not be saved.",
+                          s_SettingsSaveStatus.agentName().c_str());
+    if (s_SettingsSaveStatus.hasUnsaved()) {
+        retry = ImGui::Button("Retry saving##settings_save");
+        ImGui::Separator();
+    }
+    for (const auto &agent : s_SettingsSaveStatus.previousAgentFailures())
+        ImGui::TextWrapped("Agent %s changed while its settings save had failed. Those edits were not written.", agent.c_str());
+    if (!s_SettingsSaveStatus.previousAgentFailures().empty() &&
+            ImGui::Button("Dismiss previous Agent notices##settings_save"))
+        s_SettingsSaveStatus.dismissPreviousAgentFailures();
+    return retry;
+}
+
+/* Call from the Settings ROOT window, after balanced child/disabled rendering.
+ * The caller performs any accepted departure only after its own ImGui::End. */
+static bool renderSettingsSaveDeparture()
+{
+    const char *popup = "Settings could not be saved##settings_leave";
+    if (s_SettingsSaveStatus.leavePending() && !ImGui::IsPopupOpen(popup)) {
+        pdguiNavSuppressOpeningGesture();
+        ImGui::OpenPopup(popup);
+    }
+    bool leave = false;
+    if (ImGui::BeginPopupModal(popup, nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        if (!s_SettingsSaveStatus.leavePending()) {
+            ImGui::CloseCurrentPopup();
+            pdguiNavSuppressOpeningGesture();
+            ImGui::EndPopup();
+            return false;
+        }
+        const bool back = pdguiMenuCancelPressed() != 0;
+        bool chosen = back;
+        PdguiSettingsLeaveChoice choice = PdguiSettingsLeaveChoice::Stay;
+        ImGui::TextWrapped("Your changes are active, but some settings have not been saved.");
+        if (s_SettingsSaveStatus.machinePending()) ImGui::TextUnformatted("Pending: machine settings (pd.ini)");
+        if (s_SettingsSaveStatus.agentFailed()) ImGui::Text("Pending: Agent %s", s_SettingsSaveStatus.agentName().c_str());
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+            ImGui::SetNavCursorVisible(true);
+        }
+        ImGui::BeginDisabled(back);
+        if (ImGui::Button("Stay##settings_leave")) chosen = true;
+        if (ImGui::Button("Retry and leave##settings_leave")) {
+            chosen = true;
+            choice = PdguiSettingsLeaveChoice::Retry;
+        }
+        if (ImGui::Button("Leave without saving##settings_leave")) {
+            chosen = true;
+            choice = PdguiSettingsLeaveChoice::LeaveWithoutSaving;
+        }
+        ImGui::EndDisabled();
+        if (chosen) {
+            leave = s_SettingsSaveStatus.chooseDeparture(choice, prefsAgentGetActive(), settingsSaveCallbacks());
+            if (!s_SettingsSaveStatus.leavePending()) {
+                ImGui::CloseCurrentPopup();
+                pdguiNavSuppressOpeningGesture();
+            }
+        }
+        ImGui::EndPopup();
+    }
+    return leave;
+}
+
+
+/* ========================================================================
+ * Sound-playing widget wrappers
+ * ======================================================================== */
+
+/* Button that plays SELECT sound on click, with edge glow on hover/active */
+static bool PdButton(const char *label, const ImVec2 &size = ImVec2(0,0))
+{
+    bool clicked = ImGui::Button(label, size);
+    if (clicked) pdguiPlaySound(PDGUI_SND_SELECT);
+
+    /* Draw animated edge glow when hovered (mouse), active (pressed), or focused (gamepad nav) */
+    if (ImGui::IsItemHovered() || ImGui::IsItemActive() || ImGui::IsItemFocused()) {
+        ImVec2 rmin = ImGui::GetItemRectMin();
+        ImVec2 rmax = ImGui::GetItemRectMax();
+        pdguiDrawButtonEdgeGlow(rmin.x, rmin.y,
+                                rmax.x - rmin.x, rmax.y - rmin.y,
+                                ImGui::IsItemActive() ? 1 : 0);
+    }
+    return clicked;
+}
+
+/* Priority L (2026-04-25): mainmenu's Pd* helpers now wrap the shared
+ * `pdgui*` widgets defined in `port/fast3d/pdgui_widgets.cpp` so the
+ * label-left layout pattern is single-source-of-truth across menus.
+ * Existing call sites in this file keep the `PdCheckbox` / `PdCombo`
+ * / etc. names; new code (and other menus' refactored call sites)
+ * call `pdguiCheckbox` / `pdguiCombo` / etc. directly via
+ * `pdgui_widgets.h`. */
+
+static bool PdCheckbox(const char *label, bool *v)
+{
+    return pdguiCheckbox(label, v);
+}
+
+static bool PdCombo(const char *label, int *current_item, const char *const items[], int items_count)
+{
+    return pdguiCombo(label, current_item, items, items_count);
+}
+
+static bool PdSliderInt(const char *label, int *v, int v_min, int v_max, const char *format = "%d")
+{
+    return pdguiSliderInt(label, v, v_min, v_max, format);
+}
+
+static bool PdSliderFloat(const char *label, float *v, float v_min, float v_max, const char *format = "%.3f")
+{
+    return pdguiSliderFloat(label, v, v_min, v_max, format);
+}
+
+/* Controller sensitivity UI: 1-10 in 0.5 steps (snapped on edit), label LEFT.
+ * Stays in mainmenu because of the snap-to-half-step semantic that the
+ * generic helper doesn't carry. */
+static bool PdSliderSensUi(const char *label, float *v)
+{
+    pdguiSettingsBeginRow(label);
+    char id[160];
+    bool ch = ImGui::SliderFloat(pdguiSettingsHashId(label, id, sizeof(id)),
+                                 v, 1.0f, 10.0f, "%.1f", ImGuiSliderFlags_AlwaysClamp);
+    if (ch) {
+        *v = actionmapSnapSensUi(*v);
+    }
+    return ch;
+}
+
+/* Controller tab: 0 = movement on physical left stick, 1 = movement on physical right stick.
+ * Look / aim always uses the other stick; keeps actionmap swap flag and SDL axis map aligned. */
+static void pdguiApplyMoveStickLayout(int moveStickUiIdx)
+{
+    actionmapSetMoveStickPhysicalLeft(moveStickUiIdx == 0 ? 1 : 0);
+    inputControllerSetSticksSwapped(0, moveStickUiIdx == 0 ? 0 : 1);
+}
+
+/* ========================================================================
+ * Settings Sub-Tab Renderers
+ * ======================================================================== */
+
+static void renderSettingsVideo(float scale)
+{
+    /* ---- Display ---- */
+    ImGui::TextDisabled("Display");
+    ImGui::Separator();
+
+    bool fullscreen = videoGetFullscreen() != 0;
+    if (PdCheckbox("Fullscreen", &fullscreen)) {
+        videoSetFullscreen(fullscreen ? 1 : 0);
+        settingsRequestMachineSave();
+    }
+
+    if (fullscreen) {
+        int fsMode = videoGetFullscreenMode();
+        const char *fsModes[] = { "Borderless", "Exclusive" };
+        if (PdCombo("Fullscreen Mode", &fsMode, fsModes, 2)) {
+            videoSetFullscreenMode(fsMode);
+            settingsRequestMachineSave();
+        }
+    }
+
+    /* Resolution */
+    {
+        int numModes = videoGetNumDisplayModes();
+        int curIdx = videoGetDisplayModeIndex();
+        displaymode curMode;
+        videoGetDisplayMode(&curMode, curIdx);
+
+        char curLabel[64];
+        if (curMode.width == 0 && curMode.height == 0) {
+            snprintf(curLabel, sizeof(curLabel), "Custom");
+        } else {
+            snprintf(curLabel, sizeof(curLabel), "%dx%d", curMode.width, curMode.height);
+        }
+
+        bool disabled = fullscreen && videoGetFullscreenMode() == 0;
+        if (disabled) ImGui::BeginDisabled();
+
+        if (ImGui::BeginCombo("Resolution", curLabel)) {
+            for (int i = 0; i < numModes; i++) {
+                displaymode m;
+                videoGetDisplayMode(&m, i);
+                char label[64];
+                if (m.width == 0 && m.height == 0) {
+                    snprintf(label, sizeof(label), "Custom");
+                } else {
+                    snprintf(label, sizeof(label), "%dx%d", m.width, m.height);
+                }
+                bool selected = (i == curIdx);
+                if (ImGui::Selectable(label, selected)) {
+                    videoSetDisplayMode(i);
+                    settingsRequestMachineSave();
+                }
+                if (selected) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+
+        if (disabled) ImGui::EndDisabled();
+    }
+
+    /* UI Scale */
+    {
+        float uiScale = videoGetUiScaleMult() * 100.0f;
+        char uiScaleLabel[16];
+        snprintf(uiScaleLabel, sizeof(uiScaleLabel), "%.0f%%", uiScale);
+        if (PdSliderFloat("UI Scale", &uiScale, 50.0f, 200.0f, uiScaleLabel)) {
+            videoSetUiScaleMult(uiScale / 100.0f);
+            settingsRequestMachineSave();
+        }
+    }
+
+    bool centerWin = videoGetCenterWindow() != 0;
+    if (PdCheckbox("Center Window", &centerWin)) {
+        videoSetCenterWindow(centerWin ? 1 : 0);
+        settingsRequestMachineSave();
+    }
+
+    if (!fullscreen) {
+        bool maximize = videoGetMaximizeWindow() != 0;
+        if (PdCheckbox("Maximize Window", &maximize)) {
+            videoSetMaximizeWindow(maximize ? 1 : 0);
+            settingsRequestMachineSave();
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Performance ---- */
+    ImGui::TextDisabled("Performance");
+    ImGui::Separator();
+
+    /* VSync */
+    {
+        int vsync = videoGetVsync() + 1; /* -1=adaptive, 0=off, 1+=on */
+        const char *vsyncOpts[] = { "Adaptive", "Off", "On" };
+        int vsyncIdx = vsync;
+        if (vsyncIdx < 0) vsyncIdx = 0;
+        if (vsyncIdx > 2) vsyncIdx = 2;
+        if (PdCombo("VSync", &vsyncIdx, vsyncOpts, 3)) {
+            videoSetVsync(vsyncIdx - 1);
+            settingsRequestMachineSave();
+        }
+    }
+
+    /* Framerate Limit */
+    {
+        int fpsLimit = videoGetFramerateLimit();
+        char fpsLabel[32];
+        if (fpsLimit == 0) {
+            snprintf(fpsLabel, sizeof(fpsLabel), "Off");
+        } else {
+            snprintf(fpsLabel, sizeof(fpsLabel), "%d FPS", fpsLimit);
+        }
+        if (PdSliderInt("Framerate Limit", &fpsLimit, 0, 480, fpsLabel)) {
+            videoSetFramerateLimit(fpsLimit);
+            settingsRequestMachineSave();
+        }
+    }
+
+    bool uncapTick = (g_TickRateDiv == 0);
+    if (PdCheckbox("Uncap Tickrate", &uncapTick)) {
+        g_TickRateDiv = uncapTick ? 0 : 1;
+        settingsRequestMachineSave();
+    }
+
+    bool showFps = videoGetDisplayFPS() != 0;
+    if (PdCheckbox("Display FPS", &showFps)) {
+        videoSetDisplayFPS(showFps ? 1 : 0);
+        settingsRequestMachineSave();
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Rendering ---- */
+    ImGui::TextDisabled("Rendering");
+    ImGui::Separator();
+
+    /* Anti-aliasing */
+    {
+        int msaa = videoGetMSAA();
+        int msaaIdx = 0;
+        if (msaa >= 16) msaaIdx = 4;
+        else if (msaa >= 8) msaaIdx = 3;
+        else if (msaa >= 4) msaaIdx = 2;
+        else if (msaa >= 2) msaaIdx = 1;
+
+        const char *msaaOpts[] = { "Off", "2x MSAA", "4x MSAA", "8x MSAA", "16x MSAA" };
+        if (PdCombo("Anti-aliasing *", &msaaIdx, msaaOpts, 5)) {
+            videoSetMSAA(1 << msaaIdx);
+            settingsRequestMachineSave();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(restart required)");
+    }
+
+    /* Texture Filtering */
+    {
+        int texFilter = (int)videoGetTextureFilter();
+        const char *texOpts[] = { "Nearest", "Bilinear", "Three Point" };
+        if (PdCombo("Texture Filtering", &texFilter, texOpts, 3)) {
+            videoSetTextureFilter((u32)texFilter);
+            settingsRequestMachineSave();
+        }
+    }
+
+    bool guiTexFilter = videoGetTextureFilter2D() != 0;
+    if (PdCheckbox("GUI Texture Filtering", &guiTexFilter)) {
+        videoSetTextureFilter2D(guiTexFilter ? 1 : 0);
+        settingsRequestMachineSave();
+    }
+
+    bool detailTex = videoGetDetailTextures() != 0;
+    if (PdCheckbox("Detail Textures", &detailTex)) {
+        videoSetDetailTextures(detailTex ? 1 : 0);
+        settingsRequestMachineSave();
+    }
+
+    /* CRT Filter */
+    bool crtOn = pdguiThemeGetScanlineEnabled() != 0;
+    if (PdCheckbox("CRT Filter", &crtOn)) {
+        pdguiThemeSetScanlineEnabled(crtOn ? 1 : 0);
+    }
+
+    if (crtOn) {
+        float crtAlpha = pdguiThemeGetScanlineAlpha();
+        int crtPct = (int)(crtAlpha * 100.0f + 0.5f);
+        if (PdSliderInt("CRT Strength", &crtPct, 0, 100, "%d%%")) {
+            pdguiThemeSetScanlineAlpha((float)crtPct / 100.0f);
+        }
+        /* 2026-04-23: vertical spacing slider. 0.50x = denser lines,
+         * 2.00x = wider spacing, 1.00x = default. */
+        float crtV = pdguiThemeGetScanlineVerticalScale();
+        if (PdSliderFloat("CRT Line Spacing", &crtV, 0.25f, 4.0f, "%.2fx")) {
+            pdguiThemeSetScanlineVerticalScale(crtV);
+            settingsRequestMachineSave();
+        }
+    }
+
+    /* S306: Menu Style / Title Bar Style / Font dropdowns moved to the new
+     * Settings → Interface tab. A single pointer to that tab keeps the
+     * Video section focused on raw display / rendering settings. */
+    ImGui::TextDisabled("Menu Style, Title Bar, Color Theme, Font → Settings → Interface");
+
+    ImGui::Spacing();
+
+    /* ---- Gameplay Visuals ---- */
+    ImGui::TextDisabled("Gameplay Visuals");
+    ImGui::Separator();
+
+    /* HUD Centering */
+    {
+        int hudCenter = g_HudCenter;
+        const char *hudOpts[] = { "None", "4:3", "Wide" };
+        if (PdCombo("HUD Centering", &hudCenter, hudOpts, 3)) {
+            g_HudCenter = hudCenter;
+        }
+    }
+
+    bool geMuzzle = g_BgunGeMuzzleFlashes != 0;
+    if (PdCheckbox("GE64-style Muzzle Flashes", &geMuzzle)) {
+        g_BgunGeMuzzleFlashes = geMuzzle ? 1 : 0;
+    }
+
+    {
+        float shake = g_ViShakeIntensityMult;
+        if (PdSliderFloat("Explosion Shake", &shake, 0.0f, 2.0f, "%.1f")) {
+            g_ViShakeIntensityMult = shake;
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Gameplay Screen ---- */
+    ImGui::TextDisabled("Gameplay Screen");
+    ImGui::Separator();
+
+    /* Screen Size — controls the 3D viewport clip region inside the window */
+    {
+        int sz = optionsGetScreenSize();
+        if (sz < 0 || sz > 2) sz = PD_SCREENSIZE_FULL;
+        const char *szOpts[] = { "Full", "Wide", "Cinema" };
+        if (PdCombo("Screen Size", &sz, szOpts, 3)) {
+            optionsSetScreenSize(sz);
+            prefsAgentMarkDirty();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Full:   standard viewport fills the frame\n"
+                "Wide:   moderate letterbox (top/bottom bars)\n"
+                "Cinema: heavy letterbox (cinematic crop)");
+        }
+    }
+
+}
+
+/* ========================================================================
+ * Interface tab (S306) — consolidates all UI / visual-customization
+ * controls in one tab. Pulls Menu Style + Title Bar + Font out of Video
+ * and the Color Theme selector out of Debug, then adds launchers for the
+ * deeper tools (Theme Editor, Menu Style tool in the Modding Hub).
+ * ======================================================================== */
+
+/* Built-in theme count — used by both the Color Theme picker and the
+ * delete-theme guard (built-ins cannot be deleted). Defined here so it's
+ * visible before both the delete helpers and the renderer. */
+#define INTERFACE_NUM_BUILTIN_THEMES 7
+
+/* BATCH 2 — delete-theme / delete-mod support (shared state + helpers).
+ * The delete flow is: right-click a user theme → "Delete Theme..." → sets
+ * s_InterfaceDeleteTarget to the theme index → renderDeleteConfirm opens
+ * a modal next frame → user confirms → fsRemoveAll on the theme's mod
+ * dir → pdguiThemeRescanMods. Mirrors the S255 push flow in net rooms so
+ * the UI stays in a consistent popup stack while destructive work runs. */
+enum InterfaceDeleteKind {
+    IFACE_DEL_NONE = 0,
+    IFACE_DEL_THEME,
+    IFACE_DEL_MOD,
+};
+
+static s32 s_InterfaceDeleteTarget = -1;          /* theme index or mod index */
+static int s_InterfaceDeleteKind   = IFACE_DEL_NONE;
+static char s_InterfaceDeleteName[96] = "";       /* captured for the confirm dialog */
+static char s_InterfaceDeletePath[280] = "";      /* mods/<slug>/ path to remove */
+static char s_InterfaceDeleteStatus[384] = "";    /* last status string (red/green) */
+static bool s_InterfaceDeleteSuccess = false;
+static bool s_InterfaceDeleteFilesRemoved = false;
+static bool s_InterfaceDeleteRefreshPending = false;
+
+/* Forward decl for theme path helper — implementation lives in the theme
+ * loader (see pdgui_theme_loader.h). We prefer pdguiThemeGetFilePath
+ * because it returns the theme.json path, from which we can derive the
+ * parent dir. If the theme is built-in, the path is empty and the delete
+ * request is silently rejected. */
+extern "C" const char *pdguiThemeGetFilePath(s32 index);
+extern "C" const char *pdguiThemeGetName(s32 index);
+extern "C" void pdguiThemeRescanMods(void);
+
+/* Best-effort mod directory deletion. The Save-as-Mod path in theme
+ * editor / chrome tool / modmgr writes a predictable set of files
+ * (theme.json, mod.json, audio.ini, optional component manifests). We
+ * `remove()` each candidate, then try `rmdir()` — which succeeds iff the
+ * directory is empty after the known files are gone. User-added extras
+ * stop the rmdir cleanly so we never nuke unrelated files the player
+ * copied in by hand. Returns 1 on rmdir success. */
+static s32 interfaceDeleteModDir(const char *dirPath)
+{
+    if (!dirPath || !dirPath[0]) return 0;
+
+    static const char *k_known[] = {
+        "theme.json", "mod.json", "audio.ini",
+        "chrome.png", "chrome.tga",
+        "character.ini", "skin.ini", "map.ini", "bot.ini", "weapon.ini",
+        "projectile.ini", "entity.ini",
+        /* font mods can leave a .ttf sitting in the directory — we do
+         * not auto-delete them because the user might want to re-use the
+         * font for another theme. rmdir() will surface the failure. */
+        NULL
+    };
+
+    char p[320];
+    for (int i = 0; k_known[i]; i++) {
+        snprintf(p, sizeof(p), "%s/%s", dirPath, k_known[i]);
+        (void)remove(p); /* silently ignore not-found */
+    }
+
+#ifdef _WIN32
+    return _rmdir(dirPath) == 0 ? 1 : 0;
+#else
+    return rmdir(dirPath) == 0 ? 1 : 0;
+#endif
+}
+
+static void interfaceRefreshAfterDelete(void)
+{
+    /* A failed directory removal may already have removed a manifest. Always
+     * reconcile the actual files, including theme directories with mod.json. */
+    pdguiThemeRescanMods();
+    modmgrRescanDirectory();
+    modmgr_apply_result_t result;
+    const bool refreshed = modmgrSyncCatalogToRegistryChecked(&result) != 0;
+    pdguiModManagerRefreshSnapshot();
+    s_InterfaceDeleteRefreshPending = !refreshed;
+    s_InterfaceDeleteSuccess = s_InterfaceDeleteFilesRemoved && refreshed;
+    if (!refreshed) {
+        snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
+                 "%s Catalog refresh failed: %.220s Retry refresh will not delete more files.",
+                 s_InterfaceDeleteFilesRemoved ? "Files removed." : "Some files may remain.",
+                 result.error[0] ? result.error : "The catalog could not be rebuilt.");
+    } else if (s_InterfaceDeleteFilesRemoved) {
+        snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
+                 "Deleted \"%s\" and refreshed the catalog.", s_InterfaceDeleteName);
+    } else {
+        snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
+                 "Could not fully delete \"%s\"; extra files may remain. The catalog reflects the remaining files.",
+                 s_InterfaceDeleteName);
+    }
+}
+
+/* Public entry points (called from Color Theme picker above + Mod Manager
+ * in a later commit). Capture the target + name + on-disk path now so the
+ * confirm dialog can render even after the popup owner (context menu)
+ * closes. */
+extern "C" void pdguiInterfaceRequestThemeDelete(s32 themeIndex)
+{
+    if (themeIndex < 0) return;
+    const char *id   = pdguiThemeGetId(themeIndex);
+    const char *name = pdguiThemeGetName(themeIndex);
+    if (!id || !name) return;
+    s_InterfaceDeleteRefreshPending = false;
+    s_InterfaceDeleteFilesRemoved = false;
+    s32 builtin = pdguiThemeIdToPaletteIndex(id);
+    if (builtin >= 0 && builtin < INTERFACE_NUM_BUILTIN_THEMES) {
+        /* Refuse to delete built-ins. */
+        snprintf(s_InterfaceDeleteStatus, sizeof(s_InterfaceDeleteStatus),
+                 "Built-in themes cannot be deleted.");
+        s_InterfaceDeleteSuccess = false;
+        return;
+    }
+    const char *fp = pdguiThemeGetFilePath(themeIndex);
+    if (!fp || !fp[0]) return;
+
+    /* fp is like ".../mods/<slug>/theme.json" — strip the trailing filename */
+    snprintf(s_InterfaceDeletePath, sizeof(s_InterfaceDeletePath), "%s", fp);
+    char *slash = strrchr(s_InterfaceDeletePath, '/');
+    if (!slash) slash = strrchr(s_InterfaceDeletePath, '\\');
+    if (slash) *slash = '\0';
+
+    s_InterfaceDeleteTarget = themeIndex;
+    s_InterfaceDeleteKind   = IFACE_DEL_THEME;
+    snprintf(s_InterfaceDeleteName, sizeof(s_InterfaceDeleteName), "%s", name);
+    s_InterfaceDeleteStatus[0] = '\0';
+}
+
+extern "C" void pdguiInterfaceRequestModDelete(s32 modIndex,
+                                               const char *displayName,
+                                               const char *modDirPath)
+{
+    if (modIndex < 0) return;
+    if (!displayName || !modDirPath) return;
+    s_InterfaceDeleteRefreshPending = false;
+    s_InterfaceDeleteFilesRemoved = false;
+    s_InterfaceDeleteTarget = modIndex;
+    s_InterfaceDeleteKind   = IFACE_DEL_MOD;
+    snprintf(s_InterfaceDeleteName, sizeof(s_InterfaceDeleteName), "%s", displayName);
+    snprintf(s_InterfaceDeletePath, sizeof(s_InterfaceDeletePath), "%s", modDirPath);
+    s_InterfaceDeleteStatus[0] = '\0';
+}
+
+extern "C" void pdguiInterfaceRenderDeleteConfirm(void)
+{
+    if (s_InterfaceDeleteKind == IFACE_DEL_NONE && !s_InterfaceDeleteStatus[0]) {
+        return;
+    }
+
+    /* Open the popup the same frame the request fires. IsPopupOpen is the
+     * guard against repeat OpenPopup calls (same-frame stacking). */
+    const char *popupId = "Delete?##iface_delete_confirm";
+    if (!ImGui::IsPopupOpen(popupId)) {
+        ImGui::OpenPopup(popupId);
+        pdguiNavSuppressActivation();
+    }
+
+    ImGuiIO &io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(
+        ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
+        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+    if (ImGui::BeginPopupModal(popupId, nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+
+        if (s_InterfaceDeleteKind == IFACE_DEL_THEME) {
+            ImGui::Text("Delete the theme \"%s\"?", s_InterfaceDeleteName);
+        } else if (s_InterfaceDeleteKind == IFACE_DEL_MOD) {
+            ImGui::Text("Delete the mod \"%s\"?", s_InterfaceDeleteName);
+        } else {
+            /* Idle / status-only path: previous delete finished, we're
+             * just showing the status string. */
+            ImVec4 col = s_InterfaceDeleteSuccess
+                ? ImVec4(0.3f, 1.0f, 0.3f, 1.0f)
+                : ImVec4(1.0f, 0.55f, 0.2f, 1.0f);
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX()
+                + std::min(pdguiScale(520.0f), io.DisplaySize.x * 0.85f));
+            ImGui::TextColored(col, "%s", s_InterfaceDeleteStatus);
+            ImGui::PopTextWrapPos();
+            if (ImGui::IsWindowAppearing()) {
+                ImGui::SetKeyboardFocusHere();
+                ImGui::SetNavCursorVisible(true);
+            }
+            const bool closeStatus = pdguiMenuCancelPressed();
+            bool retried = false;
+            if (s_InterfaceDeleteRefreshPending) {
+                retried = ImGui::Button("Retry refresh") && !closeStatus;
+                if (retried) {
+                    interfaceRefreshAfterDelete();
+                    pdguiNavSuppressActivation();
+                    ImGui::SetKeyboardFocusHere();
+                }
+                ImGui::SameLine();
+            }
+            if ((ImGui::Button("OK") && !retried) || closeStatus) {
+                s_InterfaceDeleteStatus[0] = '\0';
+                s_InterfaceDeleteRefreshPending = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+            return;
+        }
+
+        ImGui::TextDisabled("This removes theme.json / mod.json / audio.ini in:");
+        ImGui::TextWrapped("  %s", s_InterfaceDeletePath);
+        ImGui::Spacing();
+        ImGui::TextDisabled("The change takes effect immediately and cannot be undone.");
+        ImGui::Spacing();
+
+        /* S311: confirm-modal buttons now scale with pdguiScaleFactor so the
+         * Cancel/Delete pair reads the same at 1080p and 4K. */
+        ImVec2 confirmBtn(pdguiScale(120.0f), 0);
+        if (ImGui::IsWindowAppearing()) {
+            ImGui::SetKeyboardFocusHere();
+            ImGui::SetNavCursorVisible(true);
+        }
+        const bool cancelDelete = ImGui::Button("Cancel", confirmBtn) || pdguiMenuCancelPressed();
+        if (cancelDelete) {
+            s_InterfaceDeleteKind = IFACE_DEL_NONE;
+            s_InterfaceDeleteTarget = -1;
+            s_InterfaceDeleteName[0] = '\0';
+            s_InterfaceDeletePath[0] = '\0';
+            s_InterfaceDeleteStatus[0] = '\0';
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        /* Red-tinted Delete button — push the theme's warning colour if
+         * available, fall back to a hard-coded red so the affordance reads
+         * even on palette-missing setups. */
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.55f, 0.10f, 0.10f, 0.90f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.70f, 0.15f, 0.15f, 0.95f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.85f, 0.20f, 0.20f, 1.0f));
+        if (ImGui::Button("Delete", confirmBtn) && !cancelDelete) {
+            s_InterfaceDeleteFilesRemoved = interfaceDeleteModDir(s_InterfaceDeletePath) != 0;
+            interfaceRefreshAfterDelete();
+            sysLogPrintf(s_InterfaceDeleteSuccess ? LOG_NOTE : LOG_WARNING,
+                         "INTERFACE: delete %s '%s' from %s -> %s",
+                         s_InterfaceDeleteKind == IFACE_DEL_THEME ? "theme" : "mod",
+                         s_InterfaceDeleteName, s_InterfaceDeletePath,
+                         s_InterfaceDeleteSuccess ? "OK" : "partial");
+            s_InterfaceDeleteKind   = IFACE_DEL_NONE;
+            s_InterfaceDeleteTarget = -1;
+            ImGui::CloseCurrentPopup();
+            /* The outer owner reopens next frame in status-only mode.
+             * Opening here would hash the ID inside the closing popup. */
+        }
+        ImGui::PopStyleColor(3);
+
+        ImGui::EndPopup();
+    }
+}
+
+/* Theme presentation tables — shared with a fallback disabled-list view
+ * used by the Color Theme picker. Live above renderSettingsInterface so
+ * it's visible here; the Debug tab no longer references them after the
+ * S306 consolidation but keeping them accessible means future screens
+ * can reuse the colour mapping. */
+static const char *s_InterfaceThemeNames[] = {
+    "Grey", "Blue", "Red", "Green", "White", "Silver", "Black & Gold"
+};
+/* INTERFACE_NUM_BUILTIN_THEMES defined above with delete helpers. */
+
+static const ImVec4 s_InterfaceThemeAccents[] = {
+    ImVec4(0.45f, 0.45f, 0.50f, 0.85f),
+    ImVec4(0.15f, 0.30f, 0.70f, 0.85f),
+    ImVec4(0.70f, 0.12f, 0.12f, 0.85f),
+    ImVec4(0.10f, 0.55f, 0.20f, 0.85f),
+    ImVec4(0.70f, 0.70f, 0.75f, 0.85f),
+    ImVec4(0.55f, 0.55f, 0.60f, 0.85f),
+    ImVec4(0.20f, 0.18f, 0.10f, 0.85f),
+};
+static const ImVec4 s_InterfaceThemeTexts[] = {
+    ImVec4(0.90f, 0.90f, 0.90f, 1.0f),
+    ImVec4(0.80f, 0.85f, 1.00f, 1.0f),
+    ImVec4(1.00f, 0.80f, 0.80f, 1.0f),
+    ImVec4(0.80f, 1.00f, 0.80f, 1.0f),
+    ImVec4(0.15f, 0.15f, 0.20f, 1.0f),
+    ImVec4(0.10f, 0.10f, 0.15f, 1.0f),
+    ImVec4(0.90f, 0.78f, 0.35f, 1.0f),
+};
+
+static void renderSettingsInterface(float scale)
+{
+    ImGui::PushTextWrapPos(0.0f);
+    /* ---- Intro ---- */
+    ImGui::TextDisabled("Every visual-customization control lives here: colors,");
+    ImGui::TextDisabled("menu chrome, title bar, font. Editors for deeper tweaks");
+    ImGui::TextDisabled("launch into the Modding Hub.");
+    ImGui::Spacing();
+
+    float btnW = 110.0f * scale;
+    float btnH = std::max(24.0f * scale, ImGui::GetFrameHeight());
+    const float gridW = std::max(1.0f, ImGui::GetContentRegionAvail().x);
+    const float gap = ImGui::GetStyle().ItemSpacing.x;
+    const int themeColumns = std::max(1, (int)((gridW + gap) / (220.0f * scale + gap)));
+    const float themeCellW = std::max(1.0f, (gridW - gap * (themeColumns - 1)) / themeColumns);
+    char acceptGlyph[128] = {};
+    pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, acceptGlyph, (s32)sizeof(acceptGlyph));
+
+    /* ================================================================
+     * Section 1 — Color Theme
+     * ================================================================ */
+    {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "Color Theme");
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Accent + background palette. Use Actions on a custom theme to enable, disable or delete it.");
+    ImGui::Spacing();
+
+    const char *activeThemeId = pdguiThemeGetActiveId();
+    s32 themeCount = pdguiThemeGetCount();
+
+    static const ImVec4 k_ModAccent = ImVec4(0.30f, 0.18f, 0.45f, 0.85f);
+    static const ImVec4 k_ModText   = ImVec4(0.95f, 0.85f, 0.55f, 1.00f);
+
+    s32 shownOnCurrentRow = 0;
+    bool modHeaderShown = false;
+    for (s32 ti = 0; ti < themeCount; ti++) {
+        const char *id   = pdguiThemeGetId(ti);
+        const char *name = pdguiThemeGetName(ti);
+        if (!id || !name) continue;
+
+        s32 builtinIdx = pdguiThemeIdToPaletteIndex(id);
+        bool isBuiltin = (builtinIdx >= 0 && builtinIdx < INTERFACE_NUM_BUILTIN_THEMES);
+        bool selected  = (activeThemeId && strcmp(id, activeThemeId) == 0);
+        bool themeEnabled = pdguiThemeIsEnabled(ti) != 0;
+
+        if (!isBuiltin && !modHeaderShown) {
+            if (shownOnCurrentRow > 0) shownOnCurrentRow = 0;
+            ImGui::Spacing();
+            ImGui::TextDisabled("Custom (from mods/)");
+            modHeaderShown = true;
+        }
+
+        ImGui::PushID(id);
+        ImGui::BeginGroup();
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + themeCellW);
+        ImGui::TextWrapped("%s", name);
+
+        ImVec4 btnCol  = isBuiltin ? s_InterfaceThemeAccents[builtinIdx] : k_ModAccent;
+        ImVec4 txtCol  = isBuiltin ? s_InterfaceThemeTexts[builtinIdx]   : k_ModText;
+
+        if (!isBuiltin && !themeEnabled) {
+            btnCol.w *= 0.35f;
+            txtCol.w *= 0.45f;
+        }
+
+        ImVec4 btnHover = ImVec4(
+            btnCol.x + 0.15f, btnCol.y + 0.15f, btnCol.z + 0.15f, 0.95f);
+        ImVec4 btnActive = ImVec4(
+            btnCol.x + 0.25f, btnCol.y + 0.25f, btnCol.z + 0.25f, 1.0f);
+
+        if (selected) {
+            btnCol.x += 0.12f; btnCol.y += 0.12f; btnCol.z += 0.12f; btnCol.w = 1.0f;
+            ImGui::PushStyleColor(ImGuiCol_Border, txtCol);
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f * scale);
+        }
+
+        ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, btnHover);
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, btnActive);
+        ImGui::PushStyleColor(ImGuiCol_Text, txtCol);
+
+        const char *btnLabel = !themeEnabled ? "Disabled##select_theme"
+            : selected ? "Selected##select_theme" : "Use Theme##select_theme";
+        const bool useTheme = ImGui::Button(btnLabel, ImVec2(themeCellW, btnH));
+        if (useTheme && themeEnabled) {
+            pdguiThemeLoadFromCatalog(id);
+            settingsRequestMachineSave();
+            prefsAgentRefreshVisualsBaseline();
+        }
+        // Preserve the native right-click shortcut; Actions below reaches
+        // this same popup with keyboard/controller and remains enabled.
+        if (!isBuiltin) ImGui::OpenPopupOnItemClick("##theme_actions");
+
+        ImGui::PopStyleColor(4);
+        if (selected) {
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor();
+        }
+
+        if (!isBuiltin) {
+            switch (pdguiSettingsThemeActions(themeEnabled, acceptGlyph, themeCellW, btnH)) {
+            case PDGUI_SETTINGS_THEME_ENABLE: pdguiThemeSetEnabled(ti, 1); break;
+            case PDGUI_SETTINGS_THEME_DISABLE: pdguiThemeSetEnabled(ti, 0); break;
+            case PDGUI_SETTINGS_THEME_DELETE: pdguiInterfaceRequestThemeDelete(ti); break;
+            default: break;
+            }
+        }
+        ImGui::PopTextWrapPos();
+        ImGui::EndGroup();
+        ImGui::PopID();
+
+        shownOnCurrentRow++;
+        bool nextStartsCustom = false;
+        if (ti + 1 < themeCount && !modHeaderShown) {
+            const char *nextId = pdguiThemeGetId(ti + 1);
+            nextStartsCustom = nextId && pdguiThemeIdToPaletteIndex(nextId) < 0;
+        }
+        if (shownOnCurrentRow < themeColumns && ti + 1 < themeCount && !nextStartsCustom) {
+            ImGui::SameLine();
+        } else {
+            shownOnCurrentRow = 0;
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* Customize + delete confirm (BATCH 2 delete dialog is driven below).
+     * "Open Color Editor..." is a direct launcher for pdguiThemeEditorShow. */
+    if (ImGui::Button("Open Color Editor...", ImVec2(pdguiSettingsFitWidth(btnW * 2.0f), btnH))) {
+        pdguiThemeEditorShow();
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Full palette editor with live preview + Save-as-Mod.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ================================================================
+     * Section 2 — Menu Style
+     * ================================================================ */
+    {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "Menu Style");
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled(
+        "Procedural = animated four-edge body shimmer, classic gradient title,\n"
+        "rotating green haze, focus pulse on selected rows.\n"
+        "Static = nineslice frame artwork (modder-customizable), solid title,\n"
+        "no haze. Focus pulse stays in both. Applies live.");
+    ImGui::Spacing();
+    {
+        const PdguiSettingsRegistry chromeRegistry = {
+            pdguiThemeGetChromeStyleCount(),
+            [](int index, void *) -> const char * { return pdguiThemeGetChromeStyleId(index); },
+            [](int index, void *) -> const char * { return pdguiThemeGetChromeStyleName(index); },
+            nullptr
+        };
+        int selectedStyle = -1;
+        if (pdguiSettingsStyleCombo("Menu Style", chromeRegistry,
+                pdguiThemeGetUiChromeEnabled() != 0, pdguiThemeGetUiChromeStyleId(), &selectedStyle)) {
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            const int chromeIdx = selectedStyle + 1;
+            if (chromeIdx <= 0) {
+                /* Procedural preset: chrome off, classic gradient title bar.
+                 * Body draws solid + animated haze + 4-edge shimmer; title
+                 * uses the 3-color vertical gradient with shimmer on top
+                 * and bottom edges. The Title Bar Style picker below stays
+                 * available for users who want a different title look. */
+                pdguiThemeSetUiChromeEnabled(0);
+                pdguiChromeSetEnabled(0);
+                pdguiThemeSetTitleBarStyle(PDGUI_TITLEBAR_CLASSIC);
+            } else {
+                /* Static preset: chrome on with the selected nineslice. Body
+                 * is replaced by the chrome artwork (no haze, no procedural
+                 * borders). Solid title bar reads cleaner against a static
+                 * frame than the animated gradient. */
+                const char *selectedId = pdguiThemeGetChromeStyleId(chromeIdx - 1);
+                pdguiThemeSetUiChromeStyleId(selectedId);
+                pdguiThemeSetUiChromeEnabled(1);
+                pdguiSetPanelNineSlice(selectedId);
+                pdguiChromeSetEnabled(1);
+                pdguiThemeSetTitleBarStyle(PDGUI_TITLEBAR_SOLID);
+            }
+            settingsRequestMachineSave();
+            sysLogPrintf(LOG_NOTE,
+                "UI.CHROME: style changed to '%s' (id=%s, title=%s)",
+                chromeIdx <= 0 ? "Procedural (built-in)" : pdguiThemeGetChromeStyleName(selectedStyle),
+                chromeIdx <= 0 ? "procedural"
+                               : pdguiThemeGetChromeStyleId(chromeIdx - 1),
+                chromeIdx <= 0 ? "classic-gradient" : "solid");
+        }
+    }
+    if (ImGui::Button("Open Menu Style Tool...", ImVec2(pdguiSettingsFitWidth(btnW * 2.0f), btnH))) {
+        /* Close the main menu so the Modding Hub modal has the foreground. */
+        pdguiModdingHubShowTool(MODHUB_TOOL_MENU_STYLE);
+    }
+    if (ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Import a PNG, set corner insets, save as a new Menu Style mod.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ================================================================
+     * Section 3 — Title Bar Style
+     * ================================================================ */
+    {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "Title Bar Style");
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Procedural pattern drawn behind window titles.");
+    ImGui::Spacing();
+    {
+        s32 tbIdx = pdguiThemeGetTitleBarStyle();
+        const char *tbOpts[PDGUI_TITLEBAR_STYLE_COUNT];
+        for (s32 i = 0; i < PDGUI_TITLEBAR_STYLE_COUNT; i++) {
+            tbOpts[i] = pdguiThemeGetTitleBarStyleName(i);
+        }
+        pdguiSettingsStackedRow("Title Bar Style");
+        if (ImGui::Combo("##iface_titlebar", &tbIdx, tbOpts, PDGUI_TITLEBAR_STYLE_COUNT)) {
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            pdguiThemeSetTitleBarStyle(tbIdx);
+            settingsRequestMachineSave();
+            sysLogPrintf(LOG_NOTE,
+                "UI.TITLEBAR: style changed to '%s' (%d)",
+                pdguiThemeGetTitleBarStyleName(tbIdx), tbIdx);
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ================================================================
+     * Section 4 — Font
+     * ================================================================ */
+    {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "Font");
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Font swap takes effect immediately.");
+    ImGui::TextDisabled("Drop .ttf / .otf files into mods/Fonts/<slug>/ and they show up here.");
+    ImGui::Spacing();
+    {
+        s32 fontCount = pdguiFontModGetCount();
+        const s32 maxFonts = 32;
+        const char *fontOpts[1 + maxFonts];
+        fontOpts[0] = "Handel Gothic (built-in)";
+        s32 fontOptCount = 1;
+        for (s32 i = 0; i < fontCount && fontOptCount < (s32)(sizeof(fontOpts) / sizeof(fontOpts[0])); i++) {
+            fontOpts[fontOptCount++] = pdguiFontModGetName(i);
+        }
+
+        int fontIdx = 0;
+        const char *activeFontId = pdguiFontModGetActiveId();
+        if (activeFontId && activeFontId[0]) {
+            for (s32 i = 0; i < fontCount; i++) {
+                const char *id = pdguiFontModGetId(i);
+                if (id && strcmp(activeFontId, id) == 0) { fontIdx = (int)(i + 1); break; }
+            }
+        }
+
+        pdguiSettingsStackedRow("Font");
+        if (ImGui::Combo("##iface_font", &fontIdx, fontOpts, fontOptCount)) {
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            if (fontIdx <= 0) {
+                pdguiFontModSetActiveId("");
+            } else {
+                pdguiFontModSetActiveId(pdguiFontModGetId(fontIdx - 1));
+            }
+            settingsRequestMachineSave();
+            pdguiRequestFontAtlasRebuild();
+            sysLogPrintf(LOG_NOTE, "UI.FONT: selection changed to '%s'",
+                fontOpts[fontIdx]);
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Open Font Mod Tool...", ImVec2(pdguiSettingsFitWidth(btnW * 2.0f), btnH))) {
+            pdguiModdingHubShowTool(MODHUB_TOOL_FONT_MOD);
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Import a .ttf/.otf file as a new font mod.");
+        }
+    }
+
+    /* BATCH 2 delete-theme confirm — rendered as an ImGui popup triggered
+     * by pdguiInterfaceRequestThemeDelete above. See implementation near
+     * the bottom of the Interface tab. */
+    /* pdguiInterfaceRenderDeleteConfirm — declared at file scope */
+    pdguiInterfaceRenderDeleteConfirm();
+    ImGui::PopTextWrapPos();
+
+}
+
+static void renderSettingsAudio(float scale)
+{
+    /* Volume layer system — four independent 0.0–1.0 float layers.
+     * Displayed as 0–100% sliders. Each setter internally calls
+     * audioApplyVolumes() to push composite values to the engine. */
+
+    ImGui::TextDisabled("Volume Controls");
+    ImGui::Separator();
+
+    {
+        float master = audioGetMasterVolume() * 100.0f;
+        if (PdSliderFloat("Master Volume", &master, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetMasterVolume(master / 100.0f);
+        }
+    }
+
+    {
+        float music = audioGetMusicVolume() * 100.0f;
+        if (PdSliderFloat("Music", &music, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetMusicVolume(music / 100.0f);
+        }
+    }
+
+    {
+        float gameplay = audioGetGameplayVolume() * 100.0f;
+        if (PdSliderFloat("Gameplay", &gameplay, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetGameplayVolume(gameplay / 100.0f);
+        }
+    }
+
+    {
+        float ui = audioGetUiVolume() * 100.0f;
+        if (PdSliderFloat("UI", &ui, 0.0f, 100.0f, "%.0f%%")) {
+            audioSetUiVolume(ui / 100.0f);
+        }
+    }
+
+    ImGui::Separator();
+
+    /* ---- Output ---- */
+    ImGui::TextDisabled("Output");
+    ImGui::Separator();
+
+    /* Sound Mode (absorbed from CI Options — g_SoundMode / sndSetSoundMode) */
+    {
+        s32 mode = g_SoundMode;
+        if (mode < 0 || mode > 3) mode = 1; /* clamp; default = Stereo */
+        const char *modeOpts[] = { "Mono", "Stereo", "Headphone", "Surround" };
+        if (PdCombo("Sound Mode", &mode, modeOpts, 4)) {
+            sndSetSoundMode(mode);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    ImGui::Spacing();
+
+    bool disableMpDeath = g_MusicDisableMpDeath != 0;
+    if (PdCheckbox("Disable MP Death Music", &disableMpDeath)) {
+        g_MusicDisableMpDeath = disableMpDeath ? 1 : 0;
+    }
+}
+
+/* ============================================================================
+ * Input Mapping (Priority P / B-252 -- per-IMC tab rebuild).
+ *
+ * S306 surfaced 51 actions on g_ImcGameplay only. After Priority J split
+ * Gameplay into a shared baseline plus Mission and CombatSim, and after
+ * Vehicle / Forge / Menu / PauseMenu / DebugOverlay / TextInput each grew
+ * their own bindings, the flat single-IMC view stopped reflecting what the
+ * dispatcher actually consumes. Phase 2 rebuilds the menu around the IMC
+ * dispatcher: an outer set of tabs labelled by scene (Mission, Combat
+ * Simulator, Vehicle, The Grid, Menu, System) wraps the existing
+ * Keyboard & Mouse / Controller inner sub-tabs. Each row carries an
+ * explicit owning IMC; rebinding writes into that IMC; reading reads from
+ * that IMC; reset writes per-tab.
+ *
+ * Hold-vs-tap appears as sibling rows: Combat Simulator surfaces both
+ * "Scorecard (tap)" (gameplay-baseline) and "Scorecard (hold N ms)"
+ * (CombatSim-only ACTION_SCORECARD_HOLD), with the hold threshold read
+ * live from actionmapGetEffectiveHoldMs(). The tap row remains visible
+ * inside the Mission tab as well so users see both halves of the split.
+ *
+ * Save/load uses complete context/action snapshots, including explicit empty
+ * mappings and all four slots. The per-row owningImc identity is retained;
+ * legacy pd.ini's first-context compatibility view is not the source of truth.
+ *
+ * Capture, search filter, conflict highlighting, right-click-to-clear,
+ * controller visual mapper, drag-drop, per-action hold overrides, and
+ * Esc-cancel are preserved; each helper now takes an explicit
+ * InputMappingContext * parameter so a single capture can be scoped to
+ * the active tab's owning IMC.
+ * ========================================================================= */
+
+/* Capture state. s_CaptureImc is set when capture begins so the deferred
+ * key handler writes back into the right IMC. s_CaptureName carries the
+ * row's display label so the capture banner reads the correct phrase even
+ * when an action is bound on multiple IMCs. */
+/* Every binding edit uses the same checked current-snapshot commit. A failure
+ * restores accepted mappings and remains visible in the Input page/modal. */
+static bool inputUiPersistBindings(void)
+{
+    if (!actionmapSaveBinds()) return false;
+    settingsRequestMachineSave(); // profile names/device rules/tuning remain compatible
+    return true;
+}
+
+static char s_CaptureStatus[128] = "";
+
+static void inputUiBindingPersistenceStatus(void)
+{
+    if (s_CaptureStatus[0]) ImGui::TextWrapped("%s", s_CaptureStatus);
+    const char *error = actionmapGetPersistenceError();
+    if (error && *error) ImGui::TextWrapped("%s", error);
+}
+
+static s32                  s_CaptureActive   = 0;
+static InputAction          s_CaptureAction   = ACTION_MOVE_FORWARD;
+static s32                  s_CaptureColumn   = 0;      /* 0 = MKB, 1 = Controller */
+static s32                  s_CaptureBind     = 0;      /* trigger slot index */
+static s32                  s_CaptureIsSecond = 0;
+static InputMappingContext *s_CaptureImc      = NULL;
+static const char          *s_CaptureName     = "";
+static u32                  s_CaptureCandidate = 0;
+static bool                 s_CaptureOpenPending = false;
+static bool                 s_CaptureReviewFocus = false;
+static int                  s_CaptureReviewFrame = -1;
+static int                  s_CaptureControllerInstance = -1;
+static void inputUiCancelCapture(void);
+
+static void inputUiFlushCaptureActions(void)
+{
+    static const InputAction actions[] = {
+        ACTION_MENU_ACCEPT, ACTION_MENU_CANCEL, ACTION_MENU_UP, ACTION_MENU_DOWN,
+        ACTION_MENU_LEFT, ACTION_MENU_RIGHT, ACTION_MENU_TAB_PREV, ACTION_MENU_TAB_NEXT,
+        ACTION_MENU_SECONDARY, ACTION_MENU_TERTIARY, ACTION_MENU_DELETE,
+        ACTION_MENU_SKIPUP, ACTION_MENU_SKIPDOWN, ACTION_SOCIAL_TOGGLE, ACTION_PAUSE,
+    };
+    actionmapFlushActionSet(actions, (s32)(sizeof(actions) / sizeof(actions[0])));
+}
+
+extern "C" s32 pdguiMainMenuBindingCaptureListening(void)
+{
+    if (s_CaptureActive && s_CaptureColumn == 1 &&
+            pdguiCaptureControllerLost(s_CaptureControllerInstance,
+                inputGetConnectedInputDevices(NULL))) {
+        inputUiCancelCapture();
+        snprintf(s_CaptureStatus, sizeof(s_CaptureStatus),
+            "Controller unavailable. Binding unchanged; reconnect and start capture again.");
+    }
+    /* The pool owns external stage/menu teardown, including the CI redirect. */
+    if (s_CaptureActive && !menupoolIsActive(MENU_TYPE_MAIN_SETTINGS_VIEW)
+            && !menupoolIsActive(MENU_TYPE_CI_OPTIONS)) {
+        inputUiCancelCapture();
+    }
+    return s_CaptureActive && s_CaptureCandidate == 0;
+}
+
+/* Logical groupings. Each row belongs to exactly one group; each tab
+ * surfaces a fixed set of groups. BG_COUNT is sentinel-only. The rendering
+ * loop iterates groups in declaration order so the visible header order is
+ * stable. */
+enum BindableGroup {
+    BG_MOVEMENT = 0,
+    BG_AIM,
+    BG_COMBAT,
+    BG_WEAPONS,
+    BG_HUD,            /* PAUSE, SCORECARD (tap)                                        */
+    BG_HUD_CS,         /* SCORECARD_HOLD                                                */
+    BG_VEHICLE,
+    BG_VEHICLE_TURRET, /* the gunner seat: TURRET_FIRE, TURRET_ZOOM, look, exit         */
+    BG_CBUTTONS,
+    BG_DPAD,
+    BG_FORGE_SESSION,  /* FORGE_TOGGLE                                                  */
+    BG_FORGE_EDITOR,   /* FORGE_ASCEND, _DESCEND, _BOOST, _PRECISION, _SIDEBAR_*, _TAB_* */
+    BG_SKIN_EDITOR,    /* Skin Editor brush, tool, view, undo/redo/save commands          */
+    BG_OBSERVER,       /* spectator overlay and observer freefly controls                 */
+    BG_MENU,           /* USE, CANCEL_USE, PAUSE, MENU_*  on g_ImcMenu                  */
+    BG_PAUSEMENU,      /* same actions on g_ImcPauseMenu                                */
+    BG_DEBUG_OVERLAY,  /* DEBUG_TOGGLE, USE, CANCEL_USE, CONSOLE, SCREENSHOT            */
+    BG_TEXT_INPUT,     /* USE, CANCEL_USE, CHEAT_ENTER                                  */
+    BG_SYSTEM,         /* SCREENSHOT, CONSOLE_TOGGLE, DEBUG_TOGGLE, CHEAT_ENTER         */
+    BG_COUNT
+};
+
+struct BindableGroupInfo {
+    int         id;
+    const char *name;
+    const char *blurb;
+};
+
+static const BindableGroupInfo s_BindableGroups[BG_COUNT] = {
+    { BG_MOVEMENT,       "Movement",        "Walking, strafing, jumping, crouching." },
+    { BG_AIM,            "Aim",             "Looking, pitching, zoom in / out." },
+    { BG_COMBAT,         "Combat",          "Fire, reload, use, throw weapon." },
+    { BG_WEAPONS,        "Weapons",         "Next / Prev, direct weapon-slot hotkeys." },
+    { BG_HUD,            "HUD",             "Pause and scoreboard peek (shared baseline)." },
+    { BG_HUD_CS,         "Scoreboard hold", "Combat Simulator hold-to-show scoreboard." },
+    { BG_VEHICLE,        "Vehicle",         "Drive + exit bindings for pilotable props." },
+    { BG_VEHICLE_TURRET, "Vehicle Turret",  "The gunner's seat of a two-seat vehicle: aim, fire, zoom, exit." },
+    { BG_CBUTTONS,       "C-Buttons",       "Legacy C-stick directions (GEX / Dark Noon)." },
+    { BG_DPAD,           "D-Pad",           "Directional pad. Doubles as radial." },
+    { BG_FORGE_SESSION,  "Session",   "Active while editing or playtesting." },
+    { BG_FORGE_EDITOR,   "Forge Editor",    "Active in Freefly only." },
+    { BG_SKIN_EDITOR,    "Skin Editor",     "Brush, tool, view, undo/redo, and save commands." },
+    { BG_OBSERVER,       "Observer",        "Spectator overlay and freefly camera controls." },
+    { BG_MENU,           "Menu",            "Navigation while a menu is on top." },
+    { BG_PAUSEMENU,      "Pause Menu",      "Navigation while the pause menu is on top." },
+    { BG_DEBUG_OVERLAY,  "Debug Overlay",   "F12 overlay rebinds (DebugOverlay IMC)." },
+    { BG_TEXT_INPUT,     "Text Input",      "Chat / cheat entry rebinds (TextInput IMC)." },
+    { BG_SYSTEM,         "System Hotkeys",  "Screenshots, debug overlay, cheat entry." },
+};
+
+struct BindableAction {
+    InputAction          action;
+    const char          *name;
+    int                  group;
+    const char          *tooltip;       /* NULL if no extra hint needed */
+    InputMappingContext *owningImc;     /* IMC that holds this row's bindings */
+};
+
+/* Master action table. Each row binds an (action, owningImc) pair. The
+ * same action may appear on multiple rows when more than one IMC owns
+ * bindings for it (USE, CANCEL_USE, PAUSE, MENU_*, etc.). The save / load
+ * iteration order in actionmap.cpp (Gameplay first, then Mission /
+ * CombatSim / Vehicle / ForgeSession / Forge / Menu / PauseMenu /
+ * DebugOverlay / TextInput) determines which IMC's binding round-trips
+ * through pd.ini for shared actions; the row order here mirrors that
+ * priority so the menu reflects the persisted truth. */
+static const BindableAction s_BindableActions[] = {
+    /* --- Movement (Gameplay baseline) --- */
+    { ACTION_MOVE_FORWARD,        "Move Forward",       BG_MOVEMENT,      NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_MOVE_BACKWARD,       "Move Backward",      BG_MOVEMENT,      NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_MOVE_LEFT,           "Strafe Left",        BG_MOVEMENT,      NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_MOVE_RIGHT,          "Strafe Right",       BG_MOVEMENT,      NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_JUMP,                "Jump",               BG_MOVEMENT,      NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_CROUCH,              "Crouch",             BG_MOVEMENT,      NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_SPRINT,              "Sprint",             BG_MOVEMENT,      NULL,                                                                                                  &g_ImcGameplay },
+
+    /* --- Aim (Gameplay) --- */
+    { ACTION_AIM_UP,              "Look Up",            BG_AIM,           "Digital pitch up (controller / keyboard, not mouse).",                                                &g_ImcGameplay },
+    { ACTION_AIM_DOWN,            "Look Down",          BG_AIM,           "Digital pitch down.",                                                                                 &g_ImcGameplay },
+    { ACTION_AIM_LEFT,            "Look Left",          BG_AIM,           "Digital yaw left.",                                                                                   &g_ImcGameplay },
+    { ACTION_AIM_RIGHT,           "Look Right",         BG_AIM,           "Digital yaw right.",                                                                                  &g_ImcGameplay },
+    { ACTION_ZOOM_IN,             "Zoom In",            BG_AIM,           NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_ZOOM_OUT,            "Zoom Out",           BG_AIM,           NULL,                                                                                                  &g_ImcGameplay },
+
+    /* --- Combat (Gameplay) --- */
+    { ACTION_FIRE_PRIMARY,        "Fire",               BG_COMBAT,        NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_FIRE_SECONDARY,      "Aim Mode / Secondary", BG_COMBAT,      "Aim-mode on hold, secondary fire in aim mode.",                                                       &g_ImcGameplay },
+    { ACTION_FIRE_MODE,           "Fire Mode",          BG_COMBAT,        "Cycle through a weapon's firing modes.",                                                              &g_ImcGameplay },
+    { ACTION_RELOAD,              "Reload",             BG_COMBAT,        NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_USE,                 "Use / Interact",     BG_COMBAT,        "Doors, terminals, pickups. Tap reloads, hold interacts (threshold tunable in Per-action hold overrides).", &g_ImcGameplay },
+    { ACTION_CANCEL_USE,          "Cancel / Drop",      BG_COMBAT,        "Abort an interaction or drop weapon.",                                                                &g_ImcGameplay },
+    { ACTION_THROW_WEAPON,        "Throw Weapon",       BG_COMBAT,        NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_GUN_ROLL_LEFT,       "Roll Gun Left",      BG_COMBAT,        "Hold to roll the gun on its side, for weapons that allow it (shapes the crystal pistol's charge fan).", &g_ImcGameplay },
+    { ACTION_GUN_ROLL_RIGHT,      "Roll Gun Right",     BG_COMBAT,        "Hold to roll the gun the other way, for weapons that allow it.",                                      &g_ImcGameplay },
+    { ACTION_VEHICLE_USE,         "Direct Use / Mount", BG_COMBAT,        "Optional direct on-foot activation. The normal Use / Interact hold also mounts vehicles.",             &g_ImcGameplay },
+
+    /* --- Weapons (Gameplay) --- */
+    { ACTION_WEAPON_PREV,         "Previous Weapon",    BG_WEAPONS,       NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_WEAPON_NEXT,         "Next Weapon",        BG_WEAPONS,       NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_WEAPON_1,            "Weapon Slot 1",      BG_WEAPONS,       "Direct hotkey for weapon slot 1.",                                                                    &g_ImcGameplay },
+    { ACTION_WEAPON_2,            "Weapon Slot 2",      BG_WEAPONS,       NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_WEAPON_3,            "Weapon Slot 3",      BG_WEAPONS,       NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_WEAPON_4,            "Weapon Slot 4",      BG_WEAPONS,       NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_WEAPON_5,            "Weapon Slot 5",      BG_WEAPONS,       NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_WEAPON_6,            "Weapon Slot 6",      BG_WEAPONS,       NULL,                                                                                                  &g_ImcGameplay },
+
+    /* --- HUD (Gameplay): Mission and Combat Simulator both surface these --- */
+    { ACTION_PAUSE,               "Pause / Open Menu",  BG_HUD,           NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_SCORECARD,           "Scorecard (tap)",    BG_HUD,           "Transient scoreboard peek (Tab default). Combat Simulator adds a hold variant in its own tab.",       &g_ImcGameplay },
+
+    /* --- HUD-CS (CombatSim): Combat Simulator only --- */
+    { ACTION_SCORECARD_HOLD,      "Scorecard (hold)",   BG_HUD_CS,        "Hold-Back to surface scoreboard in Combat Simulator. Threshold tunable in Per-action hold overrides.", &g_ImcCombatSim },
+
+    /* --- C-Buttons (Gameplay) --- */
+    { ACTION_CBUTTON_UP,          "C-Up",               BG_CBUTTONS,      "Legacy C-stick up (GEX / Dark Noon inventory).",                                                      &g_ImcGameplay },
+    { ACTION_CBUTTON_DOWN,        "C-Down",             BG_CBUTTONS,      NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_CBUTTON_LEFT,        "C-Left",             BG_CBUTTONS,      NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_CBUTTON_RIGHT,       "C-Right",            BG_CBUTTONS,      NULL,                                                                                                  &g_ImcGameplay },
+
+    /* --- D-Pad (Gameplay) --- */
+    { ACTION_DPAD_UP,             "D-Pad Up",           BG_DPAD,          NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_DPAD_DOWN,           "D-Pad Down",         BG_DPAD,          "Historically Radial Menu trigger.",                                                                   &g_ImcGameplay },
+    { ACTION_DPAD_LEFT,           "D-Pad Left",         BG_DPAD,          NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_DPAD_RIGHT,          "D-Pad Right",        BG_DPAD,          NULL,                                                                                                  &g_ImcGameplay },
+
+    /* --- Vehicle (Vehicle IMC, mounted only) --- */
+    { ACTION_VEHICLE_ACCELERATE,  "Accelerate",         BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VEHICLE_BRAKE,       "Brake / Reverse",    BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VEHICLE_STEER_LEFT,  "Steer Left",         BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VEHICLE_STEER_RIGHT, "Steer Right",        BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VEHICLE_EXIT,        "Exit Vehicle",       BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VEHICLE_LOOK_X,      "Vehicle Look X",     BG_VEHICLE,       "Mounted camera yaw axis/direction.",                                                                   &g_ImcVehicle },
+    { ACTION_VEHICLE_LOOK_Y,      "Vehicle Look Y",     BG_VEHICLE,       "Mounted camera pitch axis/direction.",                                                                 &g_ImcVehicle },
+    { ACTION_VEHICLE_HANDBRAKE,   "Handbrake",          BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VEHICLE_BOOST,       "Boost",              BG_VEHICLE,       "Hold to boost a vehicle that has one. The Maian vehicle's crystals overheat after a few seconds.",    &g_ImcVehicle },
+    { ACTION_PAUSE,               "Pause",              BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_VEHICLE,       NULL,                                                                                                  &g_ImcVehicle },
+
+    /* --- Vehicle Turret (turret IMC, the gunner's seat only) --- */
+    { ACTION_TURRET_FIRE,         "Fire Turret",        BG_VEHICLE_TURRET, "Hold to fire the vehicle's turret from the gunner's seat.",                                           &g_ImcVehicleTurret },
+    { ACTION_TURRET_ZOOM,         "Zoom / Lock Turret", BG_VEHICLE_TURRET, "Hold to zoom the gunner's view and lock the turret on what it points at.",                            &g_ImcVehicleTurret },
+    { ACTION_VEHICLE_EXIT,        "Exit / Switch Seat", BG_VEHICLE_TURRET, "Press once to leave the vehicle. Press twice quickly to move to the other seat when it is free.",     &g_ImcVehicleTurret },
+    { ACTION_VEHICLE_LOOK_X,      "Turret Look X",      BG_VEHICLE_TURRET, "Gunner's view yaw axis/direction (the mouse always aims).",                                           &g_ImcVehicleTurret },
+    { ACTION_VEHICLE_LOOK_Y,      "Turret Look Y",      BG_VEHICLE_TURRET, "Gunner's view pitch axis/direction (the mouse always aims).",                                         &g_ImcVehicleTurret },
+    { ACTION_PAUSE,               "Pause",              BG_VEHICLE_TURRET, NULL,                                                                                                 &g_ImcVehicleTurret },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_VEHICLE_TURRET, NULL,                                                                                                 &g_ImcVehicleTurret },
+
+    /* --- Forge Session (entire Grid session) --- */
+    { ACTION_FORGE_TOGGLE,        "Switch Edit / Playtest", BG_FORGE_SESSION, "Switch between the free-fly editor and first-person playtest.",                                   &g_ImcForgeSession },
+
+    /* --- Forge Editor (Freefly only) --- */
+    { ACTION_FORGE_ASCEND,        "Camera Ascend",      BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_DESCEND,       "Camera Descend",     BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_BOOST,         "Speed Boost",        BG_FORGE_EDITOR,  "Hold for 3x freefly speed.",                                                                          &g_ImcForge },
+    { ACTION_FORGE_PRECISION,     "Speed Precision",    BG_FORGE_EDITOR,  "Hold for 0.25x freefly speed.",                                                                       &g_ImcForge },
+    { ACTION_FORGE_SIDEBAR_TOGGLE,"Sidebar Toggle",     BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_EDITOR_CONTROLS,"Editor Controls",    BG_FORGE_EDITOR,  "Move focus from the freefly camera to the Grid editor controls.",                                     &g_ImcForge },
+    { ACTION_FORGE_SIDEBAR_UP,    "Sidebar Up",         BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_SIDEBAR_DOWN,  "Sidebar Down",       BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_SIDEBAR_ACTIVATE,"Sidebar Activate", BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_TAB_PREV,      "Editor Tab Prev",    BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_TAB_NEXT,      "Editor Tab Next",    BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_PLACE_CANCEL,  "Cancel Placement",   BG_FORGE_EDITOR,  NULL,                                                                                                  &g_ImcForge },
+    { ACTION_FORGE_BOT_ADD,       "Add Bot",            BG_FORGE_SESSION, NULL,                                                                                                  &g_ImcForgeSession },
+    { ACTION_FORGE_BOT_REMOVE_ALL,"Remove All Bots",    BG_FORGE_SESSION, NULL,                                                                                                  &g_ImcForgeSession },
+    { ACTION_FORGE_BOT_FREEZE_TOGGLE,"Freeze All Bots", BG_FORGE_SESSION, NULL,                                                                                                  &g_ImcForgeSession },
+    { ACTION_FORGE_BOT_SPAWN_CYCLE,"Cycle Bot Spawn",   BG_FORGE_SESSION, NULL,                                                                                                  &g_ImcForgeSession },
+
+    /* --- Skin Editor commands --- */
+    { ACTION_SKIN_BRUSH_DECREASE, "Brush Smaller",      BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_BRUSH_INCREASE, "Brush Larger",       BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_TOOL_DRAW,      "Tool Draw",          BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_TOOL_ERASE,     "Tool Erase",         BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_TOOL_FILL,      "Tool Fill",          BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_TOOL_EYEDROPPER,"Tool Eyedropper",    BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_TOOL_LINE,      "Tool Line",          BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_GRID_TOGGLE,    "Toggle Grid",        BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_UV_TOGGLE,      "Toggle UV Overlay",  BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_UNDO,           "Undo",               BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_REDO,           "Redo",               BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_SKIN_SAVE,           "Save Skin",          BG_SKIN_EDITOR,   NULL,                                                                                                  &g_ImcMenu },
+
+    /* --- Observer (spectator overlay) --- */
+    { ACTION_OBSERVER_SUBSET_PREV, "Previous Subset",    BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_SUBSET_NEXT, "Next Subset",        BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_MEMBER_PREV, "Previous Member",    BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_MEMBER_NEXT, "Next Member",        BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_CAMERA_TOGGLE, "Toggle Camera",    BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_FREEFLY,     "Freefly Hold",       BG_OBSERVER,      "Hold to move the spectator freefly camera.",                                                          &g_ImcObserver },
+    { ACTION_OBSERVER_STOP,        "Stop Spectating",    BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_ASCEND,      "Ascend",             BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+    { ACTION_OBSERVER_DESCEND,     "Descend",            BG_OBSERVER,      NULL,                                                                                                  &g_ImcObserver },
+
+    /* --- Menu IMC (top-level menus) --- */
+    { ACTION_USE,                 "Accept",             BG_MENU,          "UI accept while a menu is on top. Distinct from gameplay Use.",                                       &g_ImcMenu },
+    { ACTION_CANCEL_USE,          "Back",               BG_MENU,          "UI cancel. Distinct from gameplay Cancel.",                                                           &g_ImcMenu },
+    { ACTION_PAUSE,               "Toggle Pause",       BG_MENU,          NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_MENU_UP,             "Menu Up",            BG_MENU,          NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_MENU_DOWN,           "Menu Down",          BG_MENU,          NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_MENU_LEFT,           "Menu Left",          BG_MENU,          NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_MENU_RIGHT,          "Menu Right",         BG_MENU,          NULL,                                                                                                  &g_ImcMenu },
+    { ACTION_MENU_TAB_PREV,       "Prev Tab",           BG_MENU,          "LB / PageUp in settings tabs.",                                                                       &g_ImcMenu },
+    { ACTION_MENU_TAB_NEXT,       "Next Tab",           BG_MENU,          "RB / PageDown in settings tabs.",                                                                     &g_ImcMenu },
+    { ACTION_MENU_SECONDARY,      "Context Action",     BG_MENU,          "Screen-specific secondary action.",                                                                    &g_ImcMenu },
+    { ACTION_MENU_TERTIARY,       "Tertiary / Social",  BG_MENU,          "Screen-specific tertiary action; opens Social on supported roots.",                                    &g_ImcMenu },
+    { ACTION_MENU_DELETE,         "Delete",             BG_MENU,          "Delete the focused item where supported.",                                                             &g_ImcMenu },
+    { ACTION_MENU_SKIPUP,         "Previous Group",     BG_MENU,          "Move to the previous group or page within the focused panel.",                                         &g_ImcMenu },
+    { ACTION_MENU_SKIPDOWN,       "Next Group",         BG_MENU,          "Move to the next group or page within the focused panel.",                                             &g_ImcMenu },
+    { ACTION_SOCIAL_TOGGLE,       "Social Toggle",      BG_MENU,          "Open or close the Social surface where allowed.",                                                      &g_ImcMenu },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_MENU,          NULL,                                                                                                  &g_ImcMenu },
+
+    /* --- Pause Menu IMC (in-game pause overlay) --- */
+    { ACTION_USE,                 "Accept",             BG_PAUSEMENU,     "UI accept while paused.",                                                                             &g_ImcPauseMenu },
+    { ACTION_CANCEL_USE,          "Back",               BG_PAUSEMENU,     "UI cancel while paused.",                                                                             &g_ImcPauseMenu },
+    { ACTION_PAUSE,               "Toggle Pause",       BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
+    { ACTION_MENU_UP,             "Menu Up",            BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
+    { ACTION_MENU_DOWN,           "Menu Down",          BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
+    { ACTION_MENU_LEFT,           "Menu Left",          BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
+    { ACTION_MENU_RIGHT,          "Menu Right",         BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
+    { ACTION_MENU_TAB_PREV,       "Prev Tab",           BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
+    { ACTION_MENU_TAB_NEXT,       "Next Tab",           BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
+    { ACTION_MENU_SECONDARY,      "Context Action",     BG_PAUSEMENU,     "Screen-specific secondary action.",                                                                    &g_ImcPauseMenu },
+    { ACTION_MENU_TERTIARY,       "Tertiary / Social",  BG_PAUSEMENU,     "Screen-specific tertiary action; opens Social on supported roots.",                                    &g_ImcPauseMenu },
+    { ACTION_MENU_DELETE,         "Delete",             BG_PAUSEMENU,     "Delete the focused item where supported.",                                                             &g_ImcPauseMenu },
+    { ACTION_MENU_SKIPUP,         "Previous Group",     BG_PAUSEMENU,     "Move to the previous group or page within the focused panel.",                                         &g_ImcPauseMenu },
+    { ACTION_MENU_SKIPDOWN,       "Next Group",         BG_PAUSEMENU,     "Move to the next group or page within the focused panel.",                                             &g_ImcPauseMenu },
+    { ACTION_SOCIAL_TOGGLE,       "Social Toggle",      BG_PAUSEMENU,     "Open or close the Social surface where allowed.",                                                      &g_ImcPauseMenu },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_PAUSEMENU,     NULL,                                                                                                  &g_ImcPauseMenu },
+
+    /* --- Debug Overlay IMC (F12 overlay) --- */
+    { ACTION_DEBUG_TOGGLE,        "Debug Overlay",      BG_DEBUG_OVERLAY, "Toggle the F12 debug overlay.",                                                                       &g_ImcDebugOverlay },
+    { ACTION_USE,                 "Accept",             BG_DEBUG_OVERLAY, NULL,                                                                                                  &g_ImcDebugOverlay },
+    { ACTION_CANCEL_USE,          "Close",              BG_DEBUG_OVERLAY, NULL,                                                                                                  &g_ImcDebugOverlay },
+    { ACTION_CONSOLE_TOGGLE,      "Console Toggle",     BG_DEBUG_OVERLAY, NULL,                                                                                                  &g_ImcDebugOverlay },
+    { ACTION_SCREENSHOT,          "Screenshot",         BG_DEBUG_OVERLAY, NULL,                                                                                                  &g_ImcDebugOverlay },
+    { ACTION_HOTSWAP_TOGGLE,      "Menu Renderer Toggle", BG_DEBUG_OVERLAY, "Toggle the legacy/ImGui renderer while the debug overlay is active.",                               &g_ImcDebugOverlay },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_DEBUG_OVERLAY, NULL,                                                                                                  &g_ImcDebugOverlay },
+
+    /* --- Text Input IMC (chat / rebind / cheat field) --- */
+    { ACTION_USE,                 "Confirm",            BG_TEXT_INPUT,    NULL,                                                                                                  &g_ImcTextInput },
+    { ACTION_CANCEL_USE,          "Cancel",             BG_TEXT_INPUT,    NULL,                                                                                                  &g_ImcTextInput },
+    { ACTION_CHEAT_ENTER,         "Submit Cheat",       BG_TEXT_INPUT,    NULL,                                                                                                  &g_ImcTextInput },
+    { ACTION_TEXT_PASTE,          "Paste",              BG_TEXT_INPUT,    NULL,                                                                                                  &g_ImcTextInput },
+
+    /* --- System Hotkeys (Gameplay): screenshot etc fire from gameplay --- */
+    { ACTION_SCREENSHOT,          "Screenshot",         BG_SYSTEM,        "Save a .png of the current frame.",                                                                   &g_ImcGameplay },
+    { ACTION_CONSOLE_TOGGLE,      "Console Toggle",     BG_SYSTEM,        NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_DEBUG_TOGGLE,        "Debug Overlay",      BG_SYSTEM,        "F12 by default.",                                                                                     &g_ImcGameplay },
+    { ACTION_CHEAT_ENTER,         "Enter Cheat",        BG_SYSTEM,        "Open the cheat-code entry dialog.",                                                                   &g_ImcGameplay },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk", BG_SYSTEM,        "Hold while voice chat is enabled.",                                                                   &g_ImcGameplay },
+    { ACTION_TESTSCEN_CYCLE_COUNT, "Test Count Next",   BG_SYSTEM,        "Development test-scenario population step forward.",                                                   &g_ImcGameplay },
+    { ACTION_TESTSCEN_CYCLE_PREV, "Test Count Previous", BG_SYSTEM,       "Development test-scenario population step backward.",                                                  &g_ImcGameplay },
+    { ACTION_TESTSCEN_VIS_TOGGLE, "Test Visibility",    BG_SYSTEM,        "Development test-scenario visibility mode.",                                                           &g_ImcGameplay },
+    { ACTION_TESTSCEN_GPU_FULL_TOGGLE, "Test GPU Mode", BG_SYSTEM,        "Development GPU swarm mode toggle.",                                                                  &g_ImcGameplay },
+    { ACTION_DEBUG_BOT_FREEZE,    "Debug Bot Freeze",   BG_SYSTEM,        "Development-only action.",                                                                            &g_ImcGameplay },
+    { ACTION_DEBUG_INVINCIBILITY, "Debug Invincibility", BG_SYSTEM,       "Development-only action.",                                                                            &g_ImcGameplay },
+    { ACTION_DEBUG_OVERLAY_TOGGLE, "Debug Overlay Toggle", BG_SYSTEM,     "Development overlay action.",                                                                         &g_ImcGameplay },
+    { ACTION_DEBUG_MESH_TOGGLE,   "Debug Mesh Toggle",  BG_SYSTEM,        "Collision-mesh visualization.",                                                                       &g_ImcGameplay },
+    { ACTION_DEBUG_CULL_MODE_CYCLE, "Debug Cull Mode",  BG_SYSTEM,        "Cycle renderer culling mode.",                                                                         &g_ImcGameplay },
+    { ACTION_DEBUG_TESTFIRE,      "Debug Test Fire",    BG_SYSTEM,        "Development test-fire pulse.",                                                                         &g_ImcGameplay },
+    { ACTION_DEBUG_WIREFRAME_TOGGLE, "Debug Wireframe", BG_SYSTEM,        "Toggle wireframe visualization.",                                                                      &g_ImcGameplay },
+    { ACTION_HOTSWAP_TOGGLE,      "Menu Renderer Toggle", BG_SYSTEM,      "Toggle the legacy/ImGui renderer.",                                                                     &g_ImcGameplay },
+    { ACTION_TOGGLE_FULLSCREEN,   "Toggle Fullscreen",  BG_SYSTEM,        NULL,                                                                                                  &g_ImcGameplay },
+    { ACTION_SKIP_CUTSCENE,       "Skip Cutscene",      BG_SYSTEM,        "Hold to skip while the cutscene input context is active.",                                             &g_ImcCutscene },
+    { ACTION_PAUSE,               "Pause in Cutscene",  BG_SYSTEM,        NULL,                                                                                                  &g_ImcCutscene },
+    { ACTION_VOICE_PTT,           "Voice Push-to-Talk in Cutscene", BG_SYSTEM, NULL,                                                                                             &g_ImcCutscene },
+};
+#define NUM_BINDABLE_ACTIONS (sizeof(s_BindableActions) / sizeof(s_BindableActions[0]))
+
+/* Per-tab descriptor. Each tab claims a set of groups (BG_*) to render and
+ * a set of IMCs to reset when the user clicks the tab's reset button. The
+ * order here drives both the tab bar and the LB/RB cycle order. */
+struct ImcTabDesc {
+    const char           *label;            /* tab title */
+    const char           *blurb;            /* one-line description shown under tab on hover */
+    u32                   shownGroups;      /* bitmask of (1u << BG_*) */
+    InputMappingContext **resetImcs;        /* IMCs to reset (one per call to actionmapSetDefaults) */
+    s32                   numResetImcs;
+};
+
+static InputMappingContext *s_ResetImcsMission[]   = { &g_ImcGameplay, &g_ImcMission };
+static InputMappingContext *s_ResetImcsCombatSim[] = { &g_ImcGameplay, &g_ImcCombatSim };
+static InputMappingContext *s_ResetImcsVehicle[]   = { &g_ImcVehicle, &g_ImcVehicleTurret };
+static InputMappingContext *s_ResetImcsGrid[]      = { &g_ImcForgeSession, &g_ImcForge };
+static InputMappingContext *s_ResetImcsObserver[]  = { &g_ImcObserver };
+static InputMappingContext *s_ResetImcsMenu[]      = { &g_ImcMenu, &g_ImcPauseMenu };
+static InputMappingContext *s_ResetImcsSystem[]    = { &g_ImcDebugOverlay, &g_ImcTextInput, &g_ImcCutscene, &g_ImcGameplay };
+
+static const ImcTabDesc s_ImcTabs[] = {
+    {
+        "Mission",
+        "Solo, co-op, anti-counter-op gameplay. Shared baseline bindings.",
+        (1u << BG_MOVEMENT) | (1u << BG_AIM) | (1u << BG_COMBAT) | (1u << BG_WEAPONS)
+            | (1u << BG_HUD) | (1u << BG_CBUTTONS) | (1u << BG_DPAD),
+        s_ResetImcsMission, 2,
+    },
+    {
+        "Combat Simulator",
+        "MP / CS gameplay. Shared baseline plus hold-Back scoreboard.",
+        (1u << BG_MOVEMENT) | (1u << BG_AIM) | (1u << BG_COMBAT) | (1u << BG_WEAPONS)
+            | (1u << BG_HUD) | (1u << BG_HUD_CS) | (1u << BG_CBUTTONS) | (1u << BG_DPAD),
+        s_ResetImcsCombatSim, 2,
+    },
+    {
+        "Vehicle",
+        "Vehicle controls: the driver's seat and, on a two-seat vehicle, the gunner's turret. Active only while mounted.",
+        (1u << BG_VEHICLE) | (1u << BG_VEHICLE_TURRET),
+        s_ResetImcsVehicle, 2,
+    },
+    {
+        nullptr,
+        "Level editor and playtest toggle, plus free-fly camera and editing controls.",
+        (1u << BG_FORGE_SESSION) | (1u << BG_FORGE_EDITOR),
+        s_ResetImcsGrid, 2,
+    },
+    {
+        "Observer",
+        "Spectator overlay and freefly camera controls.",
+        (1u << BG_OBSERVER),
+        s_ResetImcsObserver, 1,
+    },
+    {
+        "Menu",
+        "Top-level menu nav and pause-menu nav. Distinct from gameplay bindings.",
+        (1u << BG_MENU) | (1u << BG_PAUSEMENU) | (1u << BG_SKIN_EDITOR),
+        s_ResetImcsMenu, 2,
+    },
+    {
+        "System",
+        "F12 debug overlay, text-input fields, and gameplay-scope system hotkeys.",
+        (1u << BG_DEBUG_OVERLAY) | (1u << BG_TEXT_INPUT) | (1u << BG_SYSTEM),
+        s_ResetImcsSystem, 4,
+    },
+};
+#define NUM_IMC_TABS (sizeof(s_ImcTabs) / sizeof(s_ImcTabs[0]))
+
+static const char *imcTabName(const ImcTabDesc *tab)
+{
+    return tab->label ? tab->label : forgeDisplayName();
+}
+
+/* Format a row's display name with optional hold-threshold suffix. The
+ * SCORECARD_HOLD row reads its threshold live from
+ * actionmapGetEffectiveHoldMs(); ACTION_USE shows the effective hold for
+ * the shared interact-vs-reload split. The buffer is shared per call site
+ * so callers must consume it before the next call. */
+static const char *formatRowLabel(const BindableAction *row, char *buf, size_t buflen)
+{
+    if (!row || !buf || buflen == 0) {
+        return row ? row->name : "???";
+    }
+    s32 effHold = -1;
+    if (row->action == ACTION_SCORECARD_HOLD) {
+        effHold = actionmapGetEffectiveHoldMs(ACTION_SCORECARD_HOLD);
+        if (effHold <= 0) effHold = 400;
+    } else if (row->action == ACTION_USE && row->group == BG_COMBAT) {
+        effHold = actionmapGetEffectiveHoldMs(ACTION_USE);
+        if (effHold <= 0) effHold = ACTION_USE_HOLD_THRESHOLD_MS;
+    }
+    if (effHold > 0) {
+        snprintf(buf, buflen, "%s -- %d ms", row->name, (int)effHold);
+        return buf;
+    }
+    return row->name;
+}
+
+static bool isVkMKB(u32 vk)     { return (vk > 0 && vk < VK_JOY_BEGIN); }
+static bool isVkController(u32 vk) { return (vk >= VK_JOY_BEGIN && vk < VK_TOTAL_COUNT); }
+static const char *getBindName(u32 vk)
+{
+    if (!vk) return "---";
+    if (!isVkController(vk)) return inputGetKeyName((s32)vk);
+    static thread_local char display[96];
+    input_vk_control_t control;
+    if (!inputVkDecodeController(vk, &control)) return inputGetKeyName((s32)vk);
+    if (control.kind == INPUT_VK_LEGACY_OVERLAP) {
+        snprintf(display, sizeof(display), "%s (legacy shared)", inputGetKeyName((s32)vk));
+        return display;
+    }
+    InputDeviceIdentity identity = {};
+    if (actionmapGetBindingDeviceIdentity(control.player, &identity) &&
+        inputGlyphControllerVkLabel(&identity, vk, display, sizeof(display))) return display;
+    if (control.kind == INPUT_VK_BUTTON) {
+        snprintf(display, sizeof(display), "Btn%d", control.index + 1);
+    } else {
+        snprintf(display, sizeof(display), "Axis%d%c", control.index + 1,
+            control.direction < 0 ? '-' : '+');
+    }
+    return display;
+}
+
+/* Get triggers for an action from the supplied IMC, split by MKB vs controller. */
+static void getBindsByType(InputMappingContext *imc, InputAction action,
+                           u32 mkbVKs[2], s32 mkbSlots[2], s32 *mkbCount,
+                           u32 ctrlVKs[2], s32 ctrlSlots[2], s32 *ctrlCount,
+                           s32 capacity = 2)
+{
+    *mkbCount = 0; *ctrlCount = 0;
+    for (s32 i = 0; i < capacity; ++i) {
+        mkbVKs[i] = ctrlVKs[i] = 0;
+        mkbSlots[i] = ctrlSlots[i] = -1;
+    }
+    if (!imc) return;
+    InputMapping *m = &imc->mappings[action];
+    for (s32 i = 0; i < m->num_triggers; i++) {
+        u32 vk = m->triggers[i].vk;
+        if (vk == 0) continue;
+        if (isVkMKB(vk) && *mkbCount < capacity) {
+            mkbSlots[*mkbCount] = i; mkbVKs[(*mkbCount)++] = vk;
+        } else if (isVkController(vk) && *ctrlCount < capacity) {
+            ctrlSlots[*ctrlCount] = i; ctrlVKs[(*ctrlCount)++] = vk;
+        }
+    }
+}
+
+static s32 findFreeTriggerSlot(InputMappingContext *imc, InputAction action)
+{
+    if (!imc) return -1;
+    InputMapping *m = &imc->mappings[action];
+    for (s32 i = 0; i < ACTIONMAP_MAX_TRIGGERS; i++) {
+        if (m->triggers[i].vk == 0) return i;
+    }
+    return -1;
+}
+
+static bool removingLastMenuControllerBinding(const InputMappingContext *imc,
+        InputAction action, s32 slot, u32 vk)
+{
+    if ((imc != &g_ImcMenu && imc != &g_ImcPauseMenu) || !isVkController(vk)) return false;
+    if (action != ACTION_MENU_ACCEPT && action != ACTION_MENU_CANCEL &&
+            (action < ACTION_MENU_UP || action > ACTION_MENU_RIGHT)) return false;
+    input_vk_control_t removed;
+    if (!inputVkDecodeController(vk, &removed) || removed.player != 0) return false;
+
+    const InputMapping &mapping = imc->mappings[action];
+    for (s32 i = 0; i < mapping.num_triggers; ++i) {
+        input_vk_control_t other;
+        if (i != slot && inputVkDecodeController(mapping.triggers[i].vk, &other) &&
+                other.player == 0) return false;
+    }
+    return true;
+}
+
+/* Trigger slot index for controller Bind 1 / Bind 2 columns (matches renderBindTable). */
+static s32 pickSlotForControllerBindColumn(InputMappingContext *imc, InputAction action, s32 wantCol)
+{
+    if (!imc) return 0;
+    u32 mkbVKs[2], ctrlVKs[2];
+    s32 mkbSlots[2], ctrlSlots[2];
+    s32 mkbCount, ctrlCount;
+    getBindsByType(imc, action, mkbVKs, mkbSlots, &mkbCount, ctrlVKs, ctrlSlots, &ctrlCount);
+    if (wantCol == 0) {
+        if (ctrlSlots[0] >= 0) {
+            return ctrlSlots[0];
+        }
+        return findFreeTriggerSlot(imc, action);
+    }
+    if (ctrlSlots[1] >= 0) {
+        return ctrlSlots[1];
+    }
+    s32 other = (ctrlSlots[0] >= 0) ? ctrlSlots[0] : -1;
+    s32 useSlot = findFreeTriggerSlot(imc, action);
+    if (other >= 0 && useSlot == other) {
+        InputMapping *m = &imc->mappings[action];
+        useSlot = -1;
+        for (s32 i = 0; i < ACTIONMAP_MAX_TRIGGERS; i++) {
+            if (i != other && m->triggers[i].vk == 0) {
+                useSlot = i;
+                break;
+            }
+        }
+        if (useSlot < 0) {
+            useSlot = (other == 0) ? 1 : 0;
+        }
+    }
+    return useSlot;
+}
+
+/* Clear controller bind at vk for Bind 1 (0) or Bind 2 (1) column. Walks every
+ * row whose group is in the active tab (groupMask), so the visual mapper only
+ * affects bindings the user can actually see. */
+static bool clearControllerVkAtBindColumn(u32 vk, s32 bindCol, u32 groupMask)
+{
+    for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+        if (!(groupMask & (1u << s_BindableActions[row].group))) {
+            continue;
+        }
+        InputMappingContext *imc = s_BindableActions[row].owningImc;
+        if (!imc) continue;
+        InputAction act = s_BindableActions[row].action;
+        u32 mkbVKs[2], ctrlVKs[2];
+        s32 mkbSlots[2], ctrlSlots[2];
+        s32 mkbCount, ctrlCount;
+        getBindsByType(imc, act, mkbVKs, mkbSlots, &mkbCount, ctrlVKs, ctrlSlots, &ctrlCount);
+        if (bindCol == 0 && ctrlVKs[0] == vk && ctrlSlots[0] >= 0) {
+            actionmapBind(imc, 0, act, ctrlSlots[0], 0);
+        } else if (bindCol == 1 && ctrlVKs[1] == vk && ctrlSlots[1] >= 0) {
+            actionmapBind(imc, 0, act, ctrlSlots[1], 0);
+        }
+    }
+    return inputUiPersistBindings();
+}
+
+/* Conflict map — computed once per frame, per filter column. Keys are the
+ * u32 VK values. When a VK shows up in more than one bindable action's
+ * triggers we raise a flag so the row's button can render with a red
+ * border. Uses a tiny open-addressing hash over 128 slots — plenty for
+ * 51×2 possible bindings. */
+#define CONFLICT_HASH_SIZE 128
+
+static u32  s_ConflictKey[CONFLICT_HASH_SIZE];   /* vk value (0 = empty) */
+static u8   s_ConflictCount[CONFLICT_HASH_SIZE]; /* # of actions binding this vk */
+
+static void conflictMapReset(void)
+{
+    for (int i = 0; i < CONFLICT_HASH_SIZE; i++) {
+        s_ConflictKey[i]   = 0;
+        s_ConflictCount[i] = 0;
+    }
+}
+static void conflictMapAdd(u32 vk)
+{
+    if (!vk) return;
+    u32 h = (vk * 2654435761u) & (CONFLICT_HASH_SIZE - 1);
+    for (int probe = 0; probe < CONFLICT_HASH_SIZE; probe++) {
+        u32 slot = (h + probe) & (CONFLICT_HASH_SIZE - 1);
+        if (s_ConflictKey[slot] == 0) {
+            s_ConflictKey[slot]   = vk;
+            s_ConflictCount[slot] = 1;
+            return;
+        }
+        if (s_ConflictKey[slot] == vk) {
+            if (s_ConflictCount[slot] < 255) s_ConflictCount[slot]++;
+            return;
+        }
+    }
+}
+static u32 conflictMapCount(u32 vk)
+{
+    if (!vk) return 0;
+    u32 h = (vk * 2654435761u) & (CONFLICT_HASH_SIZE - 1);
+    for (int probe = 0; probe < CONFLICT_HASH_SIZE; probe++) {
+        u32 slot = (h + probe) & (CONFLICT_HASH_SIZE - 1);
+        if (s_ConflictKey[slot] == 0) return 0;
+        if (s_ConflictKey[slot] == vk) return s_ConflictCount[slot];
+    }
+    return 0;
+}
+/* Rebuild the conflict map for a single (groupMask, deviceCol) pair. groupMask
+ * scopes detection to the active tab's groups so a key bound to Move Forward
+ * in Mission and Steer Right in Vehicle does not falsely flag as conflicting. */
+static void conflictMapRebuild(s32 filterCol, u32 groupMask)
+{
+    conflictMapReset();
+    for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+        if (!(groupMask & (1u << s_BindableActions[row].group))) {
+            continue;
+        }
+        InputMappingContext *imc = s_BindableActions[row].owningImc;
+        if (!imc) continue;
+        InputAction action = s_BindableActions[row].action;
+        InputMapping *m = &imc->mappings[action];
+        for (s32 i = 0; i < m->num_triggers; i++) {
+            u32 vk = m->triggers[i].vk;
+            if (!vk) continue;
+            bool isMkb  = isVkMKB(vk);
+            bool isCtrl = isVkController(vk);
+            if (filterCol == 0 && !isMkb)  continue;
+            if (filterCol == 1 && !isCtrl) continue;
+            conflictMapAdd(vk);
+        }
+    }
+}
+
+/* Render one bind cell. The owningImc determines where capture writes back and
+ * where right-click clears. The action enum identifies the row inside that IMC.
+ * idSuffix uniquifies the ImGui ID across columns and groups. */
+static void renderBindButton(InputMappingContext *imc, InputAction action, const char *rowName,
+                              const char *idSuffix, s32 captureCol,
+                              s32 isSecond, u32 vk, s32 slot, s32 otherSlot,
+                              bool *rowHov, bool *rowNav, bool conflict)
+{
+    if (!imc) return;
+    char btnLabel[64];
+    bool isCap = (s_CaptureActive && s_CaptureImc == imc
+                  && s_CaptureAction == action
+                  && s_CaptureColumn == captureCol
+                  && s_CaptureIsSecond == isSecond);
+    if (isCap) {
+        snprintf(btnLabel, sizeof(btnLabel), "...##%s_%p_%d", idSuffix, (void *)imc, (int)action);
+    } else {
+        snprintf(btnLabel, sizeof(btnLabel), "%s##%s_%p_%d", getBindName(vk), idSuffix, (void *)imc, (int)action);
+    }
+
+    int pushedBorder = 0;
+    if (conflict) {
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.85f, 0.20f, 0.20f, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+        pushedBorder = 1;
+    } else if (isCap) {
+        ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.95f, 0.75f, 0.15f, 1.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 2.0f);
+        pushedBorder = 1;
+    }
+
+    const bool hasSlot = slot >= 0 || findFreeTriggerSlot(imc, action) >= 0;
+    ImGui::BeginDisabled(!hasSlot || s_CaptureActive);
+    if (ImGui::SmallButton(btnLabel)) {
+        s32 useSlot = slot;
+        if (useSlot < 0) {
+            useSlot = findFreeTriggerSlot(imc, action);
+            if (useSlot == otherSlot) {
+                InputMapping *m = &imc->mappings[action];
+                useSlot = -1;
+                for (s32 i = 0; i < ACTIONMAP_MAX_TRIGGERS; i++) {
+                    if (i != otherSlot && m->triggers[i].vk == 0) { useSlot = i; break; }
+                }
+            }
+        }
+        if (useSlot < 0) {
+            ImGui::EndDisabled();
+            if (pushedBorder) { ImGui::PopStyleVar(); ImGui::PopStyleColor(); }
+            return;
+        }
+        s_CaptureActive   = 1;
+        s_CaptureAction   = action;
+        s_CaptureColumn   = captureCol;
+        s_CaptureIsSecond = isSecond;
+        s_CaptureBind     = useSlot;
+        s_CaptureImc      = imc;
+        s_CaptureName     = rowName ? rowName : "(unnamed)";
+        s_CaptureCandidate = 0;
+        s_CaptureStatus[0] = '\0';
+        InputDeviceIdentity captureDevice = {};
+        s_CaptureControllerInstance = captureCol == 1 &&
+            actionmapGetBindingDeviceIdentity(0, &captureDevice)
+                ? captureDevice.instance_id : -1;
+        s_CaptureOpenPending = true;
+        s_CaptureReviewFrame = -1;
+        inputClearLastKey();
+        inputUiFlushCaptureActions();
+        pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+    }
+    ImGui::EndDisabled();
+
+    if (pushedBorder) {
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor();
+    }
+
+    if (conflict && ImGui::IsItemHovered()) {
+        ImGui::SetTooltip("Conflict: '%s' is bound to more than one action in this tab.",
+                          getBindName(vk));
+    }
+    if (ImGui::IsItemHovered()) *rowHov = true;
+    if (ImGui::IsItemFocused()) *rowNav = true;
+    if (!hasSlot && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("All binding slots are occupied. Clear or replace an existing binding first.");
+    }
+    const bool focusedClear = ImGui::IsItemFocused()
+        && (pdguiMenuSecondaryPressed() || pdguiMenuDeletePressed());
+    if (!s_CaptureActive && (ImGui::IsItemClicked(ImGuiMouseButton_Right) || focusedClear)
+            && vk != 0 && slot >= 0) {
+        if (removingLastMenuControllerBinding(imc, action, slot, vk)) {
+            snprintf(s_CaptureStatus, sizeof(s_CaptureStatus),
+                "Keep one controller binding for %s. Replace this one or add another first.", rowName);
+        } else {
+            s_CaptureStatus[0] = '\0';
+            actionmapBind(imc, 0, action, slot, 0);
+            if (inputUiPersistBindings()) pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+        }
+    }
+}
+
+/* Find the first row whose (action, owningImc) pair matches. Used by the
+ * capture banner so we display the right label for shared actions. */
+static const BindableAction *findRowByActionAndImc(InputAction action, InputMappingContext *imc)
+{
+    for (u32 i = 0; i < NUM_BINDABLE_ACTIONS; i++) {
+        if (s_BindableActions[i].action == action && s_BindableActions[i].owningImc == imc) {
+            return &s_BindableActions[i];
+        }
+    }
+    return NULL;
+}
+
+/* Sub-tab index within Controls: 0 = Keyboard & Mouse, 1 = Controller */
+static s32 s_ControlsSubTab = 0;
+
+/* Track whether we need to reload binds on Input tab entry */
+static bool s_ControlsNeedsInit = true;
+
+/* S306: optional search filter. Empty means "show all". Case-insensitive
+ * substring match on the display name. */
+static char s_BindSearch[64] = "";
+/* Input -> hold overrides table */
+static char s_HoldOvFilter[64] = "";
+
+static bool stringIContains(const char *hay, const char *needle)
+{
+    if (!needle || !needle[0]) return true;
+    if (!hay) return false;
+    size_t nlen = strlen(needle);
+    for (size_t i = 0; hay[i]; i++) {
+        size_t k = 0;
+        while (k < nlen && hay[i + k]) {
+            char a = hay[i + k]; if (a >= 'A' && a <= 'Z') a += 32;
+            char b = needle[k];  if (b >= 'A' && b <= 'Z') b += 32;
+            if (a != b) break;
+            k++;
+        }
+        if (k == nlen) return true;
+    }
+    return false;
+}
+
+/* Shared capture-mode handler. Writes into s_CaptureImc (the IMC that was
+ * active when the user clicked the bind cell). If capture started but
+ * s_CaptureImc somehow ended up NULL (e.g. tab tear-down race), the handler
+ * cancels rather than blindly writing into Gameplay. */
+static void handleCaptureInput(void)
+{
+    if (!s_CaptureActive || s_CaptureCandidate != 0) return;
+    if (!s_CaptureImc) { inputUiCancelCapture(); return; }
+
+    s32 newKey = inputGetLastKey();
+    if (newKey > 0) {
+        input_vk_control_t control;
+        if (s_CaptureColumn == 1 && inputVkDecodeController((u32)newKey, &control) &&
+                control.player != 0) {
+            InputDeviceIdentity device = {};
+            if (actionmapGetBindingDeviceIdentity(control.player, &device) &&
+                    device.instance_id == s_CaptureControllerInstance) {
+                newKey = control.kind == INPUT_VK_BUTTON ? inputVkRawButton(0, control.index) :
+                    inputVkDigitalAxis(0, control.index, control.direction);
+            } else {
+                newKey = 0;
+            }
+        }
+        bool valid = (s_CaptureColumn == 0 && isVkMKB((u32)newKey))
+                  || (s_CaptureColumn == 1 && isVkController((u32)newKey));
+        if (valid && s_CaptureImc != NULL) {
+            /* Preview first: even the current Back/Escape input is bindable.
+             * Its captured press must never also activate the review buttons. */
+            s_CaptureCandidate = (u32)newKey;
+            s_CaptureReviewFocus = true;
+            s_CaptureReviewFrame = ImGui::GetFrameCount();
+            inputUiFlushCaptureActions();
+        }
+        inputClearLastKey();
+    }
+}
+
+/* Called from the owning window after its Settings child has ended. OpenPopup
+ * and BeginPopupModal therefore share one root ID scope, including CI Options. */
+static void renderInputCaptureModal(void)
+{
+    const char *popupId = "Rebind input##settings_capture";
+    if (s_CaptureOpenPending) {
+        ImGui::OpenPopup(popupId);
+        s_CaptureOpenPending = false;
+    }
+    if (!s_CaptureActive && !ImGui::IsPopupOpen(popupId)) return;
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(),
+        ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal(popupId, nullptr,
+            ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        inputUiCancelCapture();
+        return;
+    }
+    if (!s_CaptureActive) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+
+    ImGui::Text("Rebind %s", s_CaptureName);
+    if (s_CaptureCandidate == 0) {
+        ImGui::Text("Press a %s input to preview it.",
+            s_CaptureColumn == 0 ? "keyboard/mouse" : "controller");
+        ImGui::TextUnformatted("Then choose Apply, Try Again, or Cancel.");
+        /* A pointer can cancel directly; controller/keyboard users can press
+         * any input and then cancel the review with their current Back action. */
+        if (ImGui::Button("Cancel")) {
+            inputUiCancelCapture();
+            ImGui::CloseCurrentPopup();
+        } else if (ImGui::IsItemActive()) {
+            /* Buttons commit on release. Retire the mouse-down mailbox now
+             * while Cancel owns the gesture, before its release can click. */
+            inputClearLastKey();
+        } else {
+            /* The pointer's Cancel click wins over the raw event-watch
+             * mailbox; clicking Cancel must never preview Mouse Left. */
+            handleCaptureInput();
+        }
+    } else {
+        ImGui::Text("New binding: %s", getBindName(s_CaptureCandidate));
+        const bool ready = ImGui::GetFrameCount() > s_CaptureReviewFrame;
+        ImGui::BeginDisabled(!ready);
+        if (s_CaptureReviewFocus && ready) {
+            ImGui::SetKeyboardFocusHere();
+            s_CaptureReviewFocus = false;
+        }
+        if (ImGui::Button("Cancel") || (ready && pdguiMenuCancelPressed())) {
+            inputUiCancelCapture();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Try Again")) {
+            s_CaptureCandidate = 0;
+            inputClearLastKey();
+            inputUiFlushCaptureActions();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Apply") && s_CaptureImc && s_CaptureCandidate) {
+            actionmapBind(s_CaptureImc, 0, s_CaptureAction, s_CaptureBind, s_CaptureCandidate);
+            if (inputUiPersistBindings()) {
+                inputUiCancelCapture();
+                pdguiPlaySound(PDGUI_SND_SELECT);
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndDisabled();
+    }
+    inputUiBindingPersistenceStatus();
+    ImGui::EndPopup();
+}
+
+/* Controller diagram: SDL gamepad button indices match port/src/actionmap.cpp (JBTN_*). */
+#define PD_JOY0_BTN(off) inputVkRawButton(0, (off))
+#define PD_JOY0_AXIS(slot) inputVkAxisByOrdinal(0, (slot) - 22)
+
+struct CtrlPadZone {
+    const char *id;
+    const char *shortLabel;
+    u32 vk;
+    float relX, relY, relW, relH;
+};
+
+/* Entries for one physical controller button on the visual map (Bind 1 vs Bind 2
+ * matches the table columns; order is B1 then B2, then name). */
+struct CtrlZoneEntry {
+    InputAction          action;
+    InputMappingContext *imc;
+    const char          *name;
+    u8                   bindIdx; /* 0 = Bind 1, 1 = Bind 2 */
+};
+
+/* Drag-drop payload: action plus owning IMC. The drop target writes the
+ * dropped VK into the named IMC, not unconditionally into Gameplay. */
+struct DragActionPayload {
+    InputAction          action;
+    InputMappingContext *imc;
+};
+
+#define CTRL_ZONE_MAX_ENTRIES 10
+
+static int collectCtrlZoneEntries(u32 vk, u32 groupMask, CtrlZoneEntry *out, int maxOut)
+{
+    int n = 0;
+    for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+        if (!(groupMask & (1u << s_BindableActions[row].group))) {
+            continue;
+        }
+        InputMappingContext *imc = s_BindableActions[row].owningImc;
+        if (!imc) continue;
+        InputAction act = s_BindableActions[row].action;
+        u32 mkbVKs[2], ctrlVKs[2];
+        s32 mkbSlots[2], ctrlSlots[2];
+        s32 mkbCount, ctrlCount;
+        getBindsByType(imc, act, mkbVKs, mkbSlots, &mkbCount, ctrlVKs, ctrlSlots, &ctrlCount);
+        for (int bi = 0; bi < 2; bi++) {
+            if (ctrlVKs[bi] == vk && n < maxOut) {
+                out[n].action  = act;
+                out[n].imc     = imc;
+                out[n].name    = s_BindableActions[row].name;
+                out[n].bindIdx = (u8)bi;
+                n++;
+            }
+        }
+    }
+    /* Sort: Bind 1 before Bind 2, then label A-Z */
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = i + 1; j < n; j++) {
+            int db = (int)out[i].bindIdx - (int)out[j].bindIdx;
+            if (db > 0 || (db == 0 && strcmp(out[i].name, out[j].name) > 0)) {
+                CtrlZoneEntry t = out[i];
+                out[i] = out[j];
+                out[j] = t;
+            }
+        }
+    }
+    return n;
+}
+
+/* Vector-style Xbox-like silhouette: drawn under drop zones; zones stay interactive on top. */
+static void drawControllerSilhouette(ImDrawList *dl, ImVec2 p0, float padW, float padH)
+{
+    const float px = padW;
+    const float py = padH;
+    const ImU32 bodyFill = IM_COL32(32, 34, 46, 255);
+    const ImU32 bodyEdge = IM_COL32(55, 60, 78, 255);
+    const ImU32 deco = IM_COL32(72, 80, 105, 110);
+    const ImU32 shoulderFill = IM_COL32(26, 28, 38, 255);
+    const float bodyRound = pdguiScale(14.0f);
+
+    ImVec2 bmin(p0.x + 0.016f * px, p0.y + 0.058f * py);
+    ImVec2 bmax(p0.x + 0.984f * px, p0.y + 0.978f * py);
+    dl->AddRectFilled(bmin, bmax, bodyFill, bodyRound);
+    dl->AddRect(bmin, bmax, bodyEdge, bodyRound, 0, 1.25f);
+
+    /* LT / RT caps */
+    float shTop = p0.y + 0.038f * py;
+    float shBot = p0.y + 0.098f * py;
+    dl->AddRectFilled(
+        ImVec2(p0.x + 0.065f * px, shTop),
+        ImVec2(p0.x + 0.205f * px, shBot),
+        shoulderFill, pdguiScale(5.0f));
+    dl->AddRectFilled(
+        ImVec2(p0.x + 0.795f * px, shTop),
+        ImVec2(p0.x + 0.935f * px, shBot),
+        shoulderFill, pdguiScale(5.0f));
+    dl->AddRect(
+        ImVec2(p0.x + 0.065f * px, shTop),
+        ImVec2(p0.x + 0.205f * px, shBot),
+        IM_COL32(48, 54, 72, 255), pdguiScale(5.0f), 0, 1.0f);
+    dl->AddRect(
+        ImVec2(p0.x + 0.795f * px, shTop),
+        ImVec2(p0.x + 0.935f * px, shBot),
+        IM_COL32(48, 54, 72, 255), pdguiScale(5.0f), 0, 1.0f);
+
+    /* D-pad cross (decorative) */
+    float dcx = p0.x + 0.19f * px;
+    float dcy = p0.y + 0.52f * py;
+    float arm = pdguiScale(16.0f);
+    float thick = pdguiScale(11.0f);
+    dl->AddRectFilled(
+        ImVec2(dcx - arm, dcy - thick * 0.5f),
+        ImVec2(dcx + arm, dcy + thick * 0.5f),
+        deco, pdguiScale(2.5f));
+    dl->AddRectFilled(
+        ImVec2(dcx - thick * 0.5f, dcy - arm),
+        ImVec2(dcx + thick * 0.5f, dcy + arm),
+        deco, pdguiScale(2.5f));
+
+    /* Analog sticks (hollow rings, aligned with L3/R3 zones) */
+    float srad = pdguiScale(27.0f);
+    ImVec2 lStick(p0.x + 0.245f * px, p0.y + 0.8945f * py);
+    ImVec2 rStick(p0.x + 0.755f * px, p0.y + 0.8945f * py);
+    dl->AddCircle(lStick, srad, deco, 40, 1.35f);
+    dl->AddCircle(rStick, srad, deco, 40, 1.35f);
+
+    /* Face button hints (small circles in diamond layout) */
+    float br = pdguiScale(7.5f);
+    dl->AddCircle(ImVec2(p0.x + 0.8125f * px, p0.y + 0.3785f * py), br, deco, 20, 1.0f);
+    dl->AddCircle(ImVec2(p0.x + 0.7125f * px, p0.y + 0.5575f * py), br, deco, 20, 1.0f);
+    dl->AddCircle(ImVec2(p0.x + 0.9125f * px, p0.y + 0.5575f * py), br, deco, 20, 1.0f);
+    dl->AddCircle(ImVec2(p0.x + 0.8125f * px, p0.y + 0.7365f * py), br, deco, 20, 1.0f);
+
+    /* Center guide line (Start / Back) */
+    dl->AddLine(
+        ImVec2(p0.x + 0.36f * px, p0.y + 0.30f * py),
+        ImVec2(p0.x + 0.64f * px, p0.y + 0.30f * py),
+        IM_COL32(55, 62, 82, 80), 1.0f);
+}
+
+/* One physical control: left half = Bind 1 column, right half = Bind 2 (matches bind table).
+ * groupMask is the active tab's groups so right-click clear and drag-drop only
+ * affect bindings the user can see. Drop payload is DragActionPayload (action +
+ * owningImc), so a drop on Mission's "Move Forward" lands on g_ImcGameplay,
+ * while a drop on Combat Simulator's "Scorecard hold" lands on g_ImcCombatSim. */
+static void renderOneCtrlPadZoneSplit(ImDrawList *dl, const ImVec2 &padOrigin, const CtrlPadZone *z,
+                                       float padW, float padH, u32 groupMask)
+{
+    ImGui::SetCursorScreenPos(ImVec2(padOrigin.x + z->relX * padW, padOrigin.y + z->relY * padH));
+    ImVec2 zsz(z->relW * padW, z->relH * padH);
+    float halfW = zsz.x * 0.5f;
+
+    char id0[56], id1[56];
+    snprintf(id0, sizeof(id0), "%s_b0##cz", z->id);
+    snprintf(id1, sizeof(id1), "%s_b1##cz", z->id);
+
+    ImGui::PushID(z->id);
+    ImGui::InvisibleButton(id0, ImVec2(halfW, zsz.y));
+    bool hov0 = ImGui::IsItemHovered();
+    bool nav0 = ImGui::IsItemFocused();
+    ImVec2 rmin0 = ImGui::GetItemRectMin();
+    ImVec2 rmax0 = ImGui::GetItemRectMax();
+    if (ImGui::BeginDragDropTarget()) {
+        const ImGuiPayload *pl = ImGui::AcceptDragDropPayload("PD_INPUT_ACTION");
+        if (pl && pl->DataSize == (int)sizeof(DragActionPayload) && pl->Data != NULL) {
+            const DragActionPayload *p = (const DragActionPayload *)pl->Data;
+            if (p->imc) {
+                s32 sl = pickSlotForControllerBindColumn(p->imc, p->action, 0);
+                if (sl >= 0) {
+                    actionmapBind(p->imc, 0, p->action, sl, z->vk);
+                    if (inputUiPersistBindings()) pdguiPlaySound(PDGUI_SND_SELECT);
+                }
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        if (clearControllerVkAtBindColumn(z->vk, 0, groupMask))
+            pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+    }
+
+    ImGui::SameLine(0.0f, 0.0f);
+    ImGui::InvisibleButton(id1, ImVec2(halfW, zsz.y));
+    bool hov1 = ImGui::IsItemHovered();
+    bool nav1 = ImGui::IsItemFocused();
+    ImVec2 rmin1 = ImGui::GetItemRectMin();
+    ImVec2 rmax1 = ImGui::GetItemRectMax();
+    if (ImGui::BeginDragDropTarget()) {
+        const ImGuiPayload *pl = ImGui::AcceptDragDropPayload("PD_INPUT_ACTION");
+        if (pl && pl->DataSize == (int)sizeof(DragActionPayload) && pl->Data != NULL) {
+            const DragActionPayload *p = (const DragActionPayload *)pl->Data;
+            if (p->imc) {
+                s32 sl = pickSlotForControllerBindColumn(p->imc, p->action, 1);
+                if (sl >= 0) {
+                    actionmapBind(p->imc, 0, p->action, sl, z->vk);
+                    if (inputUiPersistBindings()) pdguiPlaySound(PDGUI_SND_SELECT);
+                }
+            }
+        }
+        ImGui::EndDragDropTarget();
+    }
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+        if (clearControllerVkAtBindColumn(z->vk, 1, groupMask))
+            pdguiPlaySound(PDGUI_SND_TOGGLEOFF);
+    }
+    ImGui::PopID();
+
+    ImVec2 rmin(rmin0.x, rmin0.y);
+    ImVec2 rmax(rmax1.x, rmax1.y);
+
+    ImU32 fill0 = hov0 ? IM_COL32(65, 85, 115, 230) : IM_COL32(48, 52, 68, 220);
+    ImU32 fill1 = hov1 ? IM_COL32(65, 85, 115, 230) : IM_COL32(48, 52, 68, 220);
+    if (nav0) {
+        fill0 = IM_COL32(75, 95, 130, 240);
+    }
+    if (nav1) {
+        fill1 = IM_COL32(75, 95, 130, 240);
+    }
+    float zr = pdguiScale(3.0f);
+    dl->AddRectFilled(rmin0, rmax0, fill0, zr, ImDrawFlags_RoundCornersLeft);
+    dl->AddRectFilled(ImVec2(rmin0.x + halfW, rmin0.y), rmax1, fill1, zr, ImDrawFlags_RoundCornersRight);
+    dl->AddRect(rmin, rmax, IM_COL32(130, 140, 175, 255), zr, 0, 1.25f);
+    dl->AddLine(ImVec2(rmin0.x + halfW, rmin.y), ImVec2(rmin0.x + halfW, rmax.y),
+                IM_COL32(90, 95, 120, 200), 1.0f);
+
+    dl->AddText(ImVec2(rmin.x + pdguiScale(4.0f), rmin.y + pdguiScale(2.0f)), IM_COL32(170, 190, 220, 255),
+                "1");
+    dl->AddText(ImVec2(rmin.x + halfW + pdguiScale(4.0f), rmin.y + pdguiScale(2.0f)),
+                IM_COL32(170, 190, 220, 255), "2");
+    dl->AddText(ImVec2(rmin.x + pdguiScale(22.0f), rmin.y + pdguiScale(2.0f)), IM_COL32(240, 242, 250, 255),
+                z->shortLabel);
+
+    CtrlZoneEntry zent[CTRL_ZONE_MAX_ENTRIES];
+    int zn = collectCtrlZoneEntries(z->vk, groupMask, zent, CTRL_ZONE_MAX_ENTRIES);
+    const ImU32 colB1 = IM_COL32(215, 235, 255, 255);
+    const ImU32 colB2 = IM_COL32(165, 200, 240, 245);
+    const ImU32 colEmpty = IM_COL32(130, 135, 155, 220);
+
+    float lineY = rmin.y + ImGui::GetTextLineHeight() + pdguiScale(3.0f);
+    const float bindFont = ImGui::GetFontSize() * 0.72f;
+    ImGui::PushClipRect(rmin, rmax, true);
+    if (zn == 0) {
+        dl->AddText(ImGui::GetFont(), bindFont, ImVec2(rmin.x + pdguiScale(3.0f), lineY), colEmpty, "(empty)");
+    } else {
+        for (int zi2 = 0; zi2 < zn; zi2++) {
+            char line[96];
+            snprintf(line, sizeof(line), "B%u %s", (unsigned)(zent[zi2].bindIdx + 1), zent[zi2].name);
+            ImU32 col = (zent[zi2].bindIdx == 0) ? colB1 : colB2;
+            dl->AddText(ImGui::GetFont(), bindFont, ImVec2(rmin.x + pdguiScale(3.0f), lineY), col, line);
+            lineY += bindFont * 1.05f;
+            if (lineY > rmax.y - bindFont * 0.5f) {
+                dl->AddText(ImGui::GetFont(), bindFont * 0.9f, ImVec2(rmin.x + pdguiScale(3.0f), lineY),
+                            colEmpty, "+more");
+                break;
+            }
+        }
+    }
+    ImGui::PopClipRect();
+
+    bool hov = hov0 || hov1;
+    if (hov && zn > 0) {
+        char tip[560];
+        size_t tl = 0;
+        tip[0] = '\0';
+        bool haveUse = false;
+        bool haveReload = false;
+        for (int zi2 = 0; zi2 < zn && tl < sizeof(tip) - 160; zi2++) {
+            int n = snprintf(tip + tl, sizeof(tip) - tl, "Bind %u: %s\n",
+                             (unsigned)(zent[zi2].bindIdx + 1), zent[zi2].name);
+            if (n > 0) tl += (size_t)n;
+            if (zent[zi2].action == ACTION_USE) haveUse = true;
+            if (zent[zi2].action == ACTION_RELOAD) haveReload = true;
+        }
+        strncat(tip, "Drop left: Bind 1. Drop right: Bind 2. Right-click a side to clear that column.\n",
+                sizeof(tip) - tl - 1);
+        tl = strlen(tip);
+        if (haveUse && haveReload) {
+            strncat(tip,
+                    "\nSame button: hold Use / Interact uses the threshold above; short press / release "
+                    "pairs with bondmove for reload when no prompt (see Combat bindings).",
+                    sizeof(tip) - tl - 1);
+        }
+        ImGui::SetTooltip("%s", tip);
+    }
+}
+
+/* Drag sources + drop targets on a stylized gamepad. groupMask is the active
+ * tab's set of groups (bit set = surface that group). Drag payload is a
+ * DragActionPayload (action + owning IMC), so a drop on the visual mapper
+ * lands in the correct IMC for the dragged row.
+ *
+ * Zones are ordered so stick click (L3/R3) wins hit-testing over stick
+ * cardinals on overlap. */
+static void renderControllerVisualMapper(float scale, u32 groupMask)
+{
+    (void)scale;
+    const float padW = pdguiScale(420.0f);
+    const float padH = pdguiScale(240.0f);
+    const float rowH = padH + pdguiScale(10.0f);
+
+    ImGui::TextWrapped(
+        "Drag an action from the list onto the left or right half of a zone: left sets Bind 1, "
+        "right sets Bind 2 (same columns as the table below). LS / RS arrows are synthetic stick "
+        "directions. Old saved stick and trigger keys also match raw buttons 23-32; rebind them "
+        "to precise controls to separate those sources. Right-click a half to clear that bind column. "
+        "Drops land on the IMC the row "
+        "belongs to, so dragging a Vehicle action only affects the Vehicle scheme.");
+    ImGui::Spacing();
+
+    static const CtrlPadZone kZones[] = {
+        /* Use the same precise axis vocabulary as SDL capture and dispatch. */
+        { "lsu", "LS-Up", PD_JOY0_AXIS(24), 0.212f, 0.752f, 0.066f, 0.058f },
+        { "lsd", "LS-Dn", PD_JOY0_AXIS(25), 0.212f, 0.925f, 0.066f, 0.055f },
+        { "lsl", "LS-Lt", PD_JOY0_AXIS(22), 0.098f, 0.862f, 0.058f, 0.068f },
+        { "lsr", "LS-Rt", PD_JOY0_AXIS(23), 0.328f, 0.862f, 0.058f, 0.068f },
+        { "rsu", "RS-Up", PD_JOY0_AXIS(28), 0.722f, 0.752f, 0.066f, 0.058f },
+        { "rsd", "RS-Dn", PD_JOY0_AXIS(29), 0.722f, 0.925f, 0.066f, 0.055f },
+        { "rsl", "RS-Lt", PD_JOY0_AXIS(26), 0.608f, 0.862f, 0.058f, 0.068f },
+        { "rsr", "RS-Rt", PD_JOY0_AXIS(27), 0.838f, 0.862f, 0.058f, 0.068f },
+        { "lt", "LT", PD_JOY0_AXIS(30), 0.07f, 0.032f, 0.13f, 0.074f },
+        { "rt", "RT", PD_JOY0_AXIS(31), 0.80f, 0.032f, 0.13f, 0.074f },
+        { "lb", "LB", PD_JOY0_BTN(9), 0.12f, 0.137f, 0.14f, 0.116f },
+        { "rb", "RB", PD_JOY0_BTN(10), 0.74f, 0.137f, 0.14f, 0.116f },
+        { "bk", "Back", PD_JOY0_BTN(4), 0.295f, 0.253f, 0.13f, 0.105f },
+        { "st", "Start", PD_JOY0_BTN(6), 0.575f, 0.253f, 0.13f, 0.105f },
+        { "dup", "D-Up", PD_JOY0_BTN(11), 0.155f, 0.379f, 0.07f, 0.116f },
+        { "ddn", "D-Down", PD_JOY0_BTN(12), 0.155f, 0.653f, 0.07f, 0.116f },
+        { "dlt", "D-Left", PD_JOY0_BTN(13), 0.085f, 0.516f, 0.07f, 0.116f },
+        { "drt", "D-Right", PD_JOY0_BTN(14), 0.225f, 0.516f, 0.07f, 0.116f },
+        { "y", "Y", PD_JOY0_BTN(3), 0.77f, 0.305f, 0.085f, 0.147f },
+        { "x", "X", PD_JOY0_BTN(2), 0.67f, 0.484f, 0.085f, 0.147f },
+        { "b", "B", PD_JOY0_BTN(1), 0.87f, 0.484f, 0.085f, 0.147f },
+        { "a", "A", PD_JOY0_BTN(0), 0.77f, 0.663f, 0.085f, 0.147f },
+        { "l3", "L3", PD_JOY0_BTN(7), 0.18f, 0.789f, 0.13f, 0.211f },
+        { "r3", "R3", PD_JOY0_BTN(8), 0.69f, 0.789f, 0.13f, 0.211f },
+    };
+
+    ImGui::BeginChild("##mapper_row", ImVec2(0.0f, rowH), ImGuiChildFlags_NavFlattened,
+                      ImGuiWindowFlags_NoScrollbar);
+
+    ImGui::BeginChild("##mapper_left", ImVec2(pdguiScale(232.0f), rowH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened);
+    ImGui::TextDisabled("Actions (drag)");
+    ImGui::Separator();
+    ImGui::BeginChild("##mapper_draglist", ImVec2(0.0f, 0.0f), ImGuiChildFlags_NavFlattened,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+    for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+        if (!(groupMask & (1u << s_BindableActions[row].group))) {
+            continue;
+        }
+        InputMappingContext *imc = s_BindableActions[row].owningImc;
+        if (!imc) continue;
+        if (!stringIContains(s_BindableActions[row].name, s_BindSearch)) {
+            continue;
+        }
+        char rowLabelBuf[96];
+        const char *rowLabel = formatRowLabel(&s_BindableActions[row], rowLabelBuf, sizeof(rowLabelBuf));
+        ImGui::PushID((int)row);
+        ImGui::Selectable(rowLabel, false, 0, ImVec2(-1.0f, 0.0f));
+        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
+            DragActionPayload payload;
+            payload.action = s_BindableActions[row].action;
+            payload.imc    = imc;
+            ImGui::SetDragDropPayload("PD_INPUT_ACTION", &payload, sizeof(payload));
+            ImGui::TextUnformatted(rowLabel);
+            ImGui::EndDragDropSource();
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndChild();
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+
+    ImGui::BeginChild("##mapper_right", ImVec2(0.0f, rowH),
+                      ImGuiChildFlags_Borders | ImGuiChildFlags_NavFlattened, ImGuiWindowFlags_NoScrollbar);
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    ImVec2 win0 = ImGui::GetCursorScreenPos();
+    dl->AddRectFilled(win0, ImVec2(win0.x + padW, win0.y + padH), IM_COL32(24, 26, 34, 255),
+                      pdguiScale(6.0f));
+    dl->AddRect(win0, ImVec2(win0.x + padW, win0.y + padH), IM_COL32(90, 95, 115, 255),
+                pdguiScale(6.0f), 0, 1.5f);
+    drawControllerSilhouette(dl, win0, padW, padH);
+
+    ImGui::SetCursorScreenPos(win0);
+
+    for (int zi = 0; zi < (int)(sizeof(kZones) / sizeof(kZones[0])); zi++) {
+        renderOneCtrlPadZoneSplit(dl, win0, &kZones[zi], padW, padH, groupMask);
+    }
+    ImGui::EndChild();
+
+    ImGui::EndChild();
+}
+
+/* Render the grouped bind list for one device type (MKB or Controller) scoped
+ * to the active tab. groupMask carries the bits-set-means-show convention.
+ * filterCol: 0 = MKB, 1 = Controller. Each row reads from / writes to its own
+ * owningImc; conflict detection is scoped to the active tab so cross-tab
+ * coincidences (Move Forward in Mission and Steer Right in Vehicle on the
+ * same VK) do not falsely flag. */
+static void renderBindTable(s32 filterCol, const char *tableId, u32 groupMask)
+{
+    /* Capture banner. Uses s_CaptureName directly because the capture state
+     * carries the row's display label, which is unambiguous even when the
+     * action enum is shared across IMCs. */
+    if (s_CaptureActive && s_CaptureColumn == filterCol) {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        const char *typeStr = (filterCol == 0) ? "keyboard/mouse" : "controller";
+        const char *imcName = (s_CaptureImc && s_CaptureImc->name) ? s_CaptureImc->name : "?";
+        ImGui::TextColored(warnCol,
+            "Choose a %s input for \"%s\" on the %s scheme",
+            typeStr, s_CaptureName ? s_CaptureName : "?", imcName);
+        ImGui::Spacing();
+    }
+
+    /* Search / filter input. The suffix on the label varies per device so
+     * MKB and Controller don't share ImGui state. */
+    {
+        char label[32];
+        snprintf(label, sizeof(label), "Search##bsrch_%d", (int)filterCol);
+        ImGui::SetNextItemWidth(pdguiScale(260.0f));
+        ImGui::InputTextWithHint(label, "filter by action name", s_BindSearch, sizeof(s_BindSearch));
+        if (s_BindSearch[0]) {
+            ImGui::SameLine();
+            char clearLbl[32];
+            snprintf(clearLbl, sizeof(clearLbl), "Clear##bclr_%d", (int)filterCol);
+            if (ImGui::SmallButton(clearLbl)) s_BindSearch[0] = '\0';
+        }
+    }
+
+    /* Conflict detection. Scoped to (active tab's groupMask, current device
+     * column) so cross-tab and cross-device coincidences do not flag. */
+    conflictMapRebuild(filterCol, groupMask);
+
+    ImGuiTableFlags tableFlags = ImGuiTableFlags_BordersInnerV
+                                | ImGuiTableFlags_RowBg
+                                | ImGuiTableFlags_SizingStretchProp
+                                | ImGuiTableFlags_PadOuterX;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding,  ImVec2(pdguiScale(4.0f), pdguiScale(2.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(pdguiScale(4.0f), pdguiScale(2.0f)));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,  ImVec2(pdguiScale(4.0f), pdguiScale(2.0f)));
+
+    /* Per-group render. Each group is an explicit header row + its own table.
+     * Groups absent from groupMask never emit. */
+    for (int g = 0; g < BG_COUNT; g++) {
+        if (!(groupMask & (1u << g))) {
+            continue;
+        }
+        int hits = 0;
+        for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+            if (s_BindableActions[row].group != g) continue;
+            if (!s_BindableActions[row].owningImc) continue;
+            if (!stringIContains(s_BindableActions[row].name, s_BindSearch)) continue;
+            hits++;
+        }
+        if (hits == 0) continue;
+
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "%s", s_BindableGroups[g].name);
+        ImGui::SameLine();
+        ImGui::TextDisabled("  %s", s_BindableGroups[g].blurb);
+        ImGui::Separator();
+
+        char perTableId[64];
+        snprintf(perTableId, sizeof(perTableId), "%s_g%d", tableId, g);
+
+        if (ImGui::BeginTable(perTableId, 1 + ACTIONMAP_MAX_TRIGGERS, tableFlags)) {
+            ImGui::TableSetupColumn("Action",  ImGuiTableColumnFlags_WidthStretch, 1.6f);
+            for (s32 binding = 0; binding < ACTIONMAP_MAX_TRIGGERS; ++binding) {
+                char columnLabel[24];
+                snprintf(columnLabel, sizeof(columnLabel), "Bind %d", (int)binding + 1);
+                ImGui::TableSetupColumn(columnLabel, ImGuiTableColumnFlags_WidthStretch, 1.0f);
+            }
+            ImGui::TableHeadersRow();
+
+            for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+                if (s_BindableActions[row].group != g) continue;
+                InputMappingContext *imc = s_BindableActions[row].owningImc;
+                if (!imc) continue;
+                if (!stringIContains(s_BindableActions[row].name, s_BindSearch)) continue;
+
+                InputAction action        = s_BindableActions[row].action;
+                const char *actionTooltip = s_BindableActions[row].tooltip;
+
+                char rowLabelBuf[96];
+                const char *rowLabel = formatRowLabel(&s_BindableActions[row], rowLabelBuf, sizeof(rowLabelBuf));
+
+                u32 mkbVKs[ACTIONMAP_MAX_TRIGGERS], ctrlVKs[ACTIONMAP_MAX_TRIGGERS];
+                s32 mkbSlots[ACTIONMAP_MAX_TRIGGERS], ctrlSlots[ACTIONMAP_MAX_TRIGGERS];
+                s32 mkbCount, ctrlCount;
+                getBindsByType(imc, action, mkbVKs, mkbSlots, &mkbCount,
+                               ctrlVKs, ctrlSlots, &ctrlCount, ACTIONMAP_MAX_TRIGGERS);
+
+                u32 *vks    = (filterCol == 0) ? mkbVKs    : ctrlVKs;
+                s32 *slots  = (filterCol == 0) ? mkbSlots  : ctrlSlots;
+                s32 deviceBindCount = (filterCol == 0) ? mkbCount : ctrlCount;
+                const char *prefix = (filterCol == 0) ? "mkb" : "ctrl";
+
+                ImGui::TableNextRow();
+                bool rowHovered = false;
+                bool rowNavFocus = false;
+
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(rowLabel);
+                if (actionTooltip && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", actionTooltip);
+                }
+
+                for (s32 binding = 0; binding < ACTIONMAP_MAX_TRIGGERS; ++binding) {
+                    char cellId[40];
+                    snprintf(cellId, sizeof(cellId), "%s%dg%dr%u", prefix, (int)binding, g, row);
+                    ImGui::TableSetColumnIndex(1 + binding);
+                    /* One Add position follows the real bindings; extra
+                     * blank columns must not imply independent empty slots. */
+                    if (binding > deviceBindCount) {
+                        ImGui::TextDisabled("---");
+                        continue;
+                    }
+                    renderBindButton(imc, action, s_BindableActions[row].name,
+                        cellId, filterCol, binding, vks[binding], slots[binding], -1,
+                        &rowHovered, &rowNavFocus, conflictMapCount(vks[binding]) > 1);
+                }
+
+                if (s_CaptureActive && s_CaptureImc == imc && s_CaptureAction == action
+                    && s_CaptureColumn == filterCol) {
+                    rowNavFocus = true;
+                }
+                if (rowHovered || rowNavFocus) {
+                    ImU32 hlColor = rowNavFocus
+                        ? pdguiImU32TintInfo(80)
+                        : pdguiImU32TitleGlow(40);
+                    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg1, hlColor);
+                }
+            }
+
+            ImGui::EndTable();
+        }
+        ImGui::Spacing();
+    }
+    ImGui::PopStyleVar(3);
+
+    ImGui::Spacing();
+    char acceptKey[24], clearKey[24];
+    pdguiGlyphGetActionLabel(ACTION_MENU_ACCEPT, acceptKey, sizeof(acceptKey));
+    pdguiGlyphGetActionLabel(ACTION_MENU_SECONDARY, clearKey, sizeof(clearKey));
+    ImGui::TextDisabled("%s / click: rebind. %s / right-click: clear focused binding.", acceptKey, clearKey);
+    ImGui::TextDisabled("Four slots are shared by keyboard, mouse, and controller inputs.");
+    ImGui::TextDisabled("Red border: same key bound twice in this tab + device. Cross-tab coincidences are fine.");
+}
+
+/* ActionMap.HoldMsOverrides — per-action hold ms; serialized by actionmapSaveBinds(). */
+static void renderActionHoldOverridesSection(void)
+{
+    if (!ImGui::CollapsingHeader("Per-action hold overrides (advanced)")) {
+        return;
+    }
+    ImGui::TextWrapped(
+        "Optional hold window per action (50-2000 ms), saved with binds as ActionMap.HoldMsOverrides. "
+        "For Use / Interact, Default follows the global \"Use hold\" slider above; Custom replaces it for "
+        "prompts and bondmove (actionmapGetEffectiveHoldMs). While Use / Interact is Custom, the global "
+        "slider is disabled above (effective ms is shown there). Other actions: Default means 0 ms "
+        "effective unless you choose Custom.");
+    ImGui::Spacing();
+
+    ImGui::SetNextItemWidth(pdguiScale(260.0f));
+    ImGui::InputTextWithHint("Filter##holdov", "filter by action name", s_HoldOvFilter,
+                             sizeof(s_HoldOvFilter));
+    if (s_HoldOvFilter[0]) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Clear##holdovclr")) {
+            s_HoldOvFilter[0] = '\0';
+        }
+    }
+
+    ImGui::BeginChild("##hold_ov_scroll", ImVec2(0.0f, pdguiScale(200.0f)), ImGuiChildFlags_NavFlattened,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
+
+    ImGuiTableFlags tf = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg
+                        | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_PadOuterX;
+    if (ImGui::BeginTable("##hold_ov_tbl", 3, tf)) {
+        ImGui::TableSetupColumn("Action", ImGuiTableColumnFlags_WidthStretch, 1.4f);
+        ImGui::TableSetupColumn("Override", ImGuiTableColumnFlags_WidthStretch, 1.4f);
+        ImGui::TableSetupColumn("Effective", ImGuiTableColumnFlags_WidthStretch, 0.8f);
+        ImGui::TableHeadersRow();
+
+        /* Deduplicate by action enum -- the master table now has multiple
+         * rows per shared action (USE on Gameplay, Menu, PauseMenu, ...) but
+         * the override applies to the action enum globally, so we only
+         * surface each action once. */
+        bool seenAction[ACTION_COUNT];
+        for (s32 i = 0; i < (s32)ACTION_COUNT; i++) seenAction[i] = false;
+
+        for (u32 row = 0; row < NUM_BINDABLE_ACTIONS; row++) {
+            InputAction act = s_BindableActions[row].action;
+            if (act < 0 || act >= ACTION_COUNT) continue;
+            if (seenAction[act]) continue;
+            if (!stringIContains(s_BindableActions[row].name, s_HoldOvFilter)) {
+                continue;
+            }
+            seenAction[act] = true;
+            const char *nm = s_BindableActions[row].name;
+
+            ImGui::TableNextRow();
+            ImGui::TableSetColumnIndex(0);
+            ImGui::TextUnformatted(nm);
+
+            ImGui::TableSetColumnIndex(1);
+            ImGui::PushID((int)act);
+            s32 ovRaw = actionmapGetActionHoldMsOverride(act);
+            int mode = (ovRaw >= 0) ? 1 : 0;
+            const char *modes[] = { "Default", "Custom" };
+            ImGui::SetNextItemWidth(pdguiScale(118.0f));
+            if (ImGui::Combo("##homode", &mode, modes, 2)) {
+                if (mode == 0) {
+                    actionmapSetActionHoldMsOverride(act, -1);
+                } else {
+                    s32 seed = (act == ACTION_USE) ? actionmapGetUseHoldThresholdMs() : 500;
+                    if (seed < 50) {
+                        seed = 50;
+                    }
+                    if (seed > 2000) {
+                        seed = 2000;
+                    }
+                    actionmapSetActionHoldMsOverride(act, seed);
+                }
+                inputUiPersistBindings();
+            }
+            if (mode == 1) {
+                s32 ms = actionmapGetActionHoldMsOverride(act);
+                if (ms < 0) {
+                    ms = 500;
+                }
+                if (ms < 50) {
+                    ms = 50;
+                }
+                if (ms > 2000) {
+                    ms = 2000;
+                }
+                if (PdSliderInt("##hms", &ms, 50, 2000, "%d ms")) {
+                    actionmapSetActionHoldMsOverride(act, ms);
+                    inputUiPersistBindings();
+                }
+            }
+            ImGui::PopID();
+
+            ImGui::TableSetColumnIndex(2);
+            {
+                s32 eff = actionmapGetEffectiveHoldMs(act);
+                s32 curOv = actionmapGetActionHoldMsOverride(act);
+                if (act == ACTION_USE && curOv < 0) {
+                    ImGui::TextDisabled("%d ms (global)", (int)eff);
+                } else {
+                    ImGui::Text("%d ms", (int)eff);
+                }
+            }
+        }
+        ImGui::EndTable();
+    }
+    ImGui::EndChild();
+}
+
+/* Build a complete device-only reset candidate. Other-device slots survive;
+ * capacity failure leaves the whole tab unchanged. Persist once after apply. */
+static void resetTabDeviceToDefaults(const ImcTabDesc *tab, s32 filterCol)
+{
+    if (!tab) return;
+    if (actionmapResetDeviceDefaults(tab->resetImcs, tab->numResetImcs, filterCol != 0))
+        inputUiPersistBindings();
+}
+
+/* Inner subtab: Keyboard & Mouse. Renders the bind table for the outer tab's
+ * groupMask plus a tab-scoped reset button. */
+static void renderControlsKbmInner(const ImcTabDesc *tab)
+{
+    /* Cancel a controller-side capture when the user switches inner tabs. */
+    if (s_CaptureActive && s_CaptureColumn == 1) {
+        s_CaptureActive = 0;
+        s_CaptureImc    = NULL;
+        s_CaptureName   = "";
+        inputClearLastKey();
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Key bindings -- %s", imcTabName(tab));
+    ImGui::Separator();
+
+    renderBindTable(0, "##mkb_binds", tab->shownGroups);
+
+    ImGui::Spacing();
+    char btnLabel[96];
+    snprintf(btnLabel, sizeof(btnLabel), "Reset %s Keyboard & Mouse to Defaults", imcTabName(tab));
+    if (PdButton(btnLabel)) {
+        resetTabDeviceToDefaults(tab, 0);
+    }
+}
+
+/* Inner subtab: Controller. Renders the visual mapper plus the bind table for
+ * the outer tab's groupMask plus a tab-scoped reset button. */
+static void renderControlsControllerInner(float scale, const ImcTabDesc *tab)
+{
+    /* Cancel an MKB-side capture when the user switches inner tabs. */
+    if (s_CaptureActive && s_CaptureColumn == 0) {
+        s_CaptureActive = 0;
+        s_CaptureImc    = NULL;
+        s_CaptureName   = "";
+        inputClearLastKey();
+    }
+
+    ImGui::Spacing();
+    ImGui::TextDisabled("Controller map -- %s", imcTabName(tab));
+    ImGui::Separator();
+    ImGui::TextDisabled(
+        "Gamepad: use the binding table below to rebind with the controller. Drag and drop on the visual "
+        "map needs a mouse.");
+    ImGui::Spacing();
+
+    /* C-Buttons are intentionally absent on the controller pad (modern Xbox /
+     * DualShock pads have no C-stick). The bind table still surfaces them so
+     * users with custom hardware can map them. */
+    u32 mapperGroups = tab->shownGroups & ~(1u << BG_CBUTTONS);
+    renderControllerVisualMapper(scale, mapperGroups);
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+    ImGui::TextDisabled("Button bindings -- %s", imcTabName(tab));
+    ImGui::Separator();
+
+    renderBindTable(1, "##ctrl_binds", tab->shownGroups);
+
+    ImGui::Spacing();
+    char btnLabel[96];
+    snprintf(btnLabel, sizeof(btnLabel), "Reset %s Controller to Defaults", imcTabName(tab));
+    if (PdButton(btnLabel)) {
+        resetTabDeviceToDefaults(tab, 1);
+    }
+}
+
+/* Global mouse settings. Shared across all IMCs; live in their own collapsible
+ * section above the per-IMC tab bar. */
+static void renderControlsGlobalMouse(void)
+{
+    if (!ImGui::CollapsingHeader("Mouse (global)")) {
+        return;
+    }
+    {
+        f32 mx, my;
+        inputMouseGetSpeed(&mx, &my);
+        if (PdSliderFloat("Mouse Sensitivity X", &mx, 0.0f, 10.0f, "%.2f")) {
+            inputMouseSetSpeed(mx, my);
+            settingsRequestMachineSave();
+        }
+        inputMouseGetSpeed(&mx, &my);
+        if (PdSliderFloat("Mouse Sensitivity Y", &my, 0.0f, 10.0f, "%.2f")) {
+            inputMouseSetSpeed(mx, my);
+            settingsRequestMachineSave();
+        }
+    }
+    {
+        float aimX = g_PlayerExtCfg[0].mouseaimspeedx;
+        if (PdSliderFloat("Crosshair Speed X", &aimX, 0.0f, 10.0f, "%.2f")) {
+            g_PlayerExtCfg[0].mouseaimspeedx = aimX;
+            settingsRequestMachineSave();
+        }
+        float aimY = g_PlayerExtCfg[0].mouseaimspeedy;
+        if (PdSliderFloat("Crosshair Speed Y", &aimY, 0.0f, 10.0f, "%.2f")) {
+            g_PlayerExtCfg[0].mouseaimspeedy = aimY;
+            settingsRequestMachineSave();
+        }
+    }
+    {
+        bool invertY = optionsGetForwardPitch(0) == 0;
+        if (PdCheckbox("Invert Y (mouse)", &invertY)) {
+            optionsSetForwardPitch(0, invertY ? 0 : 1);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    bool mouseAimLock = g_PlayerExtCfg[0].mouseaimmode != 0;
+    if (PdCheckbox("Mouse Aim Lock", &mouseAimLock)) {
+        g_PlayerExtCfg[0].mouseaimmode = mouseAimLock ? 1 : 0;
+        settingsRequestMachineSave();
+    }
+    {
+        int lockMode = inputGetMouseLockMode();
+        const char *lockOpts[] = { "Always Off", "Always On", "Auto" };
+        if (PdCombo("Mouse Lock Mode", &lockMode, lockOpts, 3)) {
+            inputSetMouseLockMode(lockMode);
+            settingsRequestMachineSave();
+        }
+    }
+    bool mouseEnabled = inputMouseIsEnabled() != 0;
+    if (PdCheckbox("Mouse Enabled", &mouseEnabled)) {
+        inputMouseEnable(mouseEnabled ? 1 : 0);
+        settingsRequestMachineSave();
+    }
+    bool menuMouse = g_MenuMouseControl != 0;
+    if (PdCheckbox("Mouse Menu Navigation", &menuMouse)) {
+        g_MenuMouseControl = menuMouse ? 1 : 0;
+    }
+}
+
+/* Global stick / analog tuning. Shared across all IMCs (Vehicle steering,
+ * Mission look, etc. all read the same sensitivity / deadzone state). */
+static void renderControlsGlobalSticks(void)
+{
+    if (!ImGui::CollapsingHeader("Sticks and analog (global)")) {
+        return;
+    }
+    ImGui::TextWrapped(
+        "Deadzone uses a circular gate; analog output outside the deadzone is normalized so the "
+        "remaining physical travel still maps to the full 0.0-1.0 range before sensitivity is applied.");
+    ImGui::Spacing();
+
+    {
+        int moveIdx = actionmapGetMoveStickPhysicalLeft() ? 0 : 1;
+        s32 wantSwapped = moveIdx == 0 ? 0 : 1;
+        if (inputControllerGetSticksSwapped(0) != wantSwapped) {
+            inputControllerSetSticksSwapped(0, wantSwapped);
+        }
+        int lookIdx = 1 - moveIdx;
+        const char *stickOpts[] = { "Left stick", "Right stick" };
+        bool sticksChanged = false;
+        if (PdCombo("Move stick", &moveIdx, stickOpts, 2)) {
+            pdguiApplyMoveStickLayout(moveIdx);
+            sticksChanged = true;
+        }
+        lookIdx = 1 - moveIdx;
+        if (PdCombo("Look stick", &lookIdx, stickOpts, 2)) {
+            pdguiApplyMoveStickLayout(1 - lookIdx);
+            sticksChanged = true;
+        }
+        if (sticksChanged) {
+            settingsRequestMachineSave();
+        }
+    }
+    {
+        f32 sensM = actionmapGetSensMoveUi();
+        if (PdSliderSensUi("Move sensitivity (1-10)", &sensM)) {
+            actionmapSetSensMoveUi(sensM);
+            settingsRequestMachineSave();
+        }
+    }
+    {
+        f32 dzM = actionmapGetStickDeadzoneMove();
+        if (PdSliderFloat("Move deadzone", &dzM, 0.0f, 0.5f, "%.2f")) {
+            actionmapSetStickDeadzoneMove(dzM);
+            settingsRequestMachineSave();
+        }
+    }
+    {
+        f32 sensA = actionmapGetSensAimUi();
+        if (PdSliderSensUi("Look sensitivity (1-10)", &sensA)) {
+            actionmapSetSensAimUi(sensA);
+            settingsRequestMachineSave();
+        }
+    }
+    {
+        f32 sensAds = actionmapGetSensAdsUi();
+        if (PdSliderSensUi("Aim-down-sights sensitivity (1-10)", &sensAds)) {
+            actionmapSetSensAdsUi(sensAds);
+            settingsRequestMachineSave();
+        }
+    }
+    {
+        f32 dzA = actionmapGetStickDeadzoneAim();
+        if (PdSliderFloat("Look deadzone", &dzA, 0.0f, 0.5f, "%.2f")) {
+            actionmapSetStickDeadzoneAim(dzA);
+            settingsRequestMachineSave();
+        }
+    }
+    {
+        bool invertY = actionmapGetStickInvertY() != 0;
+        if (PdCheckbox("Invert look (Y axis)", &invertY)) {
+            actionmapSetStickInvertY(invertY ? 1 : 0);
+            settingsRequestMachineSave();
+        }
+    }
+}
+
+/* Global hold thresholds + per-action overrides. The hold values feed
+ * actionmapGetEffectiveHoldMs which the per-row label formatter reads, so
+ * tweaking these immediately updates the row labels in the active tab. */
+static void renderControlsGlobalHolds(void)
+{
+    if (!ImGui::CollapsingHeader("Hold thresholds (global)")) {
+        return;
+    }
+
+    {
+        s32 useHoldOv = actionmapGetActionHoldMsOverride(ACTION_USE);
+        s32 effUseMs = actionmapGetEffectiveHoldMs(ACTION_USE);
+        if (useHoldOv >= 0) {
+            ImGui::Text("Effective Use / Interact hold: %d ms", (int)effUseMs);
+            ImGui::BeginDisabled();
+            s32 holdMs = actionmapGetUseHoldThresholdMs();
+            PdSliderInt("Use hold (interact vs reload)", &holdMs, 50, 2000, "%d ms");
+            ImGui::EndDisabled();
+            ImGui::TextDisabled(
+                "Per-action override is on for Use / Interact (see Per-action hold overrides below). "
+                "The slider value above is the stored global default if you clear that override; it "
+                "does not apply while Custom is set.");
+        } else {
+            s32 holdMs = actionmapGetUseHoldThresholdMs();
+            if (PdSliderInt("Use hold (interact vs reload)", &holdMs, 50, 2000, "%d ms")) {
+                actionmapSetUseHoldThresholdMs(holdMs);
+                settingsRequestMachineSave();
+            }
+            ImGui::TextDisabled(
+                "Global default for Use / Interact when no per-action override is set.");
+        }
+    }
+    {
+        s32 termExtra = actionmapGetInteractHoldExtraTerminalMs();
+        if (PdSliderInt("Hackable terminal extra hold", &termExtra, 0, 2000, "%d ms")) {
+            actionmapSetInteractHoldExtraTerminalMs(termExtra);
+            settingsRequestMachineSave();
+        }
+        ImGui::TextDisabled(
+            "Layered on effective Use hold for hackable-terminal prompts. Saved as "
+            "ActionMap.InteractHoldExtraTerminalMs.");
+    }
+
+    renderActionHoldOverridesSection();
+}
+
+/* Outer per-IMC tab content: header blurb, KB&M / Controller inner subtabs. */
+static void renderImcTabBody(float scale, const ImcTabDesc *tab)
+{
+    ImGui::Spacing();
+    ImGui::TextDisabled("%s", tab->blurb);
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    if (ImGui::BeginTabBar("##controls_device_tabs", ImGuiTabBarFlags_FittingPolicyScroll)) {
+        if (ImGui::BeginTabItem("Keyboard & Mouse")) {
+            s_ControlsSubTab = 0;
+            renderControlsKbmInner(tab);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Controller")) {
+            s_ControlsSubTab = 1;
+            renderControlsControllerInner(scale, tab);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
+}
+
+#define INPUT_UI_MAX_PROFILES INPUT_PROFILE_COUNT
+#define INPUT_UI_MAX_DEVICE_RULES INPUT_DEVICE_RULE_COUNT
+#define INPUT_UI_MAX_CONNECTED_DEVICES 8
+
+using InputUiDeviceRule = PdguiInputDeviceRule;
+
+static s32 s_InputSchemeIndex = 0;
+static s32 s_InputDeviceColumn = 1;
+static char s_InputProfileNames[INPUT_UI_MAX_PROFILES][INPUT_PROFILE_NAME_CAPACITY];
+static InputUiDeviceRule s_InputDeviceRules[INPUT_UI_MAX_DEVICE_RULES];
+static s32 s_InputDeviceRuleCount = 0;
+static bool s_InputProfileStateLoaded = false;
+static char s_InputStatus[128] = "";
+
+static void inputUiCopy(char *dst, size_t dstSize, const char *src)
+{
+    if (!dst || dstSize == 0) {
+        return;
+    }
+    if (!src) {
+        src = "";
+    }
+    strncpy(dst, src, dstSize - 1);
+    dst[dstSize - 1] = '\0';
+}
+
+static void inputUiSanitizeField(char *str)
+{
+    pdguiInputProfileSanitizeField(str);
+}
+
+static void inputUiSetDefaultProfiles(void)
+{
+    static const char *defaults[INPUT_UI_MAX_PROFILES] = {
+        "Default", "Shooter", "Accessibility", "HOTAS/HOSAS", "MKB", "Custom",
+    };
+    for (s32 i = 0; i < INPUT_UI_MAX_PROFILES; i++) {
+        inputUiCopy(s_InputProfileNames[i], sizeof(s_InputProfileNames[i]), defaults[i]);
+    }
+}
+
+static void inputUiProfilePath(s32 profile, char *out, size_t outSize)
+{
+    if (profile < 0) profile = 0;
+    if (profile >= INPUT_UI_MAX_PROFILES) profile = INPUT_UI_MAX_PROFILES - 1;
+    snprintf(out, outSize, "$S/input-profiles/profile%d.ini", (int)profile + 1);
+}
+
+static void inputUiProfileStateLoad(void);
+
+static bool inputUiProfileStateSave(void)
+{
+    char names[INPUT_PROFILE_NAMES_STR_MAX] = "";
+    for (s32 i = 0; i < INPUT_UI_MAX_PROFILES; i++) {
+        inputUiSanitizeField(s_InputProfileNames[i]);
+        if (s_InputProfileNames[i][0] == '\0') {
+            snprintf(s_InputProfileNames[i], sizeof(s_InputProfileNames[i]), "Profile %d", (int)i + 1);
+        }
+    }
+
+    char rules[INPUT_DEVICE_PROFILES_STR_MAX] = "";
+    for (s32 i = 0; i < s_InputDeviceRuleCount; i++) {
+        InputUiDeviceRule *rule = &s_InputDeviceRules[i];
+        inputUiSanitizeField(rule->key);
+        inputUiSanitizeField(rule->alias);
+        if (rule->key[0] == '\0') {
+            continue;
+        }
+        if (rule->profile < 0) rule->profile = 0;
+        if (rule->profile >= INPUT_UI_MAX_PROFILES) rule->profile = INPUT_UI_MAX_PROFILES - 1;
+    }
+
+    if (!pdguiInputProfileStateSerialize(s_InputProfileNames, INPUT_UI_MAX_PROFILES,
+            s_InputDeviceRules, s_InputDeviceRuleCount,
+            names, sizeof(names), rules, sizeof(rules))) {
+        // Restore the accepted in-memory config, which may itself be waiting
+        // for checked machine-save retry. Do not publish a truncated prefix.
+        s_InputProfileStateLoaded = false;
+        inputUiProfileStateLoad();
+        snprintf(s_InputStatus, sizeof(s_InputStatus),
+                 "Device profile edit was not applied: storage is full. Shorten device names and try again.");
+        return false;
+    }
+
+    inputProfilesSetNamesIni(names);
+    inputProfilesSetDeviceRulesIni(rules);
+    settingsRequestMachineSave();
+    return true;
+}
+
+static void inputUiProfileStateLoad(void)
+{
+    if (s_InputProfileStateLoaded) {
+        return;
+    }
+
+    inputUiSetDefaultProfiles();
+    s_InputDeviceRuleCount = 0;
+
+    char names[INPUT_PROFILE_NAMES_STR_MAX];
+    inputUiCopy(names, sizeof(names), inputProfilesGetNamesIni());
+    char *tok = strtok(names, "|");
+    for (s32 i = 0; tok && i < INPUT_UI_MAX_PROFILES; i++) {
+        inputUiCopy(s_InputProfileNames[i], sizeof(s_InputProfileNames[i]), tok);
+        inputUiSanitizeField(s_InputProfileNames[i]);
+        tok = strtok(NULL, "|");
+    }
+
+    char rules[INPUT_DEVICE_PROFILES_STR_MAX];
+    inputUiCopy(rules, sizeof(rules), inputProfilesGetDeviceRulesIni());
+    char *entry = strtok(rules, ";");
+    while (entry && s_InputDeviceRuleCount < INPUT_UI_MAX_DEVICE_RULES) {
+        char *alias = strchr(entry, '~');
+        if (alias) {
+            *alias++ = '\0';
+            char *key = strchr(alias, '~');
+            if (key) {
+                *key++ = '\0';
+                InputUiDeviceRule *rule = &s_InputDeviceRules[s_InputDeviceRuleCount++];
+                rule->profile = atoi(entry);
+                if (rule->profile < 0) rule->profile = 0;
+                if (rule->profile >= INPUT_UI_MAX_PROFILES) rule->profile = INPUT_UI_MAX_PROFILES - 1;
+                inputUiCopy(rule->alias, sizeof(rule->alias), alias);
+                inputUiCopy(rule->key, sizeof(rule->key), key);
+                inputUiSanitizeField(rule->alias);
+                inputUiSanitizeField(rule->key);
+            }
+        }
+        entry = strtok(NULL, ";");
+    }
+
+    s_InputProfileStateLoaded = true;
+}
+
+static InputUiDeviceRule *inputUiFindDeviceRule(const char *key, const char *defaultAlias, bool create)
+{
+    inputUiProfileStateLoad();
+    if (!key || !key[0]) {
+        return NULL;
+    }
+
+    for (s32 i = 0; i < s_InputDeviceRuleCount; i++) {
+        if (!strcmp(s_InputDeviceRules[i].key, key)) {
+            return &s_InputDeviceRules[i];
+        }
+    }
+
+    if (!create || s_InputDeviceRuleCount >= INPUT_UI_MAX_DEVICE_RULES) {
+        return NULL;
+    }
+
+    InputUiDeviceRule *rule = &s_InputDeviceRules[s_InputDeviceRuleCount++];
+    inputUiCopy(rule->key, sizeof(rule->key), key);
+    inputUiCopy(rule->alias, sizeof(rule->alias), defaultAlias && defaultAlias[0] ? defaultAlias : "Controller");
+    rule->profile = inputProfilesGetActive();
+    inputUiSanitizeField(rule->key);
+    inputUiSanitizeField(rule->alias);
+    if (!inputUiProfileStateSave()) return NULL;
+    return rule;
+}
+
+static bool inputUiProfileCombo(const char *label, s32 *profile)
+{
+    inputUiProfileStateLoad();
+    if (!profile) {
+        return false;
+    }
+    if (*profile < 0) *profile = 0;
+    if (*profile >= INPUT_UI_MAX_PROFILES) *profile = INPUT_UI_MAX_PROFILES - 1;
+
+    bool changed = false;
+    if (ImGui::BeginCombo(label, s_InputProfileNames[*profile])) {
+        for (s32 i = 0; i < INPUT_UI_MAX_PROFILES; i++) {
+            bool selected = (*profile == i);
+            if (ImGui::Selectable(s_InputProfileNames[i], selected)) {
+                *profile = i;
+                changed = true;
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+    return changed;
+}
+
+static void inputUiLoadProfile(s32 profile)
+{
+    if (profile < 0) profile = 0;
+    if (profile >= INPUT_UI_MAX_PROFILES) profile = INPUT_UI_MAX_PROFILES - 1;
+    char path[96];
+    inputUiProfilePath(profile, path, sizeof(path));
+    if (actionmapLoadProfileFileAsCurrent(path, profile)) {
+        settingsRequestMachineSave();
+        snprintf(s_InputStatus, sizeof(s_InputStatus), "Loaded %s", s_InputProfileNames[profile]);
+    } else {
+        snprintf(s_InputStatus, sizeof(s_InputStatus), "Could not load %s", s_InputProfileNames[profile]);
+    }
+}
+
+static void inputUiSaveProfile(s32 profile)
+{
+    if (profile < 0) profile = 0;
+    if (profile >= INPUT_UI_MAX_PROFILES) profile = INPUT_UI_MAX_PROFILES - 1;
+    char path[96];
+    inputUiProfilePath(profile, path, sizeof(path));
+    if (actionmapSaveProfileFile(path)) {
+        snprintf(s_InputStatus, sizeof(s_InputStatus), "Saved %s", s_InputProfileNames[profile]);
+    } else {
+        snprintf(s_InputStatus, sizeof(s_InputStatus), "Could not save %s", s_InputProfileNames[profile]);
+    }
+}
+
+static void renderInputProfilesSection(void)
+{
+    inputUiProfileStateLoad();
+    ImGui::SeparatorText("Profiles");
+
+    static s32 selected = -1;
+    if (selected < 0) selected = inputProfilesGetActive();
+    inputUiProfileCombo("Saved profile", &selected);
+
+    ImGui::SameLine();
+    if (ImGui::Button("Load")) {
+        inputUiLoadProfile(selected);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Save")) {
+        inputUiSaveProfile(selected);
+    }
+    const s32 active = actionmapGetCurrentProfile();
+    if (active >= 0 && active < INPUT_UI_MAX_PROFILES)
+        ImGui::TextWrapped("Current bindings are based on %s, including saved edits.", s_InputProfileNames[active]);
+    else
+        ImGui::TextWrapped("Current bindings: defaults or imported custom bindings.");
+
+    if (s_InputStatus[0]) {
+        ImGui::TextWrapped("%s", s_InputStatus);
+    }
+
+    if (ImGui::BeginTable("##input_profile_names", 2,
+                          ImGuiTableFlags_SizingStretchSame | ImGuiTableFlags_BordersInnerV)) {
+        for (s32 i = 0; i < INPUT_UI_MAX_PROFILES; i++) {
+            ImGui::TableNextColumn();
+            ImGui::PushID(i);
+            char label[32];
+            snprintf(label, sizeof(label), "Profile %d", (int)i + 1);
+            ImGui::TextUnformatted(label);
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::InputText("##name", s_InputProfileNames[i], sizeof(s_InputProfileNames[i]))) {
+                inputUiSanitizeField(s_InputProfileNames[i]);
+                inputUiProfileStateSave();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+}
+
+static void renderInputDevicesSection(void)
+{
+    inputUiProfileStateLoad();
+    ImGui::SeparatorText("Devices");
+
+    s32 ids[INPUT_UI_MAX_CONNECTED_DEVICES];
+    s32 count = inputGetConnectedInputDevices(ids);
+    if (count <= 0) {
+        ImGui::TextDisabled("No controller devices connected.");
+        return;
+    }
+    if (count > INPUT_UI_MAX_CONNECTED_DEVICES) {
+        count = INPUT_UI_MAX_CONNECTED_DEVICES;
+    }
+
+    if (ImGui::BeginTable("##input_devices", 4,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Device", ImGuiTableColumnFlags_WidthStretch, 1.6f);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 1.3f);
+        ImGui::TableSetupColumn("Profile", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed, pdguiScale(74.0f));
+        ImGui::TableHeadersRow();
+
+        for (s32 i = 0; i < count; i++) {
+            const char *displayName = inputGetConnectedInputDeviceName(ids[i]);
+            const char *stableKey = inputGetConnectedInputDeviceStableKey(ids[i]);
+            InputUiDeviceRule *rule = inputUiFindDeviceRule(stableKey, displayName, true);
+            const s32 deviceClass = inputGetConnectedInputDeviceClass(ids[i]);
+
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(displayName);
+            ImGui::TextDisabled("%s", actionmapInputClassLabel(deviceClass));
+
+            ImGui::TableNextColumn();
+            if (rule) {
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (ImGui::InputText("##alias", rule->alias, sizeof(rule->alias))) {
+                    inputUiSanitizeField(rule->alias);
+                    inputUiProfileStateSave();
+                }
+            } else {
+                ImGui::TextDisabled("Untracked");
+            }
+
+            ImGui::TableNextColumn();
+            if (rule) {
+                s32 profile = rule->profile;
+                ImGui::SetNextItemWidth(-FLT_MIN);
+                if (inputUiProfileCombo("##profile", &profile)) {
+                    rule->profile = profile;
+                    inputUiProfileStateSave();
+                }
+            }
+
+            ImGui::TableNextColumn();
+            if (rule && ImGui::Button("Use", ImVec2(-FLT_MIN, 0.0f))) {
+                inputUiLoadProfile(rule->profile);
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+}
+
+static void inputUiCancelCapture(void)
+{
+    if (!s_CaptureActive) {
+        return;
+    }
+    s_CaptureActive = 0;
+    s_CaptureImc = NULL;
+    s_CaptureName = "";
+    s_CaptureCandidate = 0;
+    s_CaptureOpenPending = false;
+    s_CaptureReviewFocus = false;
+    s_CaptureReviewFrame = -1;
+    s_CaptureControllerInstance = -1;
+    inputClearLastKey();
+    inputUiFlushCaptureActions();
+}
+
+static void renderInputBindingsSection(float scale)
+{
+    (void)scale;
+    inputUiProfileStateLoad();
+    ImGui::SeparatorText("Bindings");
+
+    if (s_InputSchemeIndex < 0 || s_InputSchemeIndex >= (s32)NUM_IMC_TABS) {
+        s_InputSchemeIndex = 0;
+    }
+    const ImcTabDesc *tab = &s_ImcTabs[s_InputSchemeIndex];
+
+    ImGui::SetNextItemWidth(pdguiScale(240.0f));
+    if (ImGui::BeginCombo("Scheme", imcTabName(tab))) {
+        for (s32 i = 0; i < (s32)NUM_IMC_TABS; i++) {
+            bool selected = (s_InputSchemeIndex == i);
+            const ImcTabDesc *item = &s_ImcTabs[i];
+            char gridLabel[FORGE_DISPLAY_NAME_CAP + sizeof("###imc_grid")];
+            if (!item->label) {
+                snprintf(gridLabel, sizeof(gridLabel), "%s###imc_grid", forgeDisplayName());
+            }
+            if (ImGui::Selectable(item->label ? item->label : gridLabel, selected)) {
+                if (s_InputSchemeIndex != i) {
+                    inputUiCancelCapture();
+                }
+                s_InputSchemeIndex = i;
+                tab = &s_ImcTabs[s_InputSchemeIndex];
+            }
+            if (selected) {
+                ImGui::SetItemDefaultFocus();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    ImGui::SameLine();
+    const char *deviceItems[] = { "Keyboard & Mouse", "Controller / Custom" };
+    ImGui::SetNextItemWidth(pdguiScale(210.0f));
+    s_ControlsSubTab = s_InputDeviceColumn;
+    s32 beforeDevice = s_InputDeviceColumn;
+    if (PdCombo("Input", &s_InputDeviceColumn, deviceItems, 2) && beforeDevice != s_InputDeviceColumn) {
+        inputUiCancelCapture();
+    }
+    s_ControlsSubTab = s_InputDeviceColumn;
+
+    ImGui::SameLine();
+    if (ImGui::Button("Reset Defaults")) {
+        resetTabDeviceToDefaults(tab, s_InputDeviceColumn);
+    }
+
+    renderBindTable(s_InputDeviceColumn, "##input_bind_table", tab->shownGroups);
+}
+
+static void renderSettingsInput(float scale)
+{
+    /* Initialization is idempotent; reopening never replays legacy pd.ini over
+     * the complete current snapshot or live bindings. */
+    if (s_ControlsNeedsInit) {
+        actionmapLoadBinds();
+        s_ControlsNeedsInit = false;
+    }
+
+    /* The root-owned capture modal reads raw input after its Cancel button.
+     * Parent tab and view commands remain gated for the modal's lifetime. */
+
+    renderInputProfilesSection();
+    inputUiBindingPersistenceStatus();
+    ImGui::Spacing();
+    renderInputDevicesSection();
+    ImGui::Spacing();
+    renderInputBindingsSection(scale);
+    ImGui::Spacing();
+    ImGui::SeparatorText("Tuning");
+    renderControlsGlobalMouse();
+    renderControlsGlobalSticks();
+    renderControlsGlobalHolds();
+}
+
+static void renderSettingsGame(float scale)
+{
+    ImGui::TextDisabled("Gameplay");
+    ImGui::Separator();
+
+    /* Crouch Mode */
+    {
+        int crouchMode = g_PlayerExtCfg[0].crouchmode;
+        const char *crouchOpts[] = { "Hold", "Analog", "Toggle", "Toggle + Analog" };
+        if (PdCombo("Crouch Mode", &crouchMode, crouchOpts, 4)) {
+            g_PlayerExtCfg[0].crouchmode = crouchMode;
+            settingsRequestMachineSave();
+        }
+    }
+
+    /* FOV */
+    {
+        float fov = g_PlayerExtCfg[0].fovy;
+        if (PdSliderFloat("Vertical FOV", &fov, 15.0f, 170.0f, "%.0f")) {
+            g_PlayerExtCfg[0].fovy = fov;
+            settingsRequestMachineSave();
+        }
+    }
+
+    /* Crosshair Sway */
+    {
+        float sway = g_PlayerExtCfg[0].crosshairsway;
+        if (PdSliderFloat("Crosshair Sway", &sway, 0.0f, 2.0f, "%.1f")) {
+            g_PlayerExtCfg[0].crosshairsway = sway;
+            settingsRequestMachineSave();
+        }
+    }
+
+    /* Crosshair Size */
+    {
+        int chSize = g_PlayerExtCfg[0].crosshairsize;
+        if (PdSliderInt("Crosshair Size", &chSize, 0, 4)) {
+            g_PlayerExtCfg[0].crosshairsize = chSize;
+            settingsRequestMachineSave();
+        }
+    }
+
+    /* Crosshair Colour */
+    {
+        u32 col = g_PlayerExtCfg[0].crosshaircolour;
+        float rgba[4] = {
+            ((col >> 24) & 0xFF) / 255.0f,
+            ((col >> 16) & 0xFF) / 255.0f,
+            ((col >> 8) & 0xFF) / 255.0f,
+            (col & 0xFF) / 255.0f,
+        };
+        if (ImGui::ColorEdit4("Crosshair Colour", rgba)) {
+            g_PlayerExtCfg[0].crosshaircolour =
+                ((u32)(rgba[0] * 255.0f) << 24) |
+                ((u32)(rgba[1] * 255.0f) << 16) |
+                ((u32)(rgba[2] * 255.0f) << 8) |
+                ((u32)(rgba[3] * 255.0f));
+            settingsRequestMachineSave();
+        }
+    }
+
+    /* Crosshair Colour by Health */
+    {
+        int chHealth = g_PlayerExtCfg[0].crosshairhealth;
+        const char *chHealthOpts[] = { "Off", "On (Green)", "On (White)" };
+        if (PdCombo("Crosshair Colour by Health", &chHealth, chHealthOpts, 3)) {
+            g_PlayerExtCfg[0].crosshairhealth = chHealth;
+            settingsRequestMachineSave();
+        }
+    }
+
+    ImGui::Separator();
+
+    bool skipIntro = g_SkipIntro != 0;
+    if (PdCheckbox("Skip Intro", &skipIntro)) {
+        g_SkipIntro = skipIntro ? 1 : 0;
+        settingsRequestMachineSave();
+    }
+
+    bool useKeyReloads = g_PlayerExtCfg[0].usereloads != 0;
+    if (PdCheckbox("Use Key Reloads", &useKeyReloads)) {
+        g_PlayerExtCfg[0].usereloads = useKeyReloads ? 1 : 0;
+            settingsRequestMachineSave();
+    }
+
+    /* Jump Height */
+    {
+        float jump = g_PlayerExtCfg[0].jumpheight;
+        char jumpLabel[32];
+        if (jump <= 0.0f) {
+            snprintf(jumpLabel, sizeof(jumpLabel), "Match Default");
+        } else {
+            snprintf(jumpLabel, sizeof(jumpLabel), "%.1f", jump);
+        }
+        if (PdSliderFloat("Jump Height", &jump, 0.0f, 20.0f, jumpLabel)) {
+            g_PlayerExtCfg[0].jumpheight = jump;
+            settingsRequestMachineSave();
+        }
+    }
+
+    /* Show Dev Releases */
+    {
+        bool showDev = updaterGetShowDevReleases() != 0;
+        if (PdCheckbox("Show Dev Releases", &showDev)) {
+            updaterSetShowDevReleases(showDev ? 1 : 0);
+            updaterCheckAsync();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Off: only show stable releases in the update list\n"
+                "On: also show pre-release / dev builds");
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- HUD & Display ---- */
+    ImGui::TextDisabled("HUD & Display");
+    ImGui::Separator();
+
+    {
+        bool v = optionsGetSightOnScreen(0) != 0;
+        if (PdCheckbox("Sight on Screen", &v)) {
+            optionsSetSightOnScreen(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    {
+        bool v = optionsGetAmmoOnScreen(0) != 0;
+        if (PdCheckbox("Ammo on Screen", &v)) {
+            optionsSetAmmoOnScreen(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    {
+        bool v = optionsGetShowGunFunction(0) != 0;
+        if (PdCheckbox("Show Gun Function", &v)) {
+            optionsSetShowGunFunction(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    {
+        bool v = optionsGetAlwaysShowTarget(0) != 0;
+        if (PdCheckbox("Always Show Target", &v)) {
+            optionsSetAlwaysShowTarget(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    {
+        bool v = optionsGetShowZoomRange(0) != 0;
+        if (PdCheckbox("Show Zoom Range", &v)) {
+            optionsSetShowZoomRange(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    {
+        bool v = optionsGetShowMissionTime(0) != 0;
+        if (PdCheckbox("Show Mission Time", &v)) {
+            optionsSetShowMissionTime(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    {
+        bool v = optionsGetHeadRoll(0) != 0;
+        if (PdCheckbox("Head Roll", &v)) {
+            optionsSetHeadRoll(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Subtitles ---- */
+    ImGui::TextDisabled("Subtitles");
+    ImGui::Separator();
+
+    {
+        bool v = optionsGetInGameSubtitles() != 0;
+        if (PdCheckbox("In-Game Subtitles", &v)) {
+            optionsSetInGameSubtitles(v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    {
+        bool v = optionsGetCutsceneSubtitles() != 0;
+        if (PdCheckbox("Cutscene Subtitles", &v)) {
+            optionsSetCutsceneSubtitles(v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Visual Effects ---- */
+    ImGui::TextDisabled("Visual Effects");
+    ImGui::Separator();
+
+    {
+        bool v = optionsGetPaintball(0) != 0;
+        if (PdCheckbox("Paintball Mode", &v)) {
+            optionsSetPaintball(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Replace bullet wounds with coloured paint splatters");
+        }
+    }
+
+    ImGui::Spacing();
+
+    /* ---- Combat Assist ---- */
+    ImGui::TextDisabled("Combat Assist");
+    ImGui::Separator();
+
+    {
+        int aimMode = optionsGetAimControl(0);
+        if (aimMode < 0 || aimMode > 1) aimMode = 0;
+        const char *aimOpts[] = { "Hold", "Toggle" };
+        if (PdCombo("Aim Mode", &aimMode, aimOpts, 2)) {
+            optionsSetAimControl(0, aimMode);
+            prefsAgentMarkDirty();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip(
+                "Hold:   hold Fire to aim; release to holster\n"
+                "Toggle: press Fire to enter aim mode; press again to exit");
+        }
+    }
+
+    {
+        bool v = optionsGetAutoAim(0) != 0;
+        if (PdCheckbox("Auto Aim", &v)) {
+            optionsSetAutoAim(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+    }
+
+    {
+        bool v = optionsGetLookAhead(0) != 0;
+        if (PdCheckbox("Look Ahead", &v)) {
+            optionsSetLookAhead(0, v ? 1 : 0);
+            prefsAgentMarkDirty();
+        }
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Camera tilts forward slightly when moving");
+        }
+    }
+}
+
+/* ========================================================================
+ * ImGui Render Callback
+ * ======================================================================== */
+
+/* Menu view state: 0 = top-level, 1 = Play, 2 = Settings */
+static s32 s_MenuView = 0;
+
+static menu_type_t pdguiMainMenuViewPoolType(s32 view)
+{
+    switch (view) {
+    case 1: return MENU_TYPE_MAIN_SOLO_VIEW;
+    case 2: return MENU_TYPE_MAIN_SETTINGS_VIEW;
+    case 3: return MENU_TYPE_MAIN_MODDING_VIEW;
+    case 5: return MENU_TYPE_MAIN_STATS_VIEW;
+    case 6: return MENU_TYPE_GRID_SUBMENU;
+    default: return MENU_TYPE_NONE;
+    }
+}
+
+static void pdguiMainMenuSetView(s32 view, const char *reason)
+{
+    if (view < 0 || view > 6 || view == 4) {
+        view = 0;
+    }
+
+    s32 oldView = s_MenuView;
+    if (oldView != 2 && view == 2) s_SettingsSaveStatus.cancelDeparture();
+    if (oldView == 2 && view != 2) inputUiCancelCapture();
+    menu_type_t oldType = pdguiMainMenuViewPoolType(oldView);
+    menu_type_t newType = pdguiMainMenuViewPoolType(view);
+
+    if (oldView == view) {
+        if (newType != MENU_TYPE_NONE && !menupoolIsActive(newType)) {
+            menupoolAcquire(newType, NULL, NULL);
+            sysLogPrintf(LOG_NOTE, "MENUPOOL: reacquired main menu subview %s (%s)",
+                menupoolTypeName(newType), reason ? reason : "sync");
+        }
+        return;
+    }
+
+    if (oldType != MENU_TYPE_NONE && oldType != newType) {
+        menupoolRelease(oldType);
+        sysLogPrintf(LOG_NOTE, "MENUPOOL: released main menu subview %s (%s)",
+            menupoolTypeName(oldType), reason ? reason : "view-change");
+    }
+
+    if (newType != MENU_TYPE_NONE && oldType != newType) {
+        menupoolAcquire(newType, NULL, NULL);
+        sysLogPrintf(LOG_NOTE, "MENUPOOL: acquired main menu subview %s (%s)",
+            menupoolTypeName(newType), reason ? reason : "view-change");
+    }
+
+    s_MenuView = view;
+    sysLogPrintf(LOG_NOTE, "MENU_GRAPH: main menu view %d -> %d (%s)",
+        (int)oldView, (int)view, reason ? reason : "view-change");
+}
+
+static s32 pdguiMainMenuFireSubviewEdge(const char *edge_id, s32 view, const char *reason)
+{
+    const MenuGraphEdge *edge = menuGraphEdge(MENU_TYPE_MAIN_MENU, edge_id);
+    menu_type_t target = pdguiMainMenuViewPoolType(view);
+
+    if (!edge) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=%s dest=missing ok=0",
+            menupoolTypeName(MENU_TYPE_MAIN_MENU), edge_id ? edge_id : "(null)");
+        return -1;
+    }
+
+    if (edge->kind != MENU_GRAPH_DEST_PUSH_MENU) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=%s dest=%s ok=0",
+            menupoolTypeName(MENU_TYPE_MAIN_MENU), edge_id,
+            menuGraphDestKindName(edge->kind));
+        return -2;
+    }
+
+    if (edge->payload.push_target != target) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=%s target=%s actual=%s ok=0",
+            menupoolTypeName(MENU_TYPE_MAIN_MENU), edge_id,
+            menupoolTypeName(edge->payload.push_target),
+            menupoolTypeName(target));
+        return -3;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "MENU.GRAPH.FIRE source=%s edge=%s trigger=%d dest=%s target=%s ok=1",
+        menupoolTypeName(MENU_TYPE_MAIN_MENU), edge_id, (int)edge->trigger,
+        menuGraphDestKindName(edge->kind),
+        menupoolTypeName(edge->payload.push_target));
+
+    pdguiMainMenuSetView(view, reason);
+    return 0;
+}
+
+static s32 pdguiMainMenuFireSubviewBackEdge(const char *reason)
+{
+    menu_type_t source = pdguiMainMenuViewPoolType(s_MenuView);
+    const MenuGraphEdge *edge = menuGraphEdge(source, "back");
+
+    if (!edge) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=back dest=missing ok=0",
+            menupoolTypeName(source));
+        return -1;
+    }
+
+    if (edge->kind != MENU_GRAPH_DEST_POP_TO_PARENT) {
+        sysLogPrintf(LOG_WARNING,
+            "MENU.GRAPH.FIRE source=%s edge=back dest=%s ok=0",
+            menupoolTypeName(source), menuGraphDestKindName(edge->kind));
+        return -2;
+    }
+
+    sysLogPrintf(LOG_NOTE,
+        "MENU.GRAPH.FIRE source=%s edge=back trigger=%d dest=%s ok=1",
+        menupoolTypeName(source), (int)edge->trigger,
+        menuGraphDestKindName(edge->kind));
+
+    pdguiMainMenuSetView(0, reason);
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphSoloMissions(void *userdata)
+{
+    (void)userdata;
+    pdguiSoloMissionReset();
+    menuhandlerMainMenuSoloMissions(MENUOP_SET, nullptr, nullptr);
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphCombatSimulator(void *userdata)
+{
+    (void)userdata;
+    menuhandlerMainMenuCombatSimulator(MENUOP_SET, nullptr, nullptr);
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphOpenModdingHub(void *userdata)
+{
+    (void)userdata;
+    pdguiModdingHubShow();
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphOpenStatsPanel(void *userdata)
+{
+    (void)userdata;
+    pdguiMenuStatsShow();
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphOpenSocial(void *userdata)
+{
+    (void)userdata;
+    pdguiFriendsSocialOpen();
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphOpenPublicMods(void *userdata)
+{
+    (void)userdata;
+    pdguiFriendsSocialOpenPublicMods();
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphQuit(void *userdata)
+{
+    (void)userdata;
+
+    SDL_Event quitEvent;
+    quitEvent.type = SDL_QUIT;
+    SDL_PushEvent(&quitEvent);
+    return 0;
+}
+
+static s32 pdguiMainMenuGraphClose(void *userdata)
+{
+    (void)userdata;
+
+    sysLogPrintf(LOG_NOTE, "MENU_IMGUI: restoring game state -- lvIsPaused=%d g_PlayersWithControl[0]=%d",
+                 lvIsPaused(), (int)g_PlayersWithControl[0]);
+    lvSetPaused(false);
+    playerUnpause();
+    g_PlayersWithControl[0] = true;
+    sysLogPrintf(LOG_NOTE, "MENU_IMGUI: game state restored -- lvIsPaused=%d", lvIsPaused());
+
+    return 0;
+}
+
+/* S295 F7: s_MainMenuPushedCtx removed. The close handler at ~line 2618
+ * already pops unconditionally via `inputCtxIsActive` — see comment there.
+ * The ownership bool had a documented failure mode (it could be cleared by a
+ * second IsWindowAppearing and then skip the pop) and was effectively dead
+ * state by the time of removal. If the need for ownership tracking comes back,
+ * prefer the `freshEntry = frame-gap` pattern used in pdgui_menu_endscreen.cpp
+ * (S295 F5) rather than a one-shot bool. */
+
+/* B-131 (2026-04-11) historical: tracked menu-open wall-clock for a
+ * 150 ms grace that suppressed the cancel handler. Replaced by the
+ * actionmapFlushActionSet({MENU_CANCEL/ACCEPT/USE/CANCEL_USE}) call in
+ * the IsWindowAppearing branch below (2026-05-02 follow-up). The flush
+ * clears the source of stale cancel edges so the broad timestamp grace
+ * is no longer needed and was eating legitimate fast user closes. */
+
+/* Helper: draw PD dialog window frame + title, return content start Y */
+static float drawPdWindowFrame(float dialogX, float dialogY, float dialogW,
+                                float dialogH, const char *title)
+{
+    float pdTitleH = dialogH * 0.08f;
+    if (pdTitleH < 20.0f) pdTitleH = 20.0f;
+    if (pdTitleH > 32.0f) pdTitleH = 32.0f;
+
+    pdguiDrawPdDialog(dialogX, dialogY, dialogW, dialogH, title, 1);
+
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+
+    /* B-60 fix: clip title text + glow to the title bar rect.
+     * Without this, font descenders (e.g., 'g' and 's' in "Settings")
+     * bleed below the title bar into the body area, appearing as stray
+     * characters behind tab content when the body uses NoBackground. */
+    dl->PushClipRect(ImVec2(dialogX, dialogY),
+                     ImVec2(dialogX + dialogW, dialogY + pdTitleH));
+
+    pdguiDrawTextGlow(dialogX + 8.0f, dialogY + 2.0f,
+                      dialogW - 16.0f, pdTitleH - 4.0f);
+    ImVec2 titleSize = ImGui::CalcTextSize(title);
+    dl->AddText(ImVec2(dialogX + 10.0f,
+                       dialogY + (pdTitleH - titleSize.y) * 0.5f),
+                pdguiPalImU32(PDPAL_TITLEFG, 255), title);
+
+    dl->PopClipRect();
+
+    return pdTitleH;
+}
+
+/* ========================================================================
+ * Debug tab — log channel filters, theme selector, memory diagnostics
+ * ======================================================================== */
+
+static const char *s_ThemeNames[] = {
+    "Grey", "Blue", "Red", "Green", "White", "Silver", "Black & Gold"
+};
+#define PDGUI_NUM_THEMES 7
+
+/* Representative accent colors for each theme — used to tint theme selector buttons */
+static const ImVec4 s_ThemeAccentColors[] = {
+    ImVec4(0.45f, 0.45f, 0.50f, 0.85f), /* Grey */
+    ImVec4(0.15f, 0.30f, 0.70f, 0.85f), /* Blue */
+    ImVec4(0.70f, 0.12f, 0.12f, 0.85f), /* Red */
+    ImVec4(0.10f, 0.55f, 0.20f, 0.85f), /* Green */
+    ImVec4(0.70f, 0.70f, 0.75f, 0.85f), /* White */
+    ImVec4(0.55f, 0.55f, 0.60f, 0.85f), /* Silver */
+    ImVec4(0.20f, 0.18f, 0.10f, 0.85f), /* Black & Gold */
+};
+static const ImVec4 s_ThemeTextColors[] = {
+    ImVec4(0.90f, 0.90f, 0.90f, 1.0f),  /* Grey */
+    ImVec4(0.80f, 0.85f, 1.00f, 1.0f),  /* Blue */
+    ImVec4(1.00f, 0.80f, 0.80f, 1.0f),  /* Red */
+    ImVec4(0.80f, 1.00f, 0.80f, 1.0f),  /* Green */
+    ImVec4(0.15f, 0.15f, 0.20f, 1.0f),  /* White (dark text on light) */
+    ImVec4(0.10f, 0.10f, 0.15f, 1.0f),  /* Silver (dark text on light) */
+    ImVec4(0.90f, 0.78f, 0.35f, 1.0f),  /* Black & Gold (gold text) */
+};
+
+struct DebugAssetSourceFamily {
+    asset_type_e type;
+    const char *label;
+};
+
+static const DebugAssetSourceFamily s_DebugAssetSourceFamilies[] = {
+    { ASSET_WEAPON,      "Weapon (.pdweapon)" },
+    { ASSET_PROJECTILE,  "Projectile (.pdprojectile)" },
+    { ASSET_ENTITY,      "Entity (.pdentity)" },
+    { ASSET_CHARACTER,   "Character (.pdcharacter)" },
+    { ASSET_HEAD,        "Head (.pdhead)" },
+    { ASSET_BODY,        "Body (.pdbody)" },
+    { ASSET_ARENA,       "Arena (.pdarena)" },
+    { ASSET_SCENARIO,    "Scenario (.pdscenario)" },
+    { ASSET_MISSION,     "Mission (.pdmission)" },
+    { ASSET_MODEL,       "Mesh (.pdmesh)" },
+    { ASSET_ANIMATION,   "Animation (.pdanim)" },
+    { ASSET_TEXTURE,     "Texture (.pdtexture)" },
+    { ASSET_MATERIAL,    "Material (.pdmaterial)" },
+    { ASSET_SKIN,        "Skin (.pdskin)" },
+    { ASSET_EFFECT,      "Effect (.pdeffect)" },
+    { ASSET_PROP,        "Prop (.pdprop)" },
+    { ASSET_VEHICLE,     "Vehicle (.pdvehicle)" },
+    { ASSET_AUDIO,       "Audio (.pdsfx/.pdvoice/.pdsong)" },
+    { ASSET_UI,          "UI (.pdui)" },
+    { ASSET_FONT,        "Font (.pdfont)" },
+    { ASSET_LANG,        "Language (.pdlang)" },
+    { ASSET_GAMEMODE,    "Gamemode (.pdgamemode)" },
+    { ASSET_BOT_PROFILE, "Bot Profile (.pdbotprofile)" },
+    { ASSET_HUD,         "HUD (.pdhud)" },
+    { ASSET_THEME,       "Theme (.pdtheme)" },
+    { ASSET_AI_LISTS,    "AI Lists (.pdai)" },
+};
+
+static void renderSettingsDebug(float scale)
+{
+    /* ------ Log Channel Filters ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Log Channels");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    u32 mask = sysLogGetChannelMask();
+
+    /* Preset buttons: All / None */
+    float btnW = 110.0f * scale;  /* wide enough for "All Channels" and "Black & Gold" */
+    float btnH = 24.0f * scale;
+    bool isAll = (mask == LOG_CH_ALL);
+    bool isNone = (mask == LOG_CH_NONE);
+
+    if (isAll) {
+        ImGui::PushStyleColor(ImGuiCol_Button,
+            ImGui::GetStyle().Colors[ImGuiCol_ButtonHovered]);
+    }
+    if (ImGui::Button("All Channels", ImVec2(btnW, btnH))) {
+        sysLogSetChannelMask(LOG_CH_ALL);
+        mask = LOG_CH_ALL;
+        settingsRequestMachineSave();
+    }
+    if (isAll) ImGui::PopStyleColor();
+
+    ImGui::SameLine();
+
+    if (isNone) {
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.1f, 0.85f));
+    }
+    if (ImGui::Button("None##ch", ImVec2(btnW, btnH))) {
+        sysLogSetChannelMask(LOG_CH_NONE);
+        mask = LOG_CH_NONE;
+        settingsRequestMachineSave();
+    }
+    if (isNone) ImGui::PopStyleColor();
+
+    ImGui::Spacing();
+
+    /* Individual channel checkboxes — two columns */
+    bool changed = false;
+    ImGui::Columns(2, "##logcols", false);
+    for (int i = 0; i < LOG_CH_COUNT; i++) {
+        bool enabled = (mask & sysLogChannelBits[i]) != 0;
+        if (ImGui::Checkbox(sysLogChannelNames[i], &enabled)) {
+            if (enabled) {
+                mask |= sysLogChannelBits[i];
+            } else {
+                mask &= ~sysLogChannelBits[i];
+            }
+            changed = true;
+        }
+        if (i == (LOG_CH_COUNT / 2) - 1) ImGui::NextColumn();
+    }
+    ImGui::Columns(1);
+
+    if (changed) {
+        sysLogSetChannelMask(mask);
+        settingsRequestMachineSave();
+    }
+
+    ImGui::Spacing();
+
+    /* Verbose toggle — persisted to pd.ini via Debug.VerboseLogging */
+    bool verbose = sysLogGetVerbose() != 0;
+    if (ImGui::Checkbox("Verbose Logging", &verbose)) {
+        sysLogSetVerbose(verbose ? 1 : 0);
+        settingsRequestMachineSave();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(0x%04X%s)", mask, verbose ? " +V" : "");
+
+    ImGui::Spacing();
+
+    /* ManifestMaxEntries — hard cap on asset manifest size.
+     * Persisted to pd.ini as Debug.ManifestMaxEntries. */
+    {
+        int maxEnt = (int)manifestGetMaxEntries();
+        ImGui::SetNextItemWidth(120.0f * scale);
+        if (ImGui::InputInt("Manifest Max Entries", &maxEnt, 64, 256)) {
+            manifestSetMaxEntries((s32)maxEnt);
+            settingsRequestMachineSave();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(64 – 4096)");
+    }
+
+    ImGui::Spacing();
+
+    /* Select exactly one family whose runtime loads must come from public
+     * extracted/generated file sources. Checking a different row clears the
+     * previous family; unchecking the active row disables the gate. */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Asset Source Gate");
+    ImGui::Separator();
+    ImGui::Spacing();
+    {
+        asset_type_e selected = assetSourceDebugOnlyType();
+        ImGui::Columns(2, "##asset_source_gate_cols", false);
+        for (size_t i = 0; i < sizeof(s_DebugAssetSourceFamilies) / sizeof(s_DebugAssetSourceFamilies[0]); i++) {
+            const DebugAssetSourceFamily &family = s_DebugAssetSourceFamilies[i];
+            bool checked = (selected == family.type);
+            if (ImGui::Checkbox(family.label, &checked)) {
+                assetSourceDebugSetOnlyType(checked ? family.type : ASSET_NONE);
+                selected = assetSourceDebugOnlyType();
+                settingsRequestMachineSave();
+            }
+            if (i + 1 == (sizeof(s_DebugAssetSourceFamilies) / sizeof(s_DebugAssetSourceFamilies[0]) + 1) / 2) {
+                ImGui::NextColumn();
+            }
+        }
+        ImGui::Columns(1);
+        ImGui::TextDisabled("Active: %s", assetSourceDebugTypeLabel(selected));
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* S306: UI Theme selector + Theme Editor launcher moved to the new
+     * Settings → Interface tab so all visual-customisation controls live
+     * in one place. The Debug tab now focuses on diagnostics only. */
+    {
+        u32 warnRgba = pdguiGetTextWarning();
+        ImVec4 warnCol = ImVec4(
+            ((warnRgba >> 24) & 0xFF) / 255.0f,
+            ((warnRgba >> 16) & 0xFF) / 255.0f,
+            ((warnRgba >>  8) & 0xFF) / 255.0f,
+            ((warnRgba >>  0) & 0xFF) / 255.0f);
+        ImGui::TextColored(warnCol, "Visual Customization");
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("Color Theme, Menu Style, Title Bar, Font");
+    ImGui::TextDisabled("-> Settings > Interface tab");
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Memory Diagnostics ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Memory");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    u32 pcTotal = mempPCGetTotalAllocated();
+    u32 pcCount = mempPCGetNumAllocations();
+
+    ImGui::Text("Persistent: %u bytes (%u allocs)", pcTotal, pcCount);
+    ImGui::Text("Heap size:  %d MB", g_OsMemSizeMb);
+
+    ImGui::Spacing();
+    if (ImGui::Button("Validate Memory", ImVec2(btnW * 1.5f, btnH))) {
+        s32 ok = mempPCValidate("settings_debug");
+        sysLogPrintf(LOG_NOTE, "SETTINGS_DEBUG: mempPCValidate = %s",
+            ok ? "OK" : "CORRUPTED");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Scene Shortcuts ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Scene Shortcuts");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    const bool creditsEnabled = (g_NetMode == NETMODE_NONE);
+    if (!creditsEnabled) ImGui::BeginDisabled();
+    if (ImGui::Button("Go to Credits", ImVec2(btnW * 1.5f, btnH))) {
+        sysLogPrintf(LOG_NOTE, "SETTINGS_DEBUG: Go to Credits");
+        /* Use the shared normal-scroll launcher (numplayers/DIFF_A seeding)
+         * rather than a bare mainChangeToStage, matching the main-menu button. */
+        creditsEnterNormalScroll();
+    }
+    if (!creditsEnabled) ImGui::EndDisabled();
+    if (!creditsEnabled) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("Disabled during netplay");
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Test Scenarios (S483, redesigned S593d 2026-05-01) ------
+     * Three radio modes -- The Grid (empty map), CPU Bots (swarm CPU),
+     * GPU Bots (swarm GPU). Arena selector enumerates ASSET_ARENA from
+     * the catalog so any registered arena is selectable. One Start
+     * button launches the chosen mode on the chosen arena.
+     *
+     * The Grid mode ignores the arena selector (it has its own fixed
+     * stage entry, STAGE_CITRAINING, and the selector greys out for
+     * that mode). CPU Bots / GPU Bots both use the selected arena.
+     *
+     * Disabled in any net mode != NONE since these run as local-only
+     * sessions (the local-stage transition would desync a net match).
+     */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Test Scenarios");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Forward declaration -- defined non-static in pdgui_menu_room.cpp,
+     * used here for the arena selector names (a mod level's own name, else
+     * the localized one). */
+    extern const char *arenaEntryName(const asset_entry_t *e);
+
+    {
+        /* Mode picker -- 3 radios */
+        static int s_TestScenChoice = 1; /* default to CPU Bots; first-run friendly for benchmark */
+        ImGui::Text("Mode:");
+        ImGui::SameLine();
+        char gridLabel[FORGE_DISPLAY_NAME_CAP + sizeof("###testscen_mode")];
+        snprintf(gridLabel, sizeof(gridLabel), "%s###testscen_mode", forgeDisplayName());
+        ImGui::RadioButton(gridLabel, &s_TestScenChoice, 0);
+        ImGui::SameLine();
+        ImGui::RadioButton("CPU Bots##testscen_mode", &s_TestScenChoice, 1);
+        ImGui::SameLine();
+        ImGui::RadioButton("GPU Bots##testscen_mode", &s_TestScenChoice, 2);
+
+        /* Arena picker -- catalog-enumerated ASSET_ARENA list. Built
+         * once on first render and rebuilt if the list grows beyond
+         * the static cap (mods can add arenas at runtime).
+         *
+         * S593e (2026-05-01): we store the resolved STAGE id (not the
+         * arena id) per entry, because testScenarioLaunch's
+         * resolve_map_stagenum calls catalogResolveStage which only
+         * matches stage entries (id format `base:mp_*`), not arena
+         * entries (id format `base:arena_*`). Mike's playtest hit
+         * `TESTSCEN: failed to resolve map_id='base:arena_mp_carpark'
+         * via catalog` because we were passing the arena id. Now we
+         * convert via the stagenum on the arena entry to the matching
+         * stage id at collect time. */
+        static const int kMaxArenas = 96;
+        static char  s_ArenaStageIds[kMaxArenas][64];
+        static char  s_ArenaNames[kMaxArenas][48];
+        static const char *s_ArenaNamePtrs[kMaxArenas];
+        /* S594h-Unit-C-followup (2026-05-01): track canvas-loadmode per
+         * arena so the swarm path can grey out / filter solo mission
+         * stages. The runtime guard in testScenarioLaunch already
+         * refuses canvas arenas with a log line, but Mike's playtest
+         * showed that's invisible in the UI -- click Start, nothing
+         * appears to happen. The picker now annotates canvas arenas
+         * and disables Start when a canvas arena is selected for
+         * swarm mode. */
+        static u8    s_ArenaIsCanvas[kMaxArenas];
+        static int   s_NumArenas = 0;
+        static int   s_DefaultIdx = 0;
+        static bool  s_ArenasBuilt = false;
+
+        if (!s_ArenasBuilt) {
+            struct collect_ctx {
+                int *count;
+                int  cap;
+                char (*ids)[64];
+                char (*names)[48];
+                u8  *is_canvas;
+            } ctx;
+            ctx.count     = &s_NumArenas;
+            ctx.cap       = kMaxArenas;
+            ctx.ids       = s_ArenaStageIds;
+            ctx.names     = s_ArenaNames;
+            ctx.is_canvas = s_ArenaIsCanvas;
+            s_NumArenas = 0;
+
+            assetCatalogIterateByType(ASSET_ARENA,
+                [](const asset_entry_t *e, void *userdata) {
+                    auto *c = (collect_ctx *)userdata;
+                    if (*c->count >= c->cap) return;
+                    /* Convert arena -> stage id via the linking stagenum.
+                     * Skip arenas whose stagenum has no matching stage
+                     * entry (defensive against broken catalog state). */
+                    const char *stage_id = catalogStageIdByStagenum((s32)e->ext.arena.stagenum);
+                    if (!stage_id || !stage_id[0]) return;
+                    /* Arena name: a mod level's own name, else the
+                     * localised display name (arenaEntryName); fall back
+                     * to the catalog id when neither resolves. Append
+                     * "(solo)" to canvas-loadmode arenas so the user sees
+                     * they're not swarm-compatible. */
+                    const char *name = arenaEntryName(e);
+                    if (!name || !name[0]) name = e->id;
+                    const u8 is_canvas =
+                        (e->ext.arena.load_mode == ARENA_LOADMODE_CANVAS) ? 1 : 0;
+                    strncpy(c->ids[*c->count], stage_id, 63);
+                    c->ids[*c->count][63] = '\0';
+                    if (is_canvas) {
+                        snprintf(c->names[*c->count], 48, "%s (solo)", name);
+                    } else {
+                        strncpy(c->names[*c->count], name, 47);
+                        c->names[*c->count][47] = '\0';
+                    }
+                    c->is_canvas[*c->count] = is_canvas;
+                    (*c->count)++;
+                },
+                &ctx);
+
+            for (int i = 0; i < s_NumArenas - 1; i++) {
+                for (int j = i + 1; j < s_NumArenas; j++) {
+                    if (strcasecmp(s_ArenaNames[i], s_ArenaNames[j]) > 0) {
+                        char tmpId[64];
+                        char tmpName[48];
+                        u8 tmpCanvas = s_ArenaIsCanvas[i];
+                        strncpy(tmpId, s_ArenaStageIds[i], sizeof(tmpId));
+                        strncpy(tmpName, s_ArenaNames[i], sizeof(tmpName));
+                        strncpy(s_ArenaStageIds[i], s_ArenaStageIds[j],
+                                sizeof(s_ArenaStageIds[i]));
+                        strncpy(s_ArenaNames[i], s_ArenaNames[j],
+                                sizeof(s_ArenaNames[i]));
+                        s_ArenaIsCanvas[i] = s_ArenaIsCanvas[j];
+                        strncpy(s_ArenaStageIds[j], tmpId,
+                                sizeof(s_ArenaStageIds[j]));
+                        strncpy(s_ArenaNames[j], tmpName,
+                                sizeof(s_ArenaNames[j]));
+                        s_ArenaIsCanvas[j] = tmpCanvas;
+                    }
+                }
+            }
+
+            for (int i = 0; i < s_NumArenas; i++) {
+                s_ArenaNamePtrs[i] = s_ArenaNames[i];
+                if (strcmp(s_ArenaStageIds[i], "base:mp_felicity") == 0) {
+                    s_DefaultIdx = i;
+                }
+            }
+            s_ArenasBuilt = true;
+        }
+
+        static int s_TestScenArenaIdx = -1;
+        if (s_TestScenArenaIdx < 0 && s_NumArenas > 0) {
+            s_TestScenArenaIdx = s_DefaultIdx;
+        }
+
+        const bool gridMode = (s_TestScenChoice == 0);
+
+        ImGui::Text("Arena:");
+        ImGui::SameLine();
+        if (gridMode) ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(220.0f * scale);
+        if (s_NumArenas > 0) {
+            ImGui::Combo("##testscen_arena", &s_TestScenArenaIdx, s_ArenaNamePtrs, s_NumArenas);
+        } else {
+            ImGui::TextDisabled("(no arenas registered)");
+        }
+        if (gridMode) ImGui::EndDisabled();
+
+        /* S594h-Unit-A item 6 UI: team-mode picker. Two presets:
+         *   "Sims vs Players"     -- one swarm-team hostile to player.
+         *   "2 Teams + Player"    -- swarm splits 50/50, three-way melee
+         *                            with team colors visible (A.5).
+         * Only relevant for swarm scenarios; greyed in Grid mode. */
+        static int s_TestScenTeamChoice = 0; /* 0 = sims-vs-players (default) */
+        ImGui::Text("Teams:");
+        ImGui::SameLine();
+        if (gridMode) ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(220.0f * scale);
+        const char *teamItems[] = { "Sims vs Players", "2 Teams + Player" };
+        ImGui::Combo("##testscen_teams", &s_TestScenTeamChoice,
+                teamItems, (int)(sizeof(teamItems)/sizeof(teamItems[0])));
+        if (gridMode) ImGui::EndDisabled();
+
+        /* S594h-Unit-B UI: spawn-strategy picker. Two presets:
+         *   "Concentric Rings" -- S593f layout, static formation.
+         *   "Volume (box)"     -- uniform-random within a box around the
+         *                         player; kill-respawn picks a fresh
+         *                         position rather than reusing the
+         *                         original ring slot. */
+        static int s_TestScenSpawnChoice = 0; /* 0 = rings (default) */
+        ImGui::Text("Spawn:");
+        ImGui::SameLine();
+        if (gridMode) ImGui::BeginDisabled();
+        ImGui::SetNextItemWidth(220.0f * scale);
+        const char *spawnItems[] = { "Concentric Rings", "Volume (box)" };
+        ImGui::Combo("##testscen_spawn", &s_TestScenSpawnChoice,
+                spawnItems, (int)(sizeof(spawnItems)/sizeof(spawnItems[0])));
+        if (gridMode) ImGui::EndDisabled();
+
+        ImGui::SameLine();
+
+        const bool launchOk = (testScenarioCanLaunch() != 0);
+        const char *whyDisabled = testScenarioWhyDisabled();
+
+        /* S594h-Unit-C-followup: gate the Start button when a canvas
+         * arena is selected for a swarm scenario. Mike's playtest
+         * picked Chicago / Skedar Ruins (campaign), the runtime guard
+         * refused with a log line, but from the UI the click looked
+         * like a no-op. Greying Start + showing a status string makes
+         * the rejection visible. The runtime guard stays in place as
+         * a backstop. */
+        const bool selectedIsValidIdx =
+            (s_TestScenArenaIdx >= 0 && s_TestScenArenaIdx < s_NumArenas);
+        const bool selectedIsCanvas = selectedIsValidIdx
+            && s_ArenaIsCanvas[s_TestScenArenaIdx];
+        const bool canvasBlocksLaunch = !gridMode && selectedIsCanvas;
+        const bool startEnabled = launchOk && !canvasBlocksLaunch;
+
+        if (!startEnabled) ImGui::BeginDisabled();
+        if (ImGui::Button("Start##testscen", ImVec2(btnW, btnH))) {
+            test_scenario_t scen = TESTSCEN_NONE;
+            const char *map_id = NULL;
+            switch (s_TestScenChoice) {
+            case 0: scen = TESTSCEN_EMPTY_MAP;  break;
+            case 1: scen = TESTSCEN_SWARM_CPU;
+                    if (s_TestScenArenaIdx >= 0 && s_TestScenArenaIdx < s_NumArenas)
+                        map_id = s_ArenaStageIds[s_TestScenArenaIdx];
+                    break;
+            case 2: scen = TESTSCEN_SWARM_GPU;
+                    if (s_TestScenArenaIdx >= 0 && s_TestScenArenaIdx < s_NumArenas)
+                        map_id = s_ArenaStageIds[s_TestScenArenaIdx];
+                    break;
+            default: break;
+            }
+            if (scen != TESTSCEN_NONE) {
+                /* Apply the team-mode pick before the launch -- swarm_test.c
+                 * reads s_TeamMode at session-start when assigning team_idx
+                 * and toggling MPOPTION_TEAMSENABLED. */
+                swarmTestSetTeamMode((s_TestScenTeamChoice == 1)
+                    ? SWARM_TEAMS_TWO_TEAMS_PLUS_PLAYER
+                    : SWARM_TEAMS_SIMS_VS_PLAYERS);
+                /* Apply the spawn-strategy pick (Unit B) before launch. */
+                swarmTestSetSpawnStrategy((s_TestScenSpawnChoice == 1)
+                    ? SWARM_SPAWN_VOLUME
+                    : SWARM_SPAWN_RING);
+                testScenarioLaunch(scen, map_id);
+            }
+        }
+        if (!startEnabled) ImGui::EndDisabled();
+
+        if (gridMode) {
+            ImGui::TextDisabled("Loads CI Training as a baseline empty session.");
+        } else {
+            ImGui::TextDisabled("Bots cycle 4..256 then 512..4096 in 256 steps");
+            ImGui::TextDisabled("PgUp / [0] / D-pad-Down: next | PgDn / D-pad-Up: prev | I: visibility");
+        }
+        if (!launchOk && whyDisabled) {
+            ImGui::TextDisabled("Disabled: %s", whyDisabled);
+        }
+        if (canvasBlocksLaunch) {
+            ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.30f, 1.0f),
+                "Disabled: '(solo)' arenas are solo-mission canvases. Pick an MP arena.");
+        }
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Keyboard Shortcuts Reminder ------ */
+    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "Shortcuts");
+    ImGui::Separator();
+    ImGui::TextDisabled("F6   Complete campaign objectives / Freeze Combat Sim bots");
+    ImGui::TextDisabled("F7   Player invincibility");
+    ImGui::TextDisabled("F12  Debug Overlay");
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ About ------ */
+    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.6f, 0.8f), "About");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    ImGui::Text("Perfect Dark 2.0, MikeHazeJr");
+    ImGui::Text("Version:  v%d.%d.%d", VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH);
+    ImGui::TextDisabled("Build:    %s", VERSION_BUILD);
+    ImGui::TextDisabled("Commit:   %.12s", VERSION_HASH);
+    ImGui::TextDisabled("ROM:      %-10s  Target: %s", VERSION_ROMID, VERSION_TARGET);
+    ImGui::TextDisabled("Branch:   %s", VERSION_BRANCH);
+}
+
+/* -----------------------------------------------------------------------
+ * Catalog tab helpers
+ * ----------------------------------------------------------------------- */
+
+/* One name per asset_type_e value, in enum order. Unsized so the assert below
+ * catches a new type: a missing row was a NULL label for the combo. */
+static const char *s_AssetTypeNames[] = {
+    "None",          /* ASSET_NONE */
+    "Map",           /* ASSET_MAP */
+    "Character",     /* ASSET_CHARACTER */
+    "Skin",          /* ASSET_SKIN */
+    "Bot Variant",   /* ASSET_BOT_VARIANT */
+    "Weapon",        /* ASSET_WEAPON */
+    "Texture Pack",  /* ASSET_TEXTURES — collection/pack, distinct from individual Texture */
+    "SFX",           /* ASSET_SFX */
+    "Music",         /* ASSET_MUSIC */
+    "Prop",          /* ASSET_PROP */
+    "Vehicle",       /* ASSET_VEHICLE */
+    "Mission",       /* ASSET_MISSION */
+    "UI",            /* ASSET_UI */
+    "Tool",          /* ASSET_TOOL */
+    "Arena",         /* ASSET_ARENA */
+    "Body",          /* ASSET_BODY */
+    "Head",          /* ASSET_HEAD */
+    "Animation",     /* ASSET_ANIMATION */
+    "Texture",       /* ASSET_TEXTURE — individual texture entry */
+    "Game Mode",     /* ASSET_GAMEMODE */
+    "Voice",         /* ASSET_AUDIO — generic audio (voice/ambient); SFX and Music have own types */
+    "HUD",           /* ASSET_HUD */
+    "Effect",        /* ASSET_EFFECT */
+    "Model",         /* ASSET_MODEL */
+    "Lang",          /* ASSET_LANG — language string bank */
+    "Bot Profile",   /* ASSET_BOT_PROFILE */
+    "Projectile",    /* ASSET_PROJECTILE */
+    "Entity",        /* ASSET_ENTITY */
+    "Material",      /* ASSET_MATERIAL */
+    "Font",          /* ASSET_FONT */
+    "Scenario",      /* ASSET_SCENARIO */
+    "Theme",         /* ASSET_THEME */
+    "AI Lists",      /* ASSET_AI_LISTS: global AI list bank */
+};
+static_assert(sizeof(s_AssetTypeNames) / sizeof(s_AssetTypeNames[0]) == ASSET_TYPE_COUNT,
+    "s_AssetTypeNames needs one name per asset_type_e value");
+
+static const char *s_LoadStateNames[] = {
+    "Registered", "Enabled", "Loaded", "Active"
+};
+
+static const char *s_ManifestTypeNames[] = {
+    "Body", "Head", "Stage", "Weapon", "Component", "Model", "Anim", "Texture",
+    "Lang",  /* MANIFEST_TYPE_LANG = 8 */
+    "Audio", /* MANIFEST_TYPE_AUDIO = 9 */
+    "Projectile",
+    "Entity",
+    "Asset",
+};
+
+static void renderSettingsCatalog(float scale)
+{
+    s32 totalCount   = assetCatalogGetCount();
+    s32 poolSize     = assetCatalogGetPoolSize();
+
+    /* ------ D5.0a Spike: ROM texture bridge proof of concept ------ */
+    {
+        ImGui::TextColored(pdguiVec4TitleGlow(), "D5.0a Texture Bridge Spike");
+        ImGui::SameLine();
+        ImGui::TextDisabled("catalog id: ui/test_panel");
+        void *tex = pdguiGetUiTexture("ui/test_panel");
+        if (tex) {
+            ImGui::Image((ImTextureID)tex, ImVec2(64.0f * scale, 64.0f * scale));
+            ImGui::SameLine();
+            ImGui::TextDisabled("PASS: ImGui::Image() rendered via pdguiGetUiTexture()");
+        } else {
+            ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f),
+                               "FAIL: pdguiGetUiTexture() returned NULL");
+        }
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::Spacing();
+    }
+
+    /* ------ Summary ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Asset Catalog");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Count loaded + mod-overridden */
+    s32 loadedCount = 0;
+    s32 modCount    = 0;
+    for (s32 i = 0; i < poolSize; i++) {
+        const asset_entry_t *e = assetCatalogGetByIndex(i);
+        if (!e) continue;
+        if (e->load_state >= ASSET_STATE_LOADED) loadedCount++;
+        if (!e->bundled) modCount++;
+    }
+
+    ImGui::Text("Total registered: %d", totalCount);
+    ImGui::SameLine();
+    ImGui::TextDisabled("  Loaded: %d", loadedCount);
+    ImGui::SameLine();
+    ImGui::TextDisabled("  Mod-overridden: %d", modCount);
+    ImGui::Spacing();
+
+    /* Per-type breakdown — two columns */
+    ImGui::Columns(2, "##cat_type_cols", false);
+    for (int t = 1; t < ASSET_TYPE_COUNT; t++) {
+        s32 cnt = assetCatalogGetCountByType((asset_type_e)t);
+        if (cnt > 0) {
+            ImGui::TextDisabled("%-12s  %d", s_AssetTypeNames[t], cnt);
+            ImGui::NextColumn();
+        }
+    }
+    ImGui::Columns(1);
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Browsable List ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Entries");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    /* Type filter */
+    static s32 s_FilterType = 0;   /* 0 = All */
+    static char s_SearchBuf[64]  = {};
+
+    float filterW = 130.0f * scale;
+    ImGui::SetNextItemWidth(filterW);
+    if (ImGui::BeginCombo("##cat_type_filter",
+            s_FilterType == 0 ? "All Types" : s_AssetTypeNames[s_FilterType])) {
+        if (ImGui::Selectable("All Types", s_FilterType == 0)) s_FilterType = 0;
+        for (int t = 1; t < ASSET_TYPE_COUNT; t++) {
+            bool sel = (s_FilterType == t);
+            if (ImGui::Selectable(s_AssetTypeNames[t], sel)) s_FilterType = t;
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-1.0f);
+    ImGui::InputText("##cat_search", s_SearchBuf, sizeof(s_SearchBuf));
+    ImGui::SameLine();
+    ImGui::TextDisabled("Search");
+    ImGui::Spacing();
+
+    /* Entry table — dynamically sized to catalog pool, never outgrown by mods */
+    static s32 *s_EntSortedIdx   = nullptr;
+    static s32  s_EntSortedCap   = 0;
+    static s32  s_EntSortedCount = 0;
+    static bool s_EntSortDirty   = true; /* force rebuild on first frame */
+
+    /* Grow buffer to current pool size when catalog expands */
+    if (poolSize > s_EntSortedCap) {
+        free(s_EntSortedIdx);
+        s_EntSortedIdx = (s32 *)malloc((size_t)poolSize * sizeof(s32));
+        s_EntSortedCap = s_EntSortedIdx ? poolSize : 0;
+        s_EntSortDirty = true;
+    }
+
+    ImGuiTableFlags tflags = ImGuiTableFlags_RowBg
+                           | ImGuiTableFlags_BordersInnerV
+                           | ImGuiTableFlags_ScrollY
+                           | ImGuiTableFlags_SizingStretchProp
+                           | ImGuiTableFlags_Resizable
+                           | ImGuiTableFlags_Sortable
+                           | ImGuiTableFlags_Reorderable;
+    float tableH = ImGui::GetContentRegionAvail().y * 0.55f;
+    if (ImGui::BeginTable("##cat_entries", 6, tflags, ImVec2(0, tableH))) {
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 3.0f);
+        ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn("State",    ImGuiTableColumnFlags_WidthStretch, 1.0f);
+        ImGui::TableSetupColumn("Idx",      ImGuiTableColumnFlags_WidthFixed,   40.0f * scale);
+        ImGui::TableSetupColumn("Namespace",ImGuiTableColumnFlags_WidthFixed,   90.0f * scale);
+        ImGui::TableSetupColumn("Src",      ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
+        ImGui::TableHeadersRow();
+
+        /* Rebuild sorted index list when filter or sort changes */
+        {
+            bool hasSearch = s_SearchBuf[0] != '\0';
+            ImGuiTableSortSpecs *sortSpecs = ImGui::TableGetSortSpecs();
+            if (sortSpecs && (sortSpecs->SpecsDirty || s_EntSortDirty)) {
+                s32 col = (sortSpecs->SpecsCount > 0) ? (s32)sortSpecs->Specs[0].ColumnIndex : 0;
+                bool asc = (sortSpecs->SpecsCount > 0)
+                           ? (sortSpecs->Specs[0].SortDirection == ImGuiSortDirection_Ascending)
+                           : true;
+
+                /* Collect matching indices */
+                s_EntSortedCount = 0;
+                if (s_EntSortedIdx) {
+                    for (s32 i = 0; i < poolSize; i++) {
+                        const asset_entry_t *e = assetCatalogGetByIndex(i);
+                        if (!e) continue;
+                        if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
+                        if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
+                        s_EntSortedIdx[s_EntSortedCount++] = i;
+                    }
+                }
+
+                /* Sort the collected indices */
+                std::sort(s_EntSortedIdx, s_EntSortedIdx + s_EntSortedCount,
+                    [col, asc](s32 ia, s32 ib) -> bool {
+                        const asset_entry_t *a = assetCatalogGetByIndex(ia);
+                        const asset_entry_t *b = assetCatalogGetByIndex(ib);
+                        if (!a || !b) return false;
+                        int cmp = 0;
+                        switch (col) {
+                            case 0: cmp = strcmp(a->id, b->id); break;
+                            case 1: cmp = (int)a->type - (int)b->type; break;
+                            case 2: cmp = (int)a->load_state - (int)b->load_state; break;
+                            case 3: cmp = a->runtime_index - b->runtime_index; break;
+                            case 4: {
+                                const char *acolon = strchr(a->id, ':');
+                                const char *bcolon = strchr(b->id, ':');
+                                s32 alen = acolon ? (s32)(acolon - a->id) : 4;
+                                s32 blen = bcolon ? (s32)(bcolon - b->id) : 4;
+                                cmp = strncmp(a->id, b->id, alen < blen ? alen : blen);
+                                if (cmp == 0) cmp = alen - blen;
+                                break;
+                            }
+                            case 5: cmp = (int)a->bundled - (int)b->bundled; break;
+                            default: break;
+                        }
+                        return asc ? (cmp < 0) : (cmp > 0);
+                    });
+
+                sortSpecs->SpecsDirty = false;
+                s_EntSortDirty = false;
+            } else if (!sortSpecs) {
+                /* Fallback: rebuild unsorted on filter change */
+                if (s_EntSortDirty) {
+                    s_EntSortedCount = 0;
+                    if (s_EntSortedIdx) {
+                        for (s32 i = 0; i < poolSize; i++) {
+                            const asset_entry_t *e = assetCatalogGetByIndex(i);
+                            if (!e) continue;
+                            if (s_FilterType != 0 && e->type != (asset_type_e)s_FilterType) continue;
+                            if (hasSearch && strstr(e->id, s_SearchBuf) == NULL) continue;
+                            s_EntSortedIdx[s_EntSortedCount++] = i;
+                        }
+                    }
+                    s_EntSortDirty = false;
+                }
+            }
+        }
+
+        /* Mark dirty when filter/search changes next frame */
+        {
+            static s32  s_PrevFilter = -1;
+            static char s_PrevSearch[64] = {};
+            if (s_PrevFilter != s_FilterType || strcmp(s_PrevSearch, s_SearchBuf) != 0) {
+                s_EntSortDirty = true;
+                s_PrevFilter = s_FilterType;
+                memcpy(s_PrevSearch, s_SearchBuf, sizeof(s_PrevSearch));
+            }
+        }
+
+        for (s32 ri = 0; ri < s_EntSortedCount; ri++) {
+            const asset_entry_t *e = assetCatalogGetByIndex(s_EntSortedIdx[ri]);
+            if (!e) continue;
+
+            ImGui::TableNextRow();
+
+            /* ID */
+            ImGui::TableSetColumnIndex(0);
+            if (!e->bundled) {
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "%s", e->id);
+            } else {
+                ImGui::TextUnformatted(e->id);
+            }
+
+            /* Type */
+            ImGui::TableSetColumnIndex(1);
+            {
+                const char *tname = (e->type >= 0 && e->type < ASSET_TYPE_COUNT)
+                                    ? s_AssetTypeNames[e->type] : "?";
+                ImGui::TextDisabled("%s", tname);
+            }
+
+            /* Load state */
+            ImGui::TableSetColumnIndex(2);
+            {
+                const char *sname = (e->load_state >= 0 && e->load_state <= ASSET_STATE_ACTIVE)
+                                    ? s_LoadStateNames[e->load_state] : "?";
+                if (e->load_state >= ASSET_STATE_LOADED) {
+                    ImGui::TextColored(ImVec4(0.4f, 1.0f, 0.4f, 1.0f), "%s", sname);
+                } else {
+                    ImGui::TextDisabled("%s", sname);
+                }
+            }
+
+            /* Runtime index */
+            ImGui::TableSetColumnIndex(3);
+            if (e->runtime_index >= 0) {
+                ImGui::Text("%d", e->runtime_index);
+            } else {
+                ImGui::TextDisabled("--");
+            }
+
+            /* Namespace */
+            ImGui::TableSetColumnIndex(4);
+            {
+                const char *colon = strchr(e->id, ':');
+                if (colon && colon != e->id) {
+                    ImGui::TextDisabled("%.*s", (int)(colon - e->id), e->id);
+                } else {
+                    ImGui::TextDisabled("base");
+                }
+            }
+
+            /* Source: mod indicator */
+            ImGui::TableSetColumnIndex(5);
+            if (!e->bundled) {
+                ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "MOD");
+            } else {
+                ImGui::TextDisabled("base");
+            }
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    ImGui::Spacing();
+
+    /* ------ Current Manifest ------ */
+    ImGui::TextColored(ImVec4(1.0f, 0.85f, 0.3f, 1.0f), "Current Stage Manifest");
+    ImGui::Separator();
+    ImGui::Spacing();
+
+    const match_manifest_t *mf = &g_CurrentLoadedManifest;
+    if (ImGui::BeginChild("ManifestList", ImVec2(0, 300.0f * scale))) {
+    if (mf->num_entries == 0) {
+        ImGui::TextDisabled("No manifest loaded (not in a match or SP stage)");
+    } else {
+        ImGui::Text("Entries: %d", (int)mf->num_entries);
+        ImGui::Spacing();
+
+        {
+            static s32  s_MfSortedIdx[MANIFEST_MAX_ENTRIES];
+            static s32  s_MfSortedCount = 0;
+            static bool s_MfSortDirty   = true;
+            static u16  s_MfPrevNum     = 0xFFFF;
+
+            ImGuiTableFlags mflags = ImGuiTableFlags_RowBg
+                                   | ImGuiTableFlags_BordersInnerV
+                                   | ImGuiTableFlags_ScrollY
+                                   | ImGuiTableFlags_SizingStretchProp
+                                   | ImGuiTableFlags_Resizable
+                                   | ImGuiTableFlags_Sortable
+                                   | ImGuiTableFlags_Reorderable;
+            float mTableH = ImGui::GetContentRegionAvail().y - 4.0f * scale;
+            if (mTableH < 60.0f * scale) mTableH = 60.0f * scale;
+            if (ImGui::BeginTable("##manifest_entries", 4, mflags, ImVec2(0, mTableH))) {
+                ImGui::TableSetupScrollFreeze(0, 1);
+                ImGui::TableSetupColumn("ID",       ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort, 3.0f);
+                ImGui::TableSetupColumn("Type",     ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("Slot",     ImGuiTableColumnFlags_WidthFixed,   36.0f * scale);
+                ImGui::TableSetupColumn("Namespace",ImGuiTableColumnFlags_WidthFixed,   90.0f * scale);
+                ImGui::TableHeadersRow();
+
+                /* Rebuild sorted index list when manifest or sort changes */
+                if (s_MfPrevNum != mf->num_entries)
+                    s_MfSortDirty = true;
+
+                {
+                    ImGuiTableSortSpecs *sortSpecs = ImGui::TableGetSortSpecs();
+                    if (sortSpecs && (sortSpecs->SpecsDirty || s_MfSortDirty)) {
+                        s32 col = (sortSpecs->SpecsCount > 0) ? (s32)sortSpecs->Specs[0].ColumnIndex : 0;
+                        bool asc = (sortSpecs->SpecsCount > 0)
+                                   ? (sortSpecs->Specs[0].SortDirection == ImGuiSortDirection_Ascending)
+                                   : true;
+
+                        s_MfSortedCount = (s32)mf->num_entries;
+                        for (s32 j = 0; j < s_MfSortedCount; j++)
+                            s_MfSortedIdx[j] = j;
+
+                        std::sort(s_MfSortedIdx, s_MfSortedIdx + s_MfSortedCount,
+                            [mf, col, asc](s32 ia, s32 ib) -> bool {
+                                const match_manifest_entry_t *a = &mf->entries[ia];
+                                const match_manifest_entry_t *b = &mf->entries[ib];
+                                int cmp = 0;
+                                switch (col) {
+                                    case 0: cmp = strcmp(a->id, b->id); break;
+                                    case 1: cmp = (int)a->type - (int)b->type; break;
+                                    case 2: cmp = (int)a->slot_index - (int)b->slot_index; break;
+                                    case 3: {
+                                        const char *acolon = strchr(a->id, ':');
+                                        const char *bcolon = strchr(b->id, ':');
+                                        s32 alen = acolon ? (s32)(acolon - a->id) : 4;
+                                        s32 blen = bcolon ? (s32)(bcolon - b->id) : 4;
+                                        cmp = strncmp(a->id, b->id, alen < blen ? alen : blen);
+                                        if (cmp == 0) cmp = alen - blen;
+                                        break;
+                                    }
+                                    default: break;
+                                }
+                                return asc ? (cmp < 0) : (cmp > 0);
+                            });
+
+                        sortSpecs->SpecsDirty = false;
+                        s_MfSortDirty = false;
+                        s_MfPrevNum = mf->num_entries;
+                    }
+                }
+
+                for (s32 ri = 0; ri < s_MfSortedCount; ri++) {
+                    const match_manifest_entry_t *me = &mf->entries[s_MfSortedIdx[ri]];
+                    ImGui::TableNextRow();
+
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextUnformatted(me->id);
+
+                    ImGui::TableSetColumnIndex(1);
+                    {
+                        const char *mtype = (me->type < (int)(sizeof(s_ManifestTypeNames)/sizeof(s_ManifestTypeNames[0])))
+                                            ? s_ManifestTypeNames[me->type] : "?";
+                        ImGui::TextDisabled("%s", mtype);
+                    }
+
+                    ImGui::TableSetColumnIndex(2);
+                    if (me->slot_index == MANIFEST_SLOT_MATCH) {
+                        ImGui::TextDisabled("all");
+                    } else {
+                        ImGui::Text("%d", (int)me->slot_index);
+                    }
+
+                    ImGui::TableSetColumnIndex(3);
+                    const char *colon = strchr(me->id, ':');
+                    if (colon && colon != me->id) {
+                        ImGui::TextDisabled("%.*s", (int)(colon - me->id), me->id);
+                    } else {
+                        ImGui::TextDisabled("base");
+                    }
+                }
+                ImGui::EndTable();
+            }
+        }
+    }
+    } /* BeginChild ManifestList */
+    ImGui::EndChild();
+}
+
+/* Render the Settings sub-view with LB/RB bumper tab switching */
+static int s_SettingsSubmittedTab = -1;
+
+static void observeSettingsTab(int tab)
+{
+    const ImGuiWindow *window = ImGui::GetCurrentWindow();
+    if (window && !window->SkipItems && !window->Hidden)
+        s_SettingsSubmittedTab = tab;
+}
+
+static void renderSettingsView(float scale, float contentH)
+{
+    s_SettingsSubmittedTab = -1;
+    const bool retrySave = renderSettingsSaveStatus();
+    /* Tab action handling: use a pending flag so SetSelected only fires
+     * for ONE frame after a bumper press, not continuously.
+     *
+     * 2026-04-28: ACTION_MENU_TAB_PREV/NEXT are the authority here.
+     * PageUp/PageDown remain keyboard defaults in the action map, and LB/RB
+     * remain gamepad defaults. */
+    static s32 s_BumperPendingTab = -1; /* -1 = no pending switch */
+
+#if defined(PD_DEV_BUILD)
+    const s32 settingsTabLast = 7;
+#else
+    const s32 settingsTabLast = 6;
+    if (s_SettingsSubTab > settingsTabLast) {
+        s_SettingsSubTab = settingsTabLast;
+    }
+#endif
+
+    /* S306: 8 tabs with PD_DEV_BUILD (Debug present); 7 tabs on stable (no Debug).
+     * Order: 0=Video 1=Interface 2=Audio 3=Controls 4=Game 5=Updates
+     * [6=Debug] 6/7=Catalog. */
+    if (!s_CaptureActive && pdguiMenuTabPrevPressed()) {
+        s_SettingsSubTab--;
+        if (s_SettingsSubTab < 0) s_SettingsSubTab = settingsTabLast;
+        s_BumperPendingTab = s_SettingsSubTab;
+        s_NeedsFocus = true;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+    if (!s_CaptureActive && pdguiMenuTabNextPressed()) {
+        s_SettingsSubTab++;
+        if (s_SettingsSubTab > settingsTabLast) s_SettingsSubTab = 0;
+        s_BumperPendingTab = s_SettingsSubTab;
+        s_NeedsFocus = true;
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+
+    /* Tab bar for settings categories */
+    ImGuiTabBarFlags tabFlags = ImGuiTabBarFlags_None;
+    if (ImGui::BeginTabBar("##settings_tabs", tabFlags)) {
+
+        /* Only apply SetSelected on the frame a bumper press happens.
+         * After that frame, clear the pending flag so ImGui's own tab
+         * click handling works normally without fighting. */
+        ImGuiTabItemFlags selFlag0 = (s_BumperPendingTab == 0) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag1 = (s_BumperPendingTab == 1) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag2 = (s_BumperPendingTab == 2) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag3 = (s_BumperPendingTab == 3) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag4 = (s_BumperPendingTab == 4) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag5 = (s_BumperPendingTab == 5) ? ImGuiTabItemFlags_SetSelected : 0;
+        ImGuiTabItemFlags selFlag6 = (s_BumperPendingTab == 6) ? ImGuiTabItemFlags_SetSelected : 0;
+#if defined(PD_DEV_BUILD)
+        ImGuiTabItemFlags selFlag7 = (s_BumperPendingTab == 7) ? ImGuiTabItemFlags_SetSelected : 0;
+#endif
+        s_BumperPendingTab = -1; /* Clear after consuming */
+
+        if (ImGui::BeginTabItem("Video", nullptr, selFlag0)) {
+            s_SettingsSubTab = 0;
+            ImGui::BeginChild("##settings_scroll_v", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsVideo(scale);
+            observeSettingsTab(0);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Interface", nullptr, selFlag1)) {
+            s_SettingsSubTab = 1;
+            ImGui::BeginChild("##settings_scroll_i", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsInterface(scale);
+            observeSettingsTab(1);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Audio", nullptr, selFlag2)) {
+            s_SettingsSubTab = 2;
+            ImGui::BeginChild("##settings_scroll_a", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsAudio(scale);
+            observeSettingsTab(2);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Input", nullptr, selFlag3)) {
+            s_SettingsSubTab = 3;
+            ImGui::BeginChild("##settings_scroll_input", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsInput(scale);
+            observeSettingsTab(3);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Game", nullptr, selFlag4)) {
+            s_SettingsSubTab = 4;
+            ImGui::BeginChild("##settings_scroll_g", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsGame(scale);
+            observeSettingsTab(4);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Updates", nullptr, selFlag5)) {
+            s_SettingsSubTab = 5;
+            ImGui::BeginChild("##settings_scroll_u", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            pdguiUpdateRenderSettingsTab();
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+#if defined(PD_DEV_BUILD)
+        if (ImGui::BeginTabItem("Debug", nullptr, selFlag6)) {
+            s_SettingsSubTab = 6;
+            ImGui::BeginChild("##settings_scroll_d", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsDebug(scale);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+#endif
+
+        if (ImGui::BeginTabItem("Catalog", nullptr,
+#if defined(PD_DEV_BUILD)
+                selFlag7
+#else
+                selFlag6
+#endif
+                )) {
+#if defined(PD_DEV_BUILD)
+            s_SettingsSubTab = 7;
+#else
+            s_SettingsSubTab = 6;
+#endif
+            ImGui::BeginChild("##settings_scroll_cat", ImVec2(0, 0),
+                              ImGuiChildFlags_NavFlattened);
+            if (ImGui::IsWindowAppearing()) ImGui::SetScrollY(0);
+            if (s_NeedsFocus) { ImGui::SetKeyboardFocusHere(0); s_NeedsFocus = false; }
+            renderSettingsCatalog(scale);
+            ImGui::EndChild();
+            ImGui::EndTabItem();
+        }
+
+		ImGui::EndTabBar();
+	}
+
+    /* D-005: retain the existing complete Agent document writer and its
+     * unchanged-snapshot check. A failed channel waits for explicit Retry. */
+    if (retrySave) s_SettingsSaveStatus.retry(prefsAgentGetActive(), settingsSaveCallbacks());
+    else s_SettingsSaveStatus.poll(prefsAgentGetActive(), settingsSaveCallbacks());
+
+	/* Bumper hint at bottom — S311: glyph-driven key labels track active device. */
+    {
+        char prevKey[24], nextKey[24];
+        pdguiGlyphGetActionLabel(ACTION_MENU_TAB_PREV, prevKey, (s32)sizeof(prevKey));
+        pdguiGlyphGetActionLabel(ACTION_MENU_TAB_NEXT, nextKey, (s32)sizeof(nextKey));
+        ImGui::TextDisabled("%s / %s to switch tabs", prevKey, nextKey);
+    }
+}
+
+/* ========================================================================
+ * The Grid submenu (Priority 1, 2026-04-23)
+ *
+ * Map picker + variant config + Enter flow.  "The Grid" button on the
+ * Main Menu routes here (s_MenuView=6); Enter writes the variant into
+ * g_MatchConfig and calls pdguiForgeStartSessionOn(stagenum) to hand
+ * off to the session.
+ *
+ * Arena list is built on-demand from the catalog (ASSET_ARENA) so the
+ * submenu stays in lockstep with whatever mods registered.  A Blank Map
+ * entry is conditional on GRID_BLANK_STAGE (undefined by default -- see
+ * pdgui_menu_grid.h for rationale).
+ * ======================================================================== */
+
+/* Grid arena category tags. The catalog category strings are
+ * "Dark" / "Solo Missions" / "Classic" / "Bonus" / "Random"; the picker
+ * displays the user-facing abbreviation on each row. Category is a
+ * display tag only -- not a validity filter (the catalog is authoritative
+ * on which arenas are playable; if it's registered, it ships). */
+enum GridArenaCategory {
+    GRID_CAT_MP     = 0, /* "Dark" -- native MP arenas */
+    GRID_CAT_SP     = 1, /* "Solo Missions" -- SP-class stages usable in MP */
+    GRID_CAT_CLASSIC= 2, /* "Classic" -- Temple / Complex / Felicity / etc. */
+    GRID_CAT_BONUS  = 3, /* "Bonus" -- extra / test stages */
+    GRID_CAT_RANDOM = 4, /* "Random" -- meta arenas (mp_random_*) */
+    GRID_CAT_UNKNOWN = 5,
+};
+
+struct GridArenaEntry {
+    char              name[64];
+    char              id[64];
+    s32               stagenum;
+    GridArenaCategory category;
+    bool              is_blank;   /* true for the synthetic Blank Map row */
+    /* B-254 (2026-04-25): mirror of asset_entry.ext.arena.load_mode.
+     * 0 = ARENA_LOADMODE_PLAYABLE, 1 = ARENA_LOADMODE_CANVAS. */
+    u8                load_mode;
+};
+
+static GridArenaEntry *s_GridArenas = NULL;
+static int             s_GridArenaCount = 0;
+static int             s_GridArenaCapacity = 0;
+static bool            s_GridArenasBuilt = false;
+static bool            s_GridBrowserBuilt = false;
+static bool            s_GridBrowserBuilding = false;
+// An empty ID identifies the synthetic Blank Map. Catalog rows have IDs.
+static char            s_GridSelectedArenaId[CATALOG_ID_LEN];
+static char            s_GridLaunchError[160];
+
+/* AUDIT-24-M6 (2026-04-25): scenarios are catalog-driven; the built
+ * flag and dynamic storage are co-located with the arena counterparts
+ * so `pdguiGridArenasInvalidate` (declared next) can reset both. */
+struct GridScenarioEntry {
+    char id[64];
+    char label[80];
+    bool teams; /* team-based default */
+};
+static GridScenarioEntry *s_GridScenarios = NULL;
+static int                s_GridScenarioCount = 0;
+static int                s_GridScenarioCapacity = 0;
+static bool               s_GridScenariosBuilt = false;
+
+/* AUDIT-24-M7 (2026-04-25): clear the built-flag so the next render
+ * rebuilds the Grid arena list from the current catalog state.  Called
+ * from `modmgrCatalogChanged()` whenever a mod is enabled / disabled /
+ * scanned, so mod-authored arenas appear in the picker without a
+ * process restart.
+ *
+ * AUDIT-24-M6 (2026-04-25): scenarios share the same invalidation hook
+ * because they're both catalog-driven; mod-authored game modes also
+ * become visible without a restart. */
+extern "C" void pdguiGridArenasInvalidate(void)
+{
+    s_GridArenasBuilt = false;
+    s_GridBrowserBuilt = false;
+    s_GridBrowserBuilding = false;
+    s_GridScenariosBuilt = false;
+}
+
+static GridArenaCategory gridClassifyCategory(const char *cat)
+{
+    if (!cat || !cat[0])                         return GRID_CAT_UNKNOWN;
+    if (strcmp(cat, "Dark") == 0)                return GRID_CAT_MP;
+    if (strcmp(cat, "Solo Missions") == 0)       return GRID_CAT_SP;
+    if (strcmp(cat, "Classic") == 0)             return GRID_CAT_CLASSIC;
+    if (strcmp(cat, "Bonus") == 0)               return GRID_CAT_BONUS;
+    if (strcmp(cat, "Random") == 0)              return GRID_CAT_RANDOM;
+    return GRID_CAT_UNKNOWN;
+}
+
+/* Variant state.  Simple local mirror until the user commits via Enter. */
+static char  s_GridScenarioId[CATALOG_ID_LEN] = "base:combat";
+static int   s_GridTimeLimit   = 10;    /* minutes, 0 = unlimited */
+static int   s_GridScoreLimit  = 10;    /* kills/points, 0 = unlimited */
+static bool  s_GridTeamsOn     = false;
+static bool  s_GridOneHitKills = false;
+static bool  s_GridSlowMotion  = false;
+
+/* AUDIT-24-M6 (2026-04-25): Grid scenarios are now sourced from the
+ * catalog via assetCatalogIterateByType(ASSET_GAMEMODE, ...).  The
+ * prior hardcoded `s_GridScenarios[]` was a parallel table to
+ * `s_BaseGameModes` in port/src/assetcatalog_base_extended.c -- mod-
+ * authored scenarios never appeared in the picker.  The dynamic
+ * collector + invalidation hook (modmgrCatalogChanged) makes the
+ * picker reflect the current catalog state.
+ * Storage declared further up (alongside arenas) so the invalidate
+ * function can reset both with a single forward declaration. */
+
+static void gridArenaCollect(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (!e) return;
+
+    /* Source-cleanup pass (2026-04-24): the catalog registration is now
+     * authoritative on which arenas are valid. assetcatalog_base.c NULLs
+     * the slots for test / placeholder stages so they never reach here.
+     * The only runtime gate the picker enforces is the feature-unlock
+     * gate (legitimate gameplay feature, not a data-validity check). */
+
+    if (!challengeIsFeatureUnlocked((u8)e->ext.arena.requirefeature)) {
+        return;
+    }
+
+    /* A mod level carries its own name (arena.ini display_name, Forge F1);
+     * every other arena is named by its langbank string. */
+    const char *langText = e->ext.arena.display_name[0]
+        ? e->ext.arena.display_name
+        : langSafe((s32)e->ext.arena.name_langid);
+    if (!langText || !langText[0]) {
+        /* Catalog registration contract: every registered arena must have
+         * a name of its own or a resolvable langbank name. Hit = data bug,
+         * not a soft reject. */
+        sysLogPrintf(LOG_ERROR,
+            "GRID.MENU: arena id=\"%s\" stagenum=0x%02x langid=0x%04x has no "
+            "langbank name -- catalog registration bug, entry skipped",
+            e->id, e->ext.arena.stagenum, e->ext.arena.name_langid);
+        return;
+    }
+
+    if (s_GridArenaCount >= s_GridArenaCapacity) {
+        int newCap = (s_GridArenaCapacity == 0) ? 32 : s_GridArenaCapacity * 2;
+        GridArenaEntry *newBuf = (GridArenaEntry *)realloc(
+                s_GridArenas, (size_t)newCap * sizeof(GridArenaEntry));
+        if (!newBuf) {
+            sysLogPrintf(LOG_WARNING, "GRID.MENU: arena list realloc failed at %d",
+                         s_GridArenaCount);
+            return;
+        }
+        s_GridArenas = newBuf;
+        s_GridArenaCapacity = newCap;
+    }
+
+    GridArenaEntry *a = &s_GridArenas[s_GridArenaCount];
+    strncpy(a->name, langText, sizeof(a->name) - 1);
+    a->name[sizeof(a->name) - 1] = '\0';
+    strncpy(a->id, e->id, sizeof(a->id) - 1);
+    a->id[sizeof(a->id) - 1] = '\0';
+    a->stagenum = (s32)e->ext.arena.stagenum;
+    a->category = gridClassifyCategory(e->category);
+    a->is_blank = false;
+    a->load_mode = e->ext.arena.load_mode;
+
+    s_GridArenaCount++;
+}
+
+static int gridArenaCompare(const void *a, const void *b)
+{
+    const GridArenaEntry *ea = (const GridArenaEntry *)a;
+    const GridArenaEntry *eb = (const GridArenaEntry *)b;
+    /* Blank Map always first, then alphabetical. */
+    if (ea->is_blank != eb->is_blank) return ea->is_blank ? -1 : 1;
+    const int byName = strcasecmp(ea->name, eb->name);
+    return byName ? byName : strcmp(ea->id, eb->id);
+}
+
+static const GridArenaEntry *gridSelectedArena(void)
+{
+    const int row = gridBrowserLogic::findArenaById(s_GridArenas, s_GridArenaCount, s_GridSelectedArenaId);
+    return row >= 0 ? &s_GridArenas[row] : nullptr;
+}
+
+static void gridArenaListBuild(void)
+{
+    free(s_GridArenas);
+    s_GridArenas = NULL;
+    s_GridArenaCount = 0;
+    s_GridArenaCapacity = 0;
+
+#ifdef GRID_BLANK_STAGE
+    /* Reserve the Blank Map slot at the top of the list. */
+    s_GridArenaCapacity = 32;
+    s_GridArenas = (GridArenaEntry *)malloc(
+            (size_t)s_GridArenaCapacity * sizeof(GridArenaEntry));
+    if (s_GridArenas) {
+        GridArenaEntry *a = &s_GridArenas[0];
+        *a = {};
+        snprintf(a->name, sizeof(a->name), "Blank Map");
+        a->stagenum = (s32)GRID_BLANK_STAGE;
+        a->is_blank = true;
+        s_GridArenaCount = 1;
+    }
+#endif
+
+    assetCatalogIterateByType(ASSET_ARENA, gridArenaCollect, NULL);
+
+    if (s_GridArenaCount > 1) {
+        qsort(s_GridArenas, (size_t)s_GridArenaCount, sizeof(GridArenaEntry),
+              gridArenaCompare);
+    }
+
+    sysLogPrintf(LOG_NOTE, "GRID.MENU: arena list built (%d entries)",
+                 s_GridArenaCount);
+    s_GridArenasBuilt = true;
+}
+
+/* AUDIT-24-M6 (2026-04-25): catalog-driven scenarios collector.
+ * Replaces the static `s_GridScenarios[]` table that was a parallel
+ * to assetcatalog_base_extended.c::s_BaseGameModes; mod-authored
+ * gametype entries are now picked up automatically. */
+static void gridScenarioCollect(const asset_entry_t *e, void *userdata)
+{
+    (void)userdata;
+    if (!e || e->type != ASSET_GAMEMODE) return;
+
+    if (s_GridScenarioCount >= s_GridScenarioCapacity) {
+        int newCap = (s_GridScenarioCapacity == 0) ? 8 : s_GridScenarioCapacity * 2;
+        GridScenarioEntry *newBuf = (GridScenarioEntry *)realloc(
+                s_GridScenarios, (size_t)newCap * sizeof(GridScenarioEntry));
+        if (!newBuf) {
+            sysLogPrintf(LOG_WARNING, "GRID.MENU: scenario list realloc failed at %d",
+                         s_GridScenarioCount);
+            return;
+        }
+        s_GridScenarios = newBuf;
+        s_GridScenarioCapacity = newCap;
+    }
+
+    GridScenarioEntry *sc = &s_GridScenarios[s_GridScenarioCount];
+    /* Catalog ID is the wire-stable identity; label is the user-facing
+     * display name from the catalog's `name` field with a sensible fall
+     * back for entries the catalog author left blank. */
+    strncpy(sc->id, e->id, sizeof(sc->id) - 1);
+    sc->id[sizeof(sc->id) - 1] = '\0';
+    const char *lbl = e->ext.gamemode.name[0] ? e->ext.gamemode.name : e->id;
+    strncpy(sc->label, lbl, sizeof(sc->label) - 1);
+    sc->label[sizeof(sc->label) - 1] = '\0';
+    sc->teams = (e->ext.gamemode.team_based != 0);
+
+    s_GridScenarioCount++;
+}
+
+static int gridScenarioCompare(const void *a, const void *b)
+{
+    /* "Combat" first if present (the canonical default), otherwise
+     * alphabetical by display label.  Stable order so the picker doesn't
+     * jump on each rebuild. */
+    const GridScenarioEntry *ea = (const GridScenarioEntry *)a;
+    const GridScenarioEntry *eb = (const GridScenarioEntry *)b;
+    bool aIsCombat = (strcmp(ea->id, "base:combat") == 0);
+    bool bIsCombat = (strcmp(eb->id, "base:combat") == 0);
+    if (aIsCombat != bIsCombat) return aIsCombat ? -1 : 1;
+    const int byName = strcasecmp(ea->label, eb->label);
+    return byName ? byName : strcmp(ea->id, eb->id);
+}
+
+static void gridScenarioListBuild(void)
+{
+    free(s_GridScenarios);
+    s_GridScenarios = NULL;
+    s_GridScenarioCount = 0;
+    s_GridScenarioCapacity = 0;
+
+    assetCatalogIterateByType(ASSET_GAMEMODE, gridScenarioCollect, NULL);
+
+    if (s_GridScenarioCount > 1) {
+        qsort(s_GridScenarios, (size_t)s_GridScenarioCount, sizeof(GridScenarioEntry),
+              gridScenarioCompare);
+    }
+
+    sysLogPrintf(LOG_NOTE, "GRID.MENU: scenario list built (%d entries)",
+                 s_GridScenarioCount);
+    s_GridScenariosBuilt = true;
+}
+
+static const GridScenarioEntry *gridSelectedScenario()
+{
+    for (int i = 0; i < s_GridScenarioCount; ++i) {
+        if (strcmp(s_GridScenarios[i].id, s_GridScenarioId) == 0) return &s_GridScenarios[i];
+    }
+    return nullptr;
+}
+
+static void gridScenarioListEnsure(void)
+{
+    if (!s_GridScenariosBuilt) {
+        gridScenarioListBuild();
+    }
+}
+
+/* forge_level_io.h: names the arena a Forge session was started on. */
+extern "C" void forgeLevelSessionBegin(const char *arena_id);
+extern "C" s32 forgeLevelMountVariantDependencies(const char *arena_id, char *err, size_t err_cap);
+extern "C" s32 forgeLevelVariantDependenciesStage(void);
+extern "C" s32 forgeLevelRetireVariantDependencies(char *err, size_t err_cap);
+extern "C" s32 mainStageChangePending(void);
+extern "C" s32 stageArchiveRepairStatus(s32 stagenum);
+extern "C" u32 rngRandom(void);
+
+static bool gridLaunchFailed(const char *message)
+{
+    snprintf(s_GridLaunchError, sizeof(s_GridLaunchError), "%s", message);
+    sysLogPrintf(LOG_WARNING, "GRID.MENU: %s", s_GridLaunchError);
+    return false;
+}
+
+static bool gridStageIsValid(s32 stage)
+{
+    return stage > 0 && stage <= 255 && GRID_STAGE_IS_GAMEPLAY(stage) && stageGetIndex(stage) >= 0;
+}
+
+static bool gridRandomCandidate(const GridArenaEntry &candidate, bool solo)
+{
+    if (candidate.is_blank || !gridStageIsValid(candidate.stagenum)
+            || stageArchiveRepairStatus(candidate.stagenum) != 0) return false;
+    return solo ? candidate.category == GRID_CAT_SP
+        : candidate.category == GRID_CAT_MP || candidate.category == GRID_CAT_CLASSIC
+            || candidate.category == GRID_CAT_BONUS;
+}
+
+/* Choose one concrete catalog row. Several rows can share a stage number. */
+static const GridArenaEntry *gridResolveLaunchArena(const GridArenaEntry *selected)
+{
+    if (selected->category != GRID_CAT_RANDOM) return selected;
+
+    const bool solo = selected->stagenum == GRID_STAGE_MP_RANDOM_SOLO;
+    if (!solo && selected->stagenum != GRID_STAGE_MP_RANDOM_MULTI) return nullptr;
+    u32 count = 0;
+    for (int i = 0; i < s_GridArenaCount; ++i) {
+        if (gridRandomCandidate(s_GridArenas[i], solo)) ++count;
+    }
+    if (count == 0) return nullptr;
+    u32 choice = rngRandom() % count;
+    for (int i = 0; i < s_GridArenaCount; ++i) {
+        if (gridRandomCandidate(s_GridArenas[i], solo) && choice-- == 0) return &s_GridArenas[i];
+    }
+    return nullptr;
+}
+
+static void gridRetireFailedVariantMount(s32 originalMount, s32 attemptedStage)
+{
+    if (originalMount >= 0 || forgeLevelVariantDependenciesStage() != attemptedStage) return;
+
+    char error[256];
+    if (!forgeLevelRetireVariantDependencies(error, sizeof(error))) {
+        sysLogPrintf(LOG_WARNING, "GRID.MENU: variant source cleanup failed: %s", error);
+    }
+}
+
+static bool gridCommitEnter(void)
+{
+    if (!s_GridArenasBuilt) gridArenaListBuild();
+    const GridArenaEntry *selected = gridSelectedArena();
+    if (!selected) return gridLaunchFailed("Choose an available map to enter.");
+
+    const GridArenaEntry *resolved = gridResolveLaunchArena(selected);
+    if (!resolved) return gridLaunchFailed("No eligible map could be resolved for this Random choice.");
+    const GridArenaEntry arena = *resolved;
+    char selectedName[sizeof(selected->name)];
+    snprintf(selectedName, sizeof(selectedName), "%s", selected->name);
+    const s32 stage = arena.stagenum;
+    if (!gridStageIsValid(stage)) return gridLaunchFailed("The selected map does not have a playable stage.");
+    if (mainStageChangePending()) return gridLaunchFailed("Try again after the current stage transition.");
+    const s32 repair = stageArchiveRepairStatus(stage);
+    if (repair > 0) return gridLaunchFailed("This map is being prepared. Try again when preparation finishes.");
+    if (repair < 0) return gridLaunchFailed("The local map files could not be prepared.");
+
+    gridScenarioListEnsure();
+    const GridScenarioEntry *scenario = gridSelectedScenario();
+    if (!scenario && s_GridScenarioCount > 0) return gridLaunchFailed("Choose an available gametype.");
+
+    const char *id = arena.is_blank ? "" : arena.id;
+    const s32 originalMount = forgeLevelVariantDependenciesStage();
+    if (!arena.is_blank) {
+        char error[256];
+        if (!forgeLevelMountVariantDependencies(id, error, sizeof(error))) {
+            sysLogPrintf(LOG_WARNING, "GRID.MENU: variant source preparation failed: %s", error);
+            return gridLaunchFailed("The saved map's required content could not be prepared.");
+        }
+        const asset_entry_t *entry = assetCatalogResolve(id);
+        if (!entry || entry->type != ASSET_ARENA || strcmp(entry->id, id) != 0
+                || !entry->enabled || entry->ext.arena.stagenum != stage
+                || entry->ext.arena.load_mode != arena.load_mode) {
+            gridRetireFailedVariantMount(originalMount, stage);
+            return gridLaunchFailed("This map changed while it was opening. Select it again.");
+        }
+    }
+
+    matchConfigInit();
+    snprintf(g_MatchConfig.stage_id, sizeof(g_MatchConfig.stage_id), "%s", id);
+    g_MatchConfig.stagenum = (u8)stage;
+
+    snprintf(g_MatchConfig.scenario_id, sizeof(g_MatchConfig.scenario_id), "%s",
+        scenario ? scenario->id : "base:combat");
+
+    g_MatchConfig.timelimit = (u8)(s_GridTimeLimit > 0 ? s_GridTimeLimit - 1 : 60);
+    g_MatchConfig.scorelimit = (u8)(s_GridScoreLimit > 0 ? s_GridScoreLimit - 1 : 100);
+    g_MatchConfig.teamscorelimit = (u16)(s_GridScoreLimit > 0 ? s_GridScoreLimit - 1 : 400);
+
+    u32 opts = matchConfigGetUserOptions();
+    if (s_GridTeamsOn)     opts |=  (u32)MPOPTION_TEAMSENABLED;
+    else                   opts &= ~(u32)MPOPTION_TEAMSENABLED;
+    if (s_GridOneHitKills) opts |=  (u32)MPOPTION_ONEHITKILLS;
+    else                   opts &= ~(u32)MPOPTION_ONEHITKILLS;
+    if (s_GridSlowMotion)  opts |=  (u32)MPOPTION_SLOWMOTION_ON;
+    else                   opts &= ~(u32)MPOPTION_SLOWMOTION_ON;
+    matchConfigReplaceUserOptions(opts, "Grid menu commit");
+
+    const bool started = (arena.load_mode == ARENA_LOADMODE_CANVAS)
+        ? pdguiForgeStartSessionOnCanvas(stage) != 0
+        : pdguiForgeStartSessionOn(stage) != 0;
+    if (!started) {
+        gridRetireFailedVariantMount(originalMount, stage);
+        return gridLaunchFailed("The selected map could not open.");
+    }
+
+    sysLogPrintf(LOG_NOTE,
+            "GRID.MENU: enter selected='%s' map='%s' stagenum=0x%02x scenario='%s'",
+            selectedName, arena.name, (u32)stage, g_MatchConfig.scenario_id);
+    forgeLevelSessionBegin(id);
+    s_GridLaunchError[0] = '\0';
+    return true;
+}
+
+static s32 pdguiMainMenuGraphEnterGrid(void *userdata)
+{
+    (void)userdata;
+    return gridCommitEnter() ? 0 : -1;
+}
+
+namespace {
+
+enum class GridBrowserPane { Maps, Versions, Details, Rules };
+struct GridMapFamily {
+    std::string key;
+    int base;
+    bool parentUnavailable;
+    std::vector<int> variants;
+};
+
+struct GridFamilyRoot {
+    std::string key;
+    int base;
+    bool parentUnavailable;
+};
+
+struct GridPreviewCursor {
+    int hover = -1;
+    int focus = -1;
+
+    void track(int index)
+    {
+        if (ImGui::IsItemFocused()) focus = index;
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_NoNavOverride)) hover = index;
+    }
+};
+
+struct GridMapPreview {
+    int arena;
+    GLuint texture = 0;
+    ImVec2 nativeSize{0, 0};
+    std::vector<GridBrowserRoomFootprint> rooms;
+};
+
+static std::vector<GridBrowserMetadata> s_GridMapMetadata;
+static std::vector<bool> s_GridMapValid;
+static int s_GridMetadataNext = 0;
+static std::vector<GridMapFamily> s_GridFamilies;
+static std::vector<std::string> s_GridFamilyKeys;
+static std::string s_GridShownFamily;
+static GridBrowserPane s_GridBrowserPane = GridBrowserPane::Maps;
+static bool s_GridFocusVersions = false;
+static int s_GridInspectedArena = -1;
+static SDL_GLContext s_GridPreviewContext = nullptr;
+static bool s_GridPreviewBgfx = false;
+static std::vector<GridMapPreview> s_GridMapPreviews;
+static u32 s_GridBrowserCatalogGeneration = 0;
+static bool s_GridPreviewStale = false;
+static int s_GridPreviewPending = -1;
+static double s_GridPreviewSince = 0;
+
+static void gridReleaseMapPreview(const GridMapPreview &image, SDL_GLContext context)
+{
+    if (!image.texture) return;
+    if (s_GridPreviewBgfx) {
+        gfxBgfxPdguiTexDestroy(image.texture);
+    } else if (context && context == s_GridPreviewContext && glDeleteTextures) {
+        glDeleteTextures(1, &image.texture);
+    }
+}
+
+static void gridResetMapPreviews(SDL_GLContext context, bool bgfx)
+{
+    for (const auto &image : s_GridMapPreviews) {
+        gridReleaseMapPreview(image, context);
+    }
+    s_GridMapPreviews.clear();
+    s_GridPreviewContext = context;
+    s_GridPreviewBgfx = bgfx;
+    s_GridPreviewStale = false;
+}
+
+static int gridFamilyTitleArena(const GridMapFamily &family)
+{
+    return family.base >= 0 ? family.base : family.variants.front();
+}
+
+static const GridMapFamily *gridCurrentFamily()
+{
+    for (const auto &family : s_GridFamilies) {
+        if (family.key == s_GridShownFamily) return &family;
+    }
+    return nullptr;
+}
+
+static GridFamilyRoot gridFindFamilyRoot(int arena, const std::vector<int> &parents)
+{
+    const auto family = gridBrowserLogic::resolveFamily(parents.data(), s_GridArenaCount, arena);
+    switch (family.state) {
+    case gridBrowserLogic::FamilyState::Root:
+        return {std::string("map:") + s_GridArenas[family.anchor].id, family.anchor, false};
+    case gridBrowserLogic::FamilyState::MissingParent:
+        return {"missing:" + s_GridMapMetadata[family.anchor].parentIdHash, -1, true};
+    case gridBrowserLogic::FamilyState::Cycle:
+        return {std::string("unverified:") + s_GridArenas[arena].id, -1, true};
+    }
+    return {std::string("unverified:") + s_GridArenas[arena].id, -1, true};
+}
+
+static void gridBuildBrowser()
+{
+    if (!s_GridBrowserBuilding) {
+        s_GridFamilies.clear();
+        s_GridMapMetadata.assign(s_GridArenaCount, {});
+        s_GridMapValid.assign(s_GridArenaCount, false);
+        s_GridFamilyKeys.resize(s_GridArenaCount);
+        s_GridInspectedArena = -1;
+        s_GridPreviewStale = true;
+        s_GridMetadataNext = 0;
+        s_GridBrowserBuilding = true;
+    }
+
+    // Catalog iteration has ended. Hydrate at most one descriptor per
+    // frame so a library of wrapped maps does not open all at once.
+    while (s_GridMetadataNext < s_GridArenaCount) {
+        const int index = s_GridMetadataNext++;
+        const auto &arena = s_GridArenas[index];
+        if (arena.category == GRID_CAT_RANDOM) continue;
+        s_GridMapValid[index] = gridStageIsValid(arena.stagenum);
+        if (arena.is_blank) continue;
+        s_GridMapMetadata[index] = gridBrowserReadMetadata(arena.id);
+        return;
+    }
+
+    std::unordered_map<std::string, int> byHash;
+    for (int i = 0; i < s_GridArenaCount; ++i) {
+        const auto &hash = s_GridMapMetadata[i].idHash;
+        if (!hash.empty()) byHash.emplace(hash, i);
+    }
+    std::vector<int> parents(s_GridArenaCount, gridBrowserLogic::NoParent);
+    for (int i = 0; i < s_GridArenaCount; ++i) {
+        const auto &parent = s_GridMapMetadata[i].parentIdHash;
+        if (parent.empty()) continue;
+        const auto found = byHash.find(parent);
+        parents[i] = found == byHash.end() ? gridBrowserLogic::ParentUnavailable : found->second;
+    }
+
+    std::unordered_map<std::string, size_t> byFamily;
+    for (int i = 0; i < s_GridArenaCount; ++i) {
+        const auto root = gridFindFamilyRoot(i, parents);
+        s_GridFamilyKeys[i] = root.key;
+        auto slot = byFamily.emplace(root.key, s_GridFamilies.size());
+        if (slot.second) s_GridFamilies.push_back({root.key, root.base, root.parentUnavailable, {}});
+        if (i != root.base) s_GridFamilies[slot.first->second].variants.push_back(i);
+    }
+    std::sort(s_GridFamilies.begin(), s_GridFamilies.end(), [](const GridMapFamily &a, const GridMapFamily &b) {
+        return gridArenaCompare(&s_GridArenas[gridFamilyTitleArena(a)],
+            &s_GridArenas[gridFamilyTitleArena(b)]) < 0;
+    });
+
+    if (!gridCurrentFamily()) {
+        const auto *committed = gridSelectedArena();
+        s_GridShownFamily = committed ? s_GridFamilyKeys[committed - s_GridArenas]
+            : s_GridFamilies.empty() ? "" : s_GridFamilies.front().key;
+    }
+    s_GridBrowserBuilt = true;
+    s_GridBrowserBuilding = false;
+}
+
+static void gridLoadScreenshot(GridMapPreview &image)
+{
+    constexpr size_t MAX_IMAGE_BYTES = 1024 * 1024;
+    constexpr int MAX_IMAGE_DIMENSION = 1024;
+    const auto &meta = s_GridMapMetadata[image.arena];
+    for (const auto *locator : {&meta.previewLocator, &meta.thumbnailLocator}) {
+        if (locator->empty()) continue;
+        const auto encoded = gridBrowserReadPreview(*locator, MAX_IMAGE_BYTES);
+        int width = 0, height = 0, channels = 0;
+        const auto bytes = static_cast<int>(encoded.size());
+        if (encoded.empty() || !stbi_info_from_memory(encoded.data(), bytes, &width, &height, &channels)
+                || width <= 0 || height <= 0 || width > MAX_IMAGE_DIMENSION || height > MAX_IMAGE_DIMENSION) {
+            continue;
+        }
+        auto *rgba = stbi_load_from_memory(encoded.data(), bytes, &width, &height, &channels, 4);
+        if (!rgba) continue;
+        if (s_GridPreviewBgfx) {
+            image.texture = gfxBgfxPdguiTexCreate(width, height, rgba, 1, 1);
+        } else {
+            glGenTextures(1, &image.texture);
+        }
+        if (!s_GridPreviewBgfx && image.texture) {
+            GLint bound = 0, alignment = 0, rowLength = 0, unpackBuffer = 0, skipRows = 0, skipPixels = 0;
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+            glGetIntegerv(GL_UNPACK_ALIGNMENT, &alignment);
+            glGetIntegerv(GL_UNPACK_ROW_LENGTH, &rowLength);
+            glGetIntegerv(GL_UNPACK_SKIP_ROWS, &skipRows);
+            glGetIntegerv(GL_UNPACK_SKIP_PIXELS, &skipPixels);
+            glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpackBuffer);
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            glBindTexture(GL_TEXTURE_2D, image.texture);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            glPixelStorei(GL_UNPACK_SKIP_ROWS, 0);
+            glPixelStorei(GL_UNPACK_SKIP_PIXELS, 0);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, rgba);
+            glPixelStorei(GL_UNPACK_ALIGNMENT, alignment);
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, rowLength);
+            glPixelStorei(GL_UNPACK_SKIP_ROWS, skipRows);
+            glPixelStorei(GL_UNPACK_SKIP_PIXELS, skipPixels);
+            glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(bound));
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(unpackBuffer));
+        }
+        stbi_image_free(rgba);
+        if (image.texture) {
+            image.nativeSize = ImVec2((float)width, (float)height);
+            return;
+        }
+    }
+}
+
+static void gridDrawRoomLayout(const std::vector<GridBrowserRoomFootprint> &rooms, float scale)
+{
+    const float width = ImGui::GetContentRegionAvail().x;
+    if (width <= 0.0f) return;
+    const ImVec2 size(width, std::min(width * 0.58f, 175.0f * scale));
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImGui::Dummy(size);
+    if (!ImGui::IsItemVisible()) return;
+
+    auto *draw = ImGui::GetWindowDrawList();
+    const ImVec2 end(origin.x + size.x, origin.y + size.y);
+    const ImU32 outline = ImGui::GetColorU32(ImGuiCol_Border);
+    draw->AddRectFilled(origin, end, ImGui::GetColorU32(ImGuiCol_FrameBg));
+    for (int line = 1; line < 8; ++line) {
+        const float fraction = line / 8.0f;
+        const float x = origin.x + size.x * fraction;
+        const float y = origin.y + size.y * fraction;
+        draw->AddLine(ImVec2(x, origin.y), ImVec2(x, end.y), outline);
+        draw->AddLine(ImVec2(origin.x, y), ImVec2(end.x, y), outline);
+    }
+
+    if (!rooms.empty()) {
+        auto extent = rooms.front();
+        for (const auto &room : rooms) {
+            extent.minX = std::min(extent.minX, room.minX);
+            extent.minZ = std::min(extent.minZ, room.minZ);
+            extent.maxX = std::max(extent.maxX, room.maxX);
+            extent.maxZ = std::max(extent.maxZ, room.maxZ);
+        }
+        const double worldWidth = extent.maxX - extent.minX;
+        const double worldHeight = extent.maxZ - extent.minZ;
+        const double pixelsPerUnit = 0.86 * std::min(size.x / worldWidth, size.y / worldHeight);
+        const ImVec2 center(origin.x + size.x * 0.5f, origin.y + size.y * 0.5f);
+        const double worldX = extent.minX + worldWidth * 0.5;
+        const double worldZ = extent.minZ + worldHeight * 0.5;
+        const ImU32 fill = ImGui::GetColorU32(ImGuiCol_Header, 0.38f);
+        const ImU32 edge = ImGui::GetColorU32(ImGuiCol_Text);
+        for (const auto &room : rooms) {
+            const ImVec2 lo(center.x + float((room.minX - worldX) * pixelsPerUnit),
+                center.y + float((room.minZ - worldZ) * pixelsPerUnit));
+            const ImVec2 hi(center.x + float((room.maxX - worldX) * pixelsPerUnit),
+                center.y + float((room.maxZ - worldZ) * pixelsPerUnit));
+            draw->AddRectFilled(lo, hi, fill);
+            draw->AddRect(lo, hi, edge);
+        }
+    }
+    draw->AddRect(origin, end, outline);
+}
+
+static void gridDrawMapPreview(int arena, float scale)
+{
+    SDL_GLContext context = SDL_GL_GetCurrentContext();
+    const bool bgfx = gfxBgfxActive() != 0;
+    if (s_GridPreviewStale || context != s_GridPreviewContext || bgfx != s_GridPreviewBgfx) {
+        gridResetMapPreviews(context, bgfx);
+        s_GridPreviewPending = -1;
+    }
+
+    auto cached = std::find_if(s_GridMapPreviews.begin(), s_GridMapPreviews.end(),
+        [arena](const GridMapPreview &image) { return image.arena == arena; });
+    if (cached == s_GridMapPreviews.end()) {
+        // Wait for brief, stable inspection. Fast pointer sweeps and D-pad
+        // repeats should not open a succession of archives.
+        if (s_GridPreviewPending != arena) {
+            s_GridPreviewPending = arena;
+            s_GridPreviewSince = ImGui::GetTime();
+        }
+        const auto &entry = s_GridArenas[arena];
+        if (!entry.is_blank && ImGui::GetTime() - s_GridPreviewSince < 0.15) {
+            ImGui::TextDisabled("Loading map preview");
+            return;
+        }
+        constexpr size_t MAX_PREVIEWS = 4;
+        if (s_GridMapPreviews.size() == MAX_PREVIEWS) {
+            gridReleaseMapPreview(s_GridMapPreviews.front(), context);
+            s_GridMapPreviews.erase(s_GridMapPreviews.begin());
+        }
+        s_GridMapPreviews.push_back(GridMapPreview{arena, 0, ImVec2(0, 0), {}});
+        cached = s_GridMapPreviews.end() - 1;
+        if (!entry.is_blank) {
+            if (bgfx || (context && glGenTextures && glGetIntegerv && glBindBuffer)) gridLoadScreenshot(*cached);
+            if (!cached->texture) cached->rooms = gridBrowserReadRoomLayout(entry.id);
+        }
+    }
+    if (!cached->texture) {
+        gridDrawRoomLayout(cached->rooms, scale);
+        if (!cached->rooms.empty()) ImGui::TextDisabled("Room layout");
+        else if (!s_GridArenas[arena].is_blank) ImGui::TextDisabled("No map image available");
+        return;
+    }
+    const float width = ImGui::GetContentRegionAvail().x;
+    if (width <= 0.0f) return;
+    const float factor = std::min(width / cached->nativeSize.x, 210.0f * scale / cached->nativeSize.y);
+    ImGui::Image((ImTextureID)(uintptr_t)cached->texture,
+        ImVec2(cached->nativeSize.x * factor, cached->nativeSize.y * factor));
+}
+
+static bool gridMapRow(int arena, bool selected, GridPreviewCursor &cursor)
+{
+    const auto &entry = s_GridArenas[arena];
+    const auto padding = ImGui::GetStyle().FramePadding;
+    const float width = std::max(1.0f, ImGui::GetContentRegionAvail().x - padding.x * 2.0f);
+    const float height = ImGui::CalcTextSize(entry.name, nullptr, false, width).y + padding.y;
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    ImGui::PushID(entry.id);
+    const bool clicked = ImGui::Selectable("##grid_arena", selected, ImGuiSelectableFlags_None,
+        ImVec2(0, height));
+    if (ImGui::IsItemVisible()) {
+        ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+            ImVec2(origin.x + padding.x, origin.y + padding.y * 0.5f),
+            ImGui::GetColorU32(ImGuiCol_Text), entry.name, nullptr, width);
+    }
+    if (selected) ImGui::SetItemDefaultFocus();
+    cursor.track(arena);
+    ImGui::PopID();
+    return clicked;
+}
+
+static void gridBrowseMaps(GridPreviewCursor &cursor, bool narrow, bool focusFirst)
+{
+    if (s_GridFamilies.empty()) {
+        ImGui::TextWrapped("No maps are registered.");
+        return;
+    }
+    const char *sections[] = {"Blank canvas", "Built-in maps", "Installed maps", "Random"};
+    for (int section = 0; section < 4; ++section) {
+        bool shown = false;
+        for (const auto &family : s_GridFamilies) {
+            const int index = gridFamilyTitleArena(family);
+            const auto &arena = s_GridArenas[index];
+            const auto &meta = s_GridMapMetadata[index];
+            const int group = arena.is_blank ? 0 : arena.category == GRID_CAT_RANDOM ? 3
+                : meta.source == GridBrowserSource::BuiltIn ? 1 : 2;
+            if (group != section) continue;
+            if (!shown) {
+                ImGui::SeparatorText(sections[section]);
+                shown = true;
+            }
+            if (focusFirst) {
+                ImGui::SetKeyboardFocusHere();
+                focusFirst = false;
+            }
+            if (gridMapRow(index, family.key == s_GridShownFamily, cursor)) {
+                s_GridShownFamily = family.key;
+                s_GridInspectedArena = index;
+                s_GridLaunchError[0] = '\0';
+                if (narrow) {
+                    s_GridBrowserPane = GridBrowserPane::Versions;
+                    s_GridFocusVersions = true;
+                }
+            }
+        }
+    }
+}
+
+static void gridBrowseVersions(const GridMapFamily *family, GridPreviewCursor &cursor, bool focusFirst = false)
+{
+    if (!family) {
+        ImGui::TextWrapped("Choose a map to see its versions.");
+        return;
+    }
+    auto pick = [&cursor, &focusFirst](int index) {
+        if (focusFirst) {
+            ImGui::SetKeyboardFocusHere();
+            focusFirst = false;
+        }
+        const auto &arena = s_GridArenas[index];
+        if (gridMapRow(index, strcmp(arena.id, s_GridSelectedArenaId) == 0, cursor)) {
+            snprintf(s_GridSelectedArenaId, sizeof(s_GridSelectedArenaId), "%s", arena.id);
+            s_GridInspectedArena = index;
+            s_GridLaunchError[0] = '\0';
+        }
+    };
+
+    if (family->base >= 0) {
+        ImGui::SeparatorText(s_GridArenas[family->base].category == GRID_CAT_RANDOM ? "Map choice" : "Base map");
+        pick(family->base);
+    } else {
+        ImGui::TextWrapped("This map's base is unavailable.");
+    }
+    if (family->base >= 0 && s_GridArenas[family->base].category == GRID_CAT_RANDOM) return;
+    ImGui::SeparatorText("Saved variants");
+    if (family->variants.empty()) ImGui::TextDisabled("No linked saved variants for this map.");
+    for (int index : family->variants) pick(index);
+}
+
+static const char *gridSourceLabel(GridBrowserSource source)
+{
+    switch (source) {
+    case GridBrowserSource::BuiltIn: return "Built-in map";
+    case GridBrowserSource::Original: return "Original map";
+    case GridBrowserSource::LocalOnly: return "Local-only map";
+    case GridBrowserSource::Unverified: return "Source unverified";
+    case GridBrowserSource::Installed: return "Installed map";
+    }
+    return "Source unverified";
+}
+
+static void gridBrowseDetails(int index, float scale)
+{
+    if (index < 0) {
+        ImGui::TextWrapped("Focus or hover a map to see its details.");
+        return;
+    }
+    const auto &arena = s_GridArenas[index];
+    const auto &meta = s_GridMapMetadata[index];
+    ImGui::TextWrapped("%s", arena.name);
+    if (arena.category == GRID_CAT_RANDOM) {
+        ImGui::TextWrapped("An available %s map is chosen when you enter.",
+            arena.stagenum == GRID_STAGE_MP_RANDOM_SOLO ? "solo" : "multiplayer");
+        return;
+    }
+    gridDrawMapPreview(index, scale);
+    if (!meta.description.empty()) ImGui::TextWrapped("%s", meta.description.c_str());
+    else if (arena.is_blank) ImGui::TextWrapped("An empty canvas for building and bot playtests.");
+    else ImGui::TextDisabled("No description provided.");
+    ImGui::TextUnformatted(arena.is_blank ? "Built-in canvas" : gridSourceLabel(meta.source));
+    const auto family = std::find_if(s_GridFamilies.begin(), s_GridFamilies.end(),
+        [index](const GridMapFamily &item) { return item.key == s_GridFamilyKeys[index]; });
+    if (family != s_GridFamilies.end() && family->parentUnavailable) {
+        ImGui::TextWrapped("The base map is unavailable.");
+    }
+
+    const bool missingContent = std::any_of(meta.dependencies.begin(), meta.dependencies.end(),
+        [](const GridBrowserDependency &dep) { return !dep.available; });
+    const s32 repair = stageArchiveRepairStatus(arena.stagenum);
+    if (repair > 0) ImGui::TextWrapped("Map preparation in progress.");
+    else if (repair < 0 || !s_GridMapValid[index]) ImGui::TextWrapped("Local stage unavailable.");
+    else if (missingContent) ImGui::TextWrapped("Some required content is unavailable.");
+    else if (!arena.is_blank && !meta.dependenciesKnown) ImGui::TextWrapped("Local stage found. Content requirements are unknown.");
+    else ImGui::TextWrapped("Local stage available.");
+    if (!meta.dependencyPlan.empty()) {
+        ImGui::TextWrapped("Exact saved-variant dependencies are checked on entry.");
+    }
+    for (const auto &dep : meta.dependencies) {
+        const char *name = dep.name.empty() ? dep.id.c_str() : dep.name.c_str();
+        ImGui::TextWrapped("%s (%s)", name, dep.available ? "installed" : "unavailable");
+    }
+}
+
+static void gridBrowseRules()
+{
+    gridScenarioListEnsure();
+    if (s_GridScenarioCount <= 0) {
+        ImGui::TextDisabled("Combat is used when no game types are installed.");
+    } else {
+        const auto *scenario = gridSelectedScenario();
+        ImGui::TextUnformatted("Gametype");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        if (ImGui::BeginCombo("##grid_gametype", scenario ? scenario->label : "Choose a gametype")) {
+            for (int i = 0; i < s_GridScenarioCount; ++i) {
+                const auto &candidate = s_GridScenarios[i];
+                ImGui::PushID(candidate.id);
+                if (ImGui::Selectable(candidate.label, &candidate == scenario)) {
+                    snprintf(s_GridScenarioId, sizeof(s_GridScenarioId), "%s", candidate.id);
+                    if (candidate.teams) s_GridTeamsOn = true;
+                    s_GridLaunchError[0] = '\0';
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+    }
+
+    ImGui::TextWrapped("Time limit in minutes (0 for unlimited)");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::SliderInt("##grid_time_limit", &s_GridTimeLimit, 0, 60);
+    ImGui::TextWrapped("Score limit (0 for unlimited)");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::SliderInt("##grid_score_limit", &s_GridScoreLimit, 0, 100);
+
+    ImGui::Checkbox("Teams enabled", &s_GridTeamsOn);
+    ImGui::Checkbox("One-hit kills", &s_GridOneHitKills);
+    ImGui::Checkbox("Slow motion", &s_GridSlowMotion);
+}
+
+static int gridBrowserPreviewIndex(const GridPreviewCursor &cursor)
+{
+    const ImGuiContext &nav = *ImGui::GetCurrentContext();
+    if (cursor.focus >= 0 && nav.NavHighlightItemUnderNav && nav.NavCursorVisible) {
+        s_GridInspectedArena = cursor.focus;
+    } else if (cursor.hover >= 0) {
+        s_GridInspectedArena = cursor.hover;
+    }
+    // Keep the inspected row while the pointer moves into Details to scroll.
+    if (s_GridInspectedArena >= 0) return s_GridInspectedArena;
+    if (cursor.focus >= 0) return cursor.focus;
+    const auto *arena = gridSelectedArena();
+    return arena ? (int)(arena - s_GridArenas) : -1;
+}
+
+static const GridArenaEntry *gridCommittedVersion()
+{
+    if (!s_GridBrowserBuilt) return nullptr;
+    const auto *arena = gridSelectedArena();
+    if (!arena) return nullptr;
+    return s_GridFamilyKeys[arena - s_GridArenas] == s_GridShownFamily ? arena : nullptr;
+}
+
+} // namespace
+
+static void renderGridSubmenu(float scale, float buttonW, float buttonH, float bottomInset)
+{
+    const u32 generation = assetCatalogGetGeneration();
+    if (s_GridBrowserCatalogGeneration != generation) {
+        s_GridBrowserCatalogGeneration = generation;
+        pdguiGridArenasInvalidate();
+    }
+    if (!s_GridArenasBuilt) gridArenaListBuild();
+    if (!s_GridBrowserBuilt) gridBuildBrowser();
+    const bool focusMaps = s_NeedsFocus && s_GridBrowserBuilt;
+    if (focusMaps) {
+        s_NeedsFocus = false;
+        s_GridBrowserPane = GridBrowserPane::Maps;
+        s_GridFocusVersions = false;
+    }
+
+    const auto &style = ImGui::GetStyle();
+    const ImVec2 available = ImGui::GetContentRegionAvail();
+    const float width = std::max(1.0f, std::min(buttonW, available.x));
+    const bool wide = gridBrowserLogic::useColumns(width, scale, ImGui::GetFontSize());
+    char enterLabel[FORGE_DISPLAY_NAME_CAP + sizeof("Enter ###grid_enter")];
+    snprintf(enterLabel, sizeof(enterLabel), "Enter %s###grid_enter", forgeDisplayName());
+    const float halfButton = (width - style.ItemSpacing.x) * 0.5f;
+    const char *enter = ImGui::CalcTextSize(enterLabel, nullptr, true).x + style.FramePadding.x * 2.0f <= width
+        ? enterLabel : "Enter###grid_enter";
+    const float requiredButtonW = std::max(ImGui::CalcTextSize(enter, nullptr, true).x,
+        ImGui::CalcTextSize("Back").x) + style.FramePadding.x * 2.0f;
+    const bool sideBySide = gridBrowserLogic::useActionRow(width, style.ItemSpacing.x, requiredButtonW);
+    const float buttonRows = sideBySide ? buttonH : buttonH * 2 + style.ItemSpacing.y;
+    const auto *committed = gridCommittedVersion();
+    const char *status = s_GridLaunchError[0] ? s_GridLaunchError
+        : !s_GridBrowserBuilt ? "Reading map library"
+        : committed ? committed->name : "Choose a version to enter.";
+    const float statusHeight = ImGui::CalcTextSize(status, nullptr, false, width).y + style.ItemSpacing.y;
+    const float bodyH = gridBrowserLogic::bodyHeight(available.y,
+        bottomInset + buttonRows + statusHeight + style.ItemSpacing.y);
+    GridPreviewCursor preview;
+
+    // Share one navigation root so D-pad and keyboard can cross the lists,
+    // preview controls, and action buttons without activating a child first.
+    constexpr auto browserNavigation = ImGuiChildFlags_NavFlattened;
+    constexpr auto browserPanel = ImGuiChildFlags_Borders | browserNavigation;
+    if (ImGui::BeginChild("##grid_browser", ImVec2(width, bodyH), browserNavigation)) {
+        if (!s_GridBrowserBuilt) {
+            ImGui::TextDisabled("Reading map descriptions and variant links");
+        } else if (wide) {
+            const auto tableWidth = ImGui::GetContentRegionAvail().x;
+            const auto columnHeight = ImGui::GetContentRegionAvail().y;
+            if (ImGui::BeginTable("##grid_wide", 3, ImGuiTableFlags_SizingStretchProp, ImVec2(tableWidth, columnHeight))) {
+                ImGui::TableSetupColumn("Maps", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("Versions", ImGuiTableColumnFlags_WidthStretch, 1.0f);
+                ImGui::TableSetupColumn("Details", ImGuiTableColumnFlags_WidthStretch, 1.3f);
+                ImGui::TableNextColumn();
+                if (ImGui::BeginChild("##grid_maps", ImVec2(0, columnHeight), browserPanel)) {
+                    gridBrowseMaps(preview, false, focusMaps);
+                }
+                ImGui::EndChild();
+                ImGui::TableNextColumn();
+                if (ImGui::BeginChild("##grid_versions", ImVec2(0, columnHeight), browserPanel)) {
+                    gridBrowseVersions(gridCurrentFamily(), preview);
+                }
+                ImGui::EndChild();
+                ImGui::TableNextColumn();
+                if (ImGui::BeginChild("##grid_details", ImVec2(0, columnHeight), browserPanel)) {
+                    gridBrowseDetails(gridBrowserPreviewIndex(preview), scale);
+                    ImGui::SeparatorText("Match rules");
+                    gridBrowseRules();
+                }
+                ImGui::EndChild();
+                ImGui::EndTable();
+            }
+        } else {
+            const char *paneNames[] = {"Maps", "Versions", "Details", "Match rules"};
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::BeginCombo("##grid_panel", paneNames[(int)s_GridBrowserPane])) {
+                for (int i = 0; i < 4; ++i) {
+                    if (ImGui::Selectable(paneNames[i], i == (int)s_GridBrowserPane)) {
+                        s_GridBrowserPane = (GridBrowserPane)i;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            const auto pane = s_GridBrowserPane;
+            if (pane == GridBrowserPane::Maps || pane == GridBrowserPane::Versions) {
+                const float remaining = ImGui::GetContentRegionAvail().y;
+                const bool inlinePreview = remaining >= 5.0f * ImGui::GetFrameHeightWithSpacing();
+                const float listHeight = inlinePreview ? remaining * 0.60f : 0.0f;
+                const bool showMaps = pane == GridBrowserPane::Maps;
+                const bool takeFocus = showMaps ? focusMaps : s_GridFocusVersions;
+                if (!showMaps) s_GridFocusVersions = false;
+                if (ImGui::BeginChild(showMaps ? "##grid_narrow_maps" : "##grid_narrow_versions",
+                        ImVec2(0, listHeight), browserPanel)) {
+                    if (showMaps) gridBrowseMaps(preview, true, takeFocus);
+                    else gridBrowseVersions(gridCurrentFamily(), preview, takeFocus);
+                }
+                ImGui::EndChild();
+                const int previewIndex = gridBrowserPreviewIndex(preview);
+                if (inlinePreview) {
+                    if (ImGui::BeginChild("##grid_narrow_preview", ImVec2(0, 0), browserPanel)) {
+                        gridBrowseDetails(previewIndex, scale);
+                    }
+                    ImGui::EndChild();
+                }
+            } else if (pane == GridBrowserPane::Details) {
+                gridBrowseDetails(gridBrowserPreviewIndex(preview), scale);
+            } else {
+                gridBrowseRules();
+            }
+        }
+    }
+    ImGui::EndChild();
+
+    const auto *visibleSelection = gridCommittedVersion();
+    if (s_GridLaunchError[0]) ImGui::TextWrapped("%s", s_GridLaunchError);
+    else if (visibleSelection) ImGui::TextWrapped("%s", visibleSelection->name);
+    else ImGui::TextWrapped("%s", s_GridBrowserBuilt ? "Choose a version to enter." : "Reading map library");
+
+    const ImVec2 actionSize(sideBySide ? halfButton : width, buttonH);
+    ImGui::BeginDisabled(!visibleSelection);
+    if (PdButton(enter, actionSize)) {
+        if (menuGraphFireSceneOp(MENU_TYPE_GRID_SUBMENU, "enter",
+                                 pdguiMainMenuGraphEnterGrid, NULL) == 0) {
+            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+            pdguiMainMenuSetView(0, "grid-enter");
+        } else {
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        }
+    }
+    ImGui::EndDisabled();
+    if (sideBySide) ImGui::SameLine();
+    if (PdButton("Back", actionSize)) {
+        pdguiMainMenuFireSubviewBackEdge("grid-back");
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+    }
+}
+
+/* B-131 ext: duplicate dialog guard — prevents overlapped instances when
+ * Start/Pause pushes the dialog while it's already rendering. */
+static bool s_MainMenuIsRendering = false;
+
+static s32 renderMainMenu(struct menudialog *dialog,
+                           struct menu *menu,
+                           s32 winW, s32 winH)
+{
+    /* Duplicate guard: if we're already mid-render (second dialog instance
+     * on the stack), silently consume but don't draw a second copy. */
+    if (s_MainMenuIsRendering) {
+        return 1; /* consumed — prevent legacy from rendering */
+    }
+    /* B-153: main menu (PC) and main menu (Pause) share renderMainMenu;
+     * when one is pushed, menuPushDialog auto-opens its `nextsibling` (the
+     * CiOptions variant) at the same layer, so menuRenderDialogs queues
+     * TWO hotswap entries per frame. The sibling maps to
+     * renderCiSettingsRedirect (different renderer), but if a future mod
+     * or refactor ever attaches two dialogdefs to this renderer we want
+     * the sibling path to early-out cleanly. Also guards against
+     * transition-frac edge cases where the "other" dialog is rendered
+     * alongside curdialog during a swipe. */
+    if (!menuDialogIsCurrent(dialog)) {
+        return 1; /* consumed — sibling, not the active dialog */
+    }
+    /* Bug 1 fix: Combat Simulator solo Room is a pure-ImGui overlay that
+     * leaves the Main Menu dialog on the menu stack (CI button calls
+     * pdguiSoloRoomOpen() without popping). When a child dialog (Team
+     * Setup, Change Agent, ...) is pushed then popped while the Room is
+     * up, Main Menu's ImGui window goes hidden→visible, fires
+     * IsWindowAppearing, SetWindowFocus()es itself on top of the Room.
+     * Suppress the Main Menu render entirely while the Room owns the
+     * screen; it comes back as soon as "Back to Menu" clears the flag. */
+    if (pdguiSoloRoomIsActive()) {
+        return 1;
+    }
+    /* B-173: The Grid (Forge) session owns the screen while active.  The
+     * "The Grid" button calls pdguiForgeStartSession() which kicks off a
+     * stage transition to CI Training WITHOUT popping the main-menu
+     * dialog.  During the session the HUD + editor overlay own the
+     * screen, but the Main Menu dialog is still on the menu stack — its
+     * ImGui window keeps going hidden/visible across stage transitions,
+     * fires IsWindowAppearing, and SetWindowFocus()es itself back on
+     * top, producing the "menus were buggier" symptom once the user
+     * exits the forge session.  Mirror the solo-room fix above: while a
+     * forge session is active, consume the main-menu render entirely so
+     * the Grid HUD/editor owns focus, and let the main menu come back
+     * cleanly once forgeExitSession() clears the session flag. */
+    if (forgeSessionIsActive()) {
+        return 1;
+    }
+    s_MainMenuIsRendering = true;
+    /* E.3: Enforce the user's saved theme — prevents tint bleed from post-mission
+     * endscreen (which sets palette 3=green or 2=red and never restores it).
+     * P5: Uses catalog-backed theme instead of hardcoded blue.
+     * Guard: only reload when theme ID changes (avoids per-frame catalog lookup). */
+    {
+        static char s_LastThemeId[64] = "";
+        const char *activeId = pdguiThemeGetActiveId();
+        if (activeId && strcmp(s_LastThemeId, activeId) != 0) {
+            pdguiThemeLoadFromCatalog(activeId);
+            strncpy(s_LastThemeId, activeId, sizeof(s_LastThemeId) - 1);
+            s_LastThemeId[sizeof(s_LastThemeId) - 1] = '\0';
+        }
+    }
+
+    float scale = pdguiScaleFactor();
+    float dialogW = pdguiMenuWidth();
+    float dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    if (s_MenuView == 6) {
+        const ImVec2 display = ImGui::GetIO().DisplaySize;
+        dialogW = std::min(display.x * 0.96f, std::max(dialogW, 1120.0f * scale));
+        dialogH = display.y * 0.91f;
+        menuPos = pdguiCenterPos(dialogW, dialogH);
+    }
+    float dialogX = menuPos.x;
+    float dialogY = menuPos.y;
+
+    ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
+    ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
+
+    ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoTitleBar
+                            | ImGuiWindowFlags_NoBackground;
+
+    const bool hubOwnsFrame = pdguiModdingHubIsVisible() != 0;
+    if (hubOwnsFrame) {
+        wflags |= ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoFocusOnAppearing;
+    }
+    if (!ImGui::Begin("##main_menu", nullptr, wflags)) {
+        ImGui::End();
+        s_MainMenuIsRendering = false;
+        return 1;
+    }
+
+    /* S304 / CI load: attach g_CtxImGuiMenu whenever this window is open, not
+     * only on IsWindowAppearing. After a stage transition into CI, ImGui may
+     * keep "##main_menu" without a fresh Appearing frame while menupool still
+     * has the slot live from the legacy dialog push (ctx=NULL). Gameplay stayed the
+     * input stack top so pdguiIsActive() was false and the interact prompt
+     * drew over the main menu (Hold X facing the hub PC). menupoolAcquireDialog
+     * is idempotent; S300 attaches the ctx on active slots when owned_ctx was
+     * never bound. */
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
+    /* Keep the window alive without input/focus while the Hub owns it.
+     * This preserves the Modding subview when the Hub later closes and lets
+     * its dirty-document close transaction decide whether Back can leave. */
+    if (hubOwnsFrame) {
+        ImGui::End();
+        s_MainMenuIsRendering = false;
+        return 1;
+    }
+
+    /* Auto-possess: give this window nav focus ONLY on first appearance.
+     * Must be AFTER Begin(). Using SetWindowFocus() instead of
+     * SetNextWindowFocus() to avoid stealing focus from child popups. */
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+        pdguiMainMenuSetView(0, "window-open"); /* Always open to main menu */
+        s_NeedsFocus = true;
+        /* The opening gesture belongs to this transition until its real
+         * release. Keep physical and action-map held states intact so the
+         * native key lock cannot be ended by an artificial release. */
+        pdguiNavSuppressOpeningGesture();
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu OPEN");
+    }
+    pdguiMainMenuSetView(s_MenuView, "render-sync");
+
+    /* Determine title based on current view */
+    const char *windowTitle = "Perfect Dark";
+    if (s_MenuView == 1) windowTitle = "Play";
+    else if (s_MenuView == 2) windowTitle = "Settings";
+    else if (s_MenuView == 3) windowTitle = "Modding";
+    else if (s_MenuView == 5) windowTitle = "Player Statistics";
+    else if (s_MenuView == 6) windowTitle = forgeDisplayName();
+
+    float pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH, windowTitle);
+
+    /* S305: content inset — keep menu items clear of the nineslice chrome
+     * border plus a small breathing-room buffer so the content doesn't feel
+     * cramped against the inner edge. Endscreen + pause menu use the same
+     * pattern (resolveEndscreenPadding / pdguiThemeGetContentInset). */
+    float insL = 0, insR = 0, insT = 0, insB = 0;
+    pdguiThemeGetContentInset(&insL, &insR, &insT, &insB);
+    float breathe = pdguiScale(8.0f);
+    float padX = pdguiScale(16.0f);
+    if (insL + breathe > padX) padX = insL + breathe;
+    float padR = pdguiScale(16.0f);
+    if (insR + breathe > padR) padR = insR + breathe;
+    float padB = pdguiScale(14.0f);
+    if (insB + breathe > padB) padB = insB + breathe;
+    float padT = pdTitleH + ImGui::GetStyle().WindowPadding.y + breathe;
+    if (insT + breathe + pdTitleH > padT) padT = insT + breathe + pdTitleH;
+
+    /* Offset content below the PD title bar and inside the border */
+    ImGui::SetCursorPos(ImVec2(padX, padT));
+
+    float buttonH = 40.0f * scale;
+    float contentW = dialogW - padX - padR;
+    if (contentW < pdguiScale(32.0f)) contentW = pdguiScale(32.0f); /* sanity */
+    float buttonW = contentW;
+    float spacing = 6.0f * scale;
+
+    /* Opening keys remain locked until physical release. A fresh Back
+     * resolves once after rendering; the current owner filter gives active
+     * native editors and child popups their first Back. */
+    bool titleClose = pdguiConsumeTitleClose() != 0;
+    bool actionCancelEdge = pdguiMenuCancelPressed() != 0;
+    bool socialSurfaceOpen = pdguiFriendsAnySurfaceIsOpen() != 0;
+    const s32 backView = s_MenuView;
+    const bool gridPopupOwnsBack = s_MenuView == 6 && ImGui::IsPopupOpen(nullptr,
+        ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel);
+    const bool requestBack = !ImGui::IsWindowAppearing() && !s_CaptureActive &&
+        !socialSurfaceOpen && !gridPopupOwnsBack && (titleClose || actionCancelEdge);
+    if (!ImGui::IsWindowAppearing()
+        && !s_CaptureActive
+        && !socialSurfaceOpen
+        && !pdguiFriendsSocialIsOpen()
+        && !requestBack
+        && pdguiMenuTertiaryPressed()) {
+        if (menuGraphFirePushOp(MENU_TYPE_MAIN_MENU, "social",
+                pdguiMainMenuGraphOpenSocial, NULL) == 0) {
+            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        }
+        socialSurfaceOpen = true;
+    }
+    if (requestBack) pdguiNavSuppressActivation();
+    ImGui::BeginDisabled(requestBack);
+
+    const s32 submittedView = s_MenuView;
+    s_SettingsSubmittedTab = -1;
+    ImGuiID playReadinessId = 0, settingsReadinessId = 0;
+    if (s_MenuView == 0) {
+        /* ================================================================
+         * TOP LEVEL: Play / Social / Public Mods / Change Agent / Settings
+         * Quit Game docked to bottom-right, opens canonical S385 confirm
+         * modal (M-Q-A 2026-04-19 — replaces the old inline
+         * button-toggle-between-Quit-Game-and-Confirm-Quit pattern).
+         * ================================================================ */
+        static s32 s_QuitOpenFrame = -1;
+        if (!socialSurfaceOpen) {
+            pdguiDrawActionPromptCentered(ACTION_MENU_SOCIAL,
+                                          dialogX + dialogW - padR - pdguiScale(66.0f),
+                                          dialogY + pdguiScale(10.0f),
+                                          "Social");
+        }
+
+        ImGui::Dummy(ImVec2(0, 8.0f * scale));
+
+        /* Play -- local missions and Combat Simulator; Social owns invite/join. */
+        if (s_NeedsFocus) {
+            ImGui::SetKeyboardFocusHere(0);
+            ImGui::SetNavCursorVisible(true);
+            s_NeedsFocus = false;
+        }
+        const bool playPressed = PdButton("Play", ImVec2(buttonW, buttonH * 1.2f));
+        playReadinessId = ImGui::GetItemID();
+        if (playPressed) {
+            pdguiMainMenuFireSubviewEdge("solo_play", 1, "open-solo");
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        {
+            float halfButtonW = (buttonW - spacing) * 0.5f;
+            if (halfButtonW < pdguiScale(130.0f)) {
+                halfButtonW = buttonW;
+            }
+            if (PdButton("Social", ImVec2(halfButtonW, buttonH * 1.2f))) {
+                menuGraphFirePushOp(MENU_TYPE_MAIN_MENU, "social",
+                    pdguiMainMenuGraphOpenSocial, NULL);
+            }
+            if (halfButtonW < buttonW) {
+                ImGui::SameLine(0.0f, spacing);
+            }
+            if (PdButton("Public Mods", ImVec2(halfButtonW, buttonH * 1.2f))) {
+                menuGraphFirePushOp(MENU_TYPE_MAIN_MENU, "public_mods",
+                    pdguiMainMenuGraphOpenPublicMods, NULL);
+            }
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Change Agent. Mike playtest 2026-05-17: pushing
+         * g_ChangeAgentMenuDialog (a Yes/No confirmation warning popup)
+         * caused jank where the menupool acquired the warning instance
+         * under MENU_TYPE_AGENT_SELECT but released it before the
+         * legacy "Yes" path could push the real picker on top.
+         * Symptom: ~30% of clicks flashed open then closed instead of
+         * showing Agent Select. Fix: push the real picker directly --
+         * the warning popup serves no PC-port purpose, the picker has
+         * its own back/cancel. */
+        if (PdButton("Change Agent", ImVec2(buttonW, buttonH * 1.2f))) {
+            menuGraphFirePushDialog(MENU_TYPE_MAIN_MENU, "change_agent", &g_FilemgrFileSelectMenuDialog);
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Settings */
+        const bool settingsPressed = PdButton("Settings", ImVec2(buttonW, buttonH * 1.2f));
+        settingsReadinessId = ImGui::GetItemID();
+        if (settingsPressed) {
+            if (pdguiMainMenuFireSubviewEdge("settings", 2, "open-settings") == 0) {
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: settings OPEN (s_MenuView=2)");
+            }
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Mods -- opens the Modding Hub (view 3) */
+        if (PdButton("Mods", ImVec2(buttonW, buttonH * 1.2f))) {
+            if (pdguiMainMenuFireSubviewEdge("modding", 3, "open-modding") == 0) {
+                menuGraphFirePushOp(MENU_TYPE_MAIN_MODDING_VIEW, "open_hub",
+                    pdguiMainMenuGraphOpenModdingHub, NULL);
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: modding hub OPEN (s_MenuView=3)");
+            }
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Cheats -- opens cheats hub dialog */
+        if (PdButton("Cheats", ImVec2(buttonW, buttonH * 1.2f))) {
+            menuGraphFirePushDialog(MENU_TYPE_MAIN_MENU, "cheats", &g_CheatsMenuDialog);
+            pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Stats -- opens the Stats Viewer (view 5) */
+        if (PdButton("Stats", ImVec2(buttonW, buttonH * 1.2f))) {
+            if (pdguiMainMenuFireSubviewEdge("stats", 5, "open-stats") == 0) {
+                menuGraphFirePushOp(MENU_TYPE_MAIN_STATS_VIEW, "open_panel",
+                    pdguiMainMenuGraphOpenStatsPanel, NULL);
+            }
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Credits -- enter the normal scrolling credits from the main menu.
+         * creditsEnterNormalScroll() (shared with the --launch-credits boot
+         * fast-path) queues the STAGE_CREDITS transition, which tears down the
+         * menu the same way the Settings-tab debug shortcut does. Disabled in
+         * netplay: a local stage change would desync an active match. */
+        {
+            const bool creditsEnabled = (g_NetMode == NETMODE_NONE);
+            if (!creditsEnabled) ImGui::BeginDisabled();
+            if (PdButton("Credits", ImVec2(buttonW, buttonH * 1.2f))) {
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: Credits -> creditsEnterNormalScroll()");
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+                creditsEnterNormalScroll();
+            }
+            if (!creditsEnabled) ImGui::EndDisabled();
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* The Grid -- live-bot-test + edit facility.  Opens a submenu
+         * (s_MenuView=6) where the user picks the base map and
+         * configures the variant (gametype + rules) before entering
+         * the session.  The previous "launch Forge on CI Training"
+         * shortcut is preserved as pdguiForgeStartSession() for other
+         * callers, but the Main Menu button no longer uses it.
+         *
+         * Internal module names stay forge* for code continuity;
+         * "The Grid" is the unified user-facing facility (Forge and
+         * Playtest are modes inside it).  Priority 2 will wire the
+         * in-session Halo-Back-style mode toggle. */
+        char gridLabel[FORGE_DISPLAY_NAME_CAP + sizeof("###grid")];
+        snprintf(gridLabel, sizeof(gridLabel), "%s###grid", forgeDisplayName());
+        if (PdButton(gridLabel, ImVec2(buttonW, buttonH * 1.2f))) {
+            if (pdguiMainMenuFireSubviewEdge("grid", 6, "open-grid") == 0) {
+                sysLogPrintf(LOG_NOTE, "MENU_STACK: Grid submenu OPEN (s_MenuView=6)");
+            }
+        }
+
+        /* Quit Game -- docked to bottom-right; M-Q-A opens a canonical
+         * S385 confirm modal instead of the previous inline toggle. */
+        {
+            float quitBtnW = ImGui::CalcTextSize("Quit Game").x
+                           + ImGui::GetStyle().FramePadding.x * 2.0f
+                           + pdguiScale(16.0f);
+            float quitBtnH = 28.0f * scale;
+            /* S305: honour content inset (padR/padB) so the Quit button clears
+             * the nineslice chrome border. */
+            float cursorX = dialogW - padR - quitBtnW;
+            float cursorY = dialogH - padB - quitBtnH;
+
+            ImGui::SetCursorPos(ImVec2(cursorX, cursorY));
+
+            const char *quitPopupId = "Quit Game?##mainmenu_quit";
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.3f, 0.1f, 0.1f, 0.8f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f, 0.15f, 0.15f, 0.9f));
+            if (ImGui::Button("Quit Game", ImVec2(quitBtnW, quitBtnH))
+                    && !ImGui::IsPopupOpen(quitPopupId)) {
+                ImGui::OpenPopup(quitPopupId);
+                s_QuitOpenFrame = (s32)ImGui::GetFrameCount();
+                pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+            }
+            ImGui::PopStyleColor(2);
+
+            s32 quitRes = pdguiRenderConfirmModal(
+                quitPopupId,
+                "Quit Game?",
+                "Quit Perfect Dark? Any unsaved settings will be lost.",
+                "Quit",
+                &s_QuitOpenFrame);
+            if (quitRes == PDGUI_CONFIRM_OK) {
+                menuGraphFireProcessOp(MENU_TYPE_MAIN_MENU, "quit",
+                    pdguiMainMenuGraphQuit, NULL);
+            }
+        }
+
+    } else if (s_MenuView == 1) {
+        /* ================================================================
+         * PLAY SUB-MENU
+         * Campaign missions and Combat Simulator.
+         * ================================================================ */
+        ImGui::Dummy(ImVec2(0, 4.0f * scale));
+
+        /* Solo Missions -- campaign */
+        if (s_NeedsFocus) {
+            ImGui::SetKeyboardFocusHere(0);
+            ImGui::SetNavCursorVisible(true);
+            s_NeedsFocus = false;
+        }
+        if (PdButton("Solo Missions", ImVec2(buttonW, buttonH))) {
+            menuGraphFirePushOp(MENU_TYPE_MAIN_SOLO_VIEW, "solo_missions",
+                pdguiMainMenuGraphSoloMissions, NULL);
+        }
+
+        ImGui::Dummy(ImVec2(0, spacing));
+
+        /* Combat Simulator -- opens Room screen in solo (offline) mode */
+        if (PdButton("Combat Simulator", ImVec2(buttonW, buttonH))) {
+            menuGraphFirePushOp(MENU_TYPE_MAIN_SOLO_VIEW, "combat_simulator",
+                pdguiMainMenuGraphCombatSimulator, NULL);
+        }
+
+        /* Co-Operative and Counter-Operative removed — no local multiplayer
+         * (single local player only, constraint in CLAUDE.md). Keep code but
+         * don't render the buttons. */
+
+    } else if (s_MenuView == 2) {
+        /* ================================================================
+         * SETTINGS SUB-MENU
+         * Navigation: B/Escape returns to top-level (handled above).
+         *
+         * Wrap in a constraining BeginChild so the tab content renders
+         * within the body region and doesn't fall behind the PD dialog
+         * chrome drawn by drawPdWindowFrame(). Without this wrapper the
+         * tab content uses the parent window's full region and the
+         * procedural body background (AddRectFilled in pdguiDrawPdDialog)
+         * can overdraw on top of the settings widgets.
+         * ================================================================ */
+        /* S305: honour content inset (padX/padT/padR/padB from above) so
+         * tab buttons and body don't bleed into the chrome border. */
+        float contentH = dialogH - padT - padB;
+        if (contentH < pdguiScale(80.0f)) contentH = pdguiScale(80.0f);
+        if (ImGui::BeginChild("##main_settings_body", ImVec2(contentW, contentH),
+                              ImGuiChildFlags_NavFlattened,
+                              ImGuiWindowFlags_NoBackground)) {
+            renderSettingsView(scale, contentH);
+        }
+        ImGui::EndChild();
+
+        renderInputCaptureModal();
+
+    } else if (s_MenuView == 3) {
+        /* ================================================================
+         * MODDING — Modding Hub renders in pdguiModdingHubRender (overlay).
+         * B-213: when the hub closes, stay on this view with a clear re-entry
+         * point instead of forcing s_MenuView=0 (which felt like "Back to
+         * Main Menu" after leaving Skin Editor or closing the hub).
+         * ================================================================ */
+        if (!pdguiModdingHubIsVisible()) {
+            ImGui::Dummy(ImVec2(0, 8.0f * scale));
+            ImGui::TextColored(ImVec4(0.85f, 0.85f, 0.9f, 1.0f), "Modding");
+            ImGui::Separator();
+            ImGui::Dummy(ImVec2(0, 6.0f * scale));
+            ImGui::TextDisabled("Modding tools are closed.");
+            ImGui::Dummy(ImVec2(0, 8.0f * scale));
+            if (PdButton("Open Modding Hub", ImVec2(buttonW, buttonH * 1.15f))) {
+                menuGraphFirePushOp(MENU_TYPE_MAIN_MODDING_VIEW, "open_hub",
+                    pdguiMainMenuGraphOpenModdingHub, NULL);
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            }
+            ImGui::Dummy(ImVec2(0, 6.0f * scale));
+            if (PdButton("Back", ImVec2(buttonW * 0.65f, buttonH))) {
+                pdguiMainMenuFireSubviewBackEdge("modding-back");
+                pdguiPlaySound(PDGUI_SND_SWIPE);
+            }
+        }
+
+    } else if (s_MenuView == 5) {
+        /* ================================================================
+         * PLAYER STATISTICS (M2.3)
+         * ================================================================ */
+        pdguiMenuStatsRender(winW, winH);
+        if (!pdguiMenuStatsIsVisible()) {
+            pdguiMainMenuFireSubviewBackEdge("stats-closed");
+        }
+
+    } else if (s_MenuView == 6) {
+        /* ================================================================
+         * THE GRID SUBMENU (Priority 1, 2026-04-23)
+         *
+         * Map picker + variant config + Enter button.  Committing Enter
+         * applies the variant into g_MatchConfig (scenario, stage, rules)
+         * and hands off to pdguiForgeStartSessionOn(stagenum).  The
+         * session launches and the user enters The Grid session -- Forge
+         * (edit) mode by default; Playtest mode toggle lands in P2.
+         *
+         * Blank Map: surfaced only when GRID_BLANK_STAGE is defined.
+         * See pdgui_menu_grid.h and the evening-decisions-2026-04-23
+         * audit entry for why the entry is currently suppressed.
+         * ================================================================ */
+        renderGridSubmenu(scale, buttonW, buttonH, padB);
+    }
+
+    ImGui::EndDisabled();
+
+    bool settingsLeave = false;
+    if (s_MenuView == 2) {
+        if (requestBack) settingsLeave = s_SettingsSaveStatus.requestDeparture();
+        settingsLeave = renderSettingsSaveDeparture() || settingsLeave;
+    }
+
+    /* Sound on view switches + auto-focus flag */
+    s_ViewJustChanged = (s_PrevView >= 0 && s_PrevView != s_MenuView);
+    if (s_ViewJustChanged) {
+        pdguiPlaySound(PDGUI_SND_SWIPE);
+        s_NeedsFocus = true;  /* focus first widget on next frame */
+        /* S197a: only set s_ControlsNeedsInit when LEAVING the Settings view,
+         * not on every view switch.  Previously this fired on every change
+         * (including the 0 -> 2 transition that ENTERS Settings), causing a
+         * second actionmapLoadBinds() reload on the frame after Settings
+         * first rendered the Input tab.  The initial load is already
+         * triggered by the default s_ControlsNeedsInit=true at static init
+         * or by the leave-side flag below. */
+        if (s_PrevView == 2 && s_MenuView != 2) {
+            s_ControlsNeedsInit = true;
+        }
+
+        /* Main-menu subview pool ownership is handled at every
+         * pdguiMainMenuSetView() call. */
+    }
+    s_PrevView = s_MenuView;
+
+    if (s_PrevSubTab >= 0 && s_PrevSubTab != s_SettingsSubTab) {
+        pdguiPlaySound(PDGUI_SND_FOCUS);
+        s_NeedsFocus = true;  /* focus first widget when tab changes */
+        /* S197a: re-init Input binds only when LEAVING the Input tab.
+         * (S306 shifted the old Controls tab from 2 to 3 when the Interface tab was
+         * inserted, so the guard now compares against the new index.)
+         * Previously fired on both leave and enter, causing a redundant
+         * reload on the frame after the user clicked the Input tab
+         * (the enter-frame already reloaded via the default/view-change
+         * flag). */
+        if (s_PrevSubTab == 3 && s_SettingsSubTab != 3) {
+            inputUiCancelCapture();
+            s_ControlsNeedsInit = true;
+        }
+    }
+    s_PrevSubTab = s_SettingsSubTab;
+
+    /* D5 Phase 2: D-pad wrapping — must be after all widgets, before End() */
+    pdguiNavTickWrap();
+
+    pdguiMenuRecordView(submittedView, s_SettingsSubmittedTab,
+        playReadinessId, settingsReadinessId,
+        s_CaptureActive || socialSurfaceOpen || requestBack || settingsLeave ||
+        s_MenuView != submittedView || !pdguiNavActionAllowed(ACTION_MENU_ACCEPT));
+    ImGui::End();
+    s_MainMenuIsRendering = false;
+    if (((requestBack && backView != 2) || settingsLeave) && s_MenuView == backView) {
+        if (s_MenuView != 0) {
+            if (s_MenuView == 2) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — settings CLOSE (view 2->0)%s",
+                             titleClose ? " [via X]" : "");
+            } else if (s_MenuView == 3) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — modding subview CLOSE (view 3->0)");
+            } else if (s_MenuView == 5) {
+                pdguiMenuStatsHide();
+            } else if (s_MenuView == 6) {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC -- Grid submenu CLOSE (view 6->0)");
+            } else {
+                sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu ESC — sub-view %d -> 0", s_MenuView);
+            }
+            pdguiMainMenuFireSubviewBackEdge("close-subview");
+            pdguiPlaySound(PDGUI_SND_SWIPE);
+        } else {
+            /* At top-level: close the menu, return to Carrington Institute */
+            sysLogPrintf(LOG_NOTE, "MENU_IMGUI: main menu CLOSE via ESC/B (top-level -> CI free-roam)");
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            menuGraphFirePopOp(MENU_TYPE_MAIN_MENU, "close",
+                pdguiMainMenuGraphClose, NULL);
+        }
+        s_NeedsFocus = true;
+    }
+    return 1;  /* Handled */
+}
+
+/* ========================================================================
+ * S195 Batch 3 -- CI Options redirect
+ *
+ * Legacy CI Options dialogs (Controls/Display/Style/etc.) are deprecated
+ * per context/designs/menu-replacement-plan.md -- settings have been
+ * unified into the single Settings view built into the main menu.
+ *
+ * Rather than re-implementing each CI sub-screen with its own ImGui
+ * renderer, we register a thin redirect renderer that:
+ *
+ *   1. Opens an ImGui window with the same PD title frame as the main
+ *      menu, titled "Settings".
+ *   2. Pre-selects the matching sub-tab (Controls/Video/etc.) by setting
+ *      s_SettingsSubTab BEFORE calling renderSettingsView().
+ *   3. Calls renderSettingsView() -- the user sees the exact same
+ *      unified settings UI they'd see if they navigated through the main
+ *      menu's Settings tab.
+ *   4. Docks a Back action-bar button (using the S192 pdguiLayout
+ *      primitives) that pops the CI dialog.
+ *
+ * This guarantees visual parity with the main menu Settings, while
+ * keeping the legacy push path (any fringe caller that still pushes
+ * g_CiControlOptionsMenuDialog etc.) functional.
+ *
+ * P2 variants (Player 2 controls/display) are DEAD -- no split-screen.
+ * Their renderer shows a brief deprecated notice and auto-pops.
+ *
+ * Compliance:
+ * - 1080p baseline via pdguiScale() everywhere.
+ * - Popup scrim: pdguiPopupDarkenBehind(0.55f).
+ * - Docked CTA: pdguiBeginActionBar + pdguiActionBarButton.
+ * - Real Selectable-with-label, no ##hidden + AddText antipattern.
+ * - Audio cues: SND_OPENDIALOG on appear, SND_KBCANCEL on Back/Esc/B.
+ * ======================================================================== */
+
+static s32 ciRedirectTargetTabForDialog(struct menudialogdef *dlg)
+{
+    /* Map each CI Options sub-dialog to its matching unified Settings tab.
+     * S306 tab order: 0=Video 1=Interface 2=Audio 3=Controls 4=Game
+     * 5=Updates 6=Debug 7=Catalog. */
+    if (dlg == &g_CiControlOptionsMenuDialog)    return 3; /* Controls */
+    /* g_CiControlOptionsMenuDialog2 is PAL-only — not linked in NTSC builds. */
+    if (dlg == &g_CiControlStyleMenuDialog)      return 3; /* Controls */
+    if (dlg == &g_CiDisplayMenuDialog)           return 0; /* Video */
+    if (dlg == &g_CiOptionsViaPcMenuDialog)      return 0; /* start on Video */
+    if (dlg == &g_CiOptionsViaPauseMenuDialog)   return 0; /* start on Video */
+    return 0; /* safe default */
+}
+
+static s32 renderCiSettingsRedirect(struct menudialog *dialog,
+                                     struct menu *menu,
+                                     s32 winW, s32 winH)
+{
+    (void)menu;
+    (void)winW;
+    (void)winH;
+
+    /* B-153: five CI Options dialogdefs route through this renderer
+     * (CiOptionsViaPc, CiOptionsViaPause, CiControlOptions, CiControlStyle,
+     * CiDisplay). When any of them is pushed as a nextsibling of the main
+     * menu (g_CiMenuViaPauseMenuDialog's nextsibling IS g_CiOptions...), the
+     * sibling gets queued for render alongside the main menu. Without this
+     * guard the 0.55 darken scrim below compounds with the main menu's own
+     * frame, producing the "two menus overlaid / darker background" visual
+     * Mike reported after rapid close → reopen. Skip unless we're the
+     * user's actual current dialog. */
+    if (!menuDialogIsCurrent(dialog)) {
+        return 1; /* consumed — sibling preload, not the active dialog */
+    }
+
+    /* Extract the dialog definition pointer.  struct menudialog's first
+     * field is a pointer to its menudialogdef -- same pattern used by
+     * pdgui_menu_warning.cpp because types.h cannot be included from C++. */
+    struct menudialogdef *def = *(struct menudialogdef **)((u8 *)dialog);
+
+    /* Scrim the whole viewport behind the modal so the user focuses
+     * on the unified settings panel. */
+    pdguiPopupDarkenBehind(0.55f);
+
+    f32 scale   = pdguiScaleFactor();
+    f32 dialogW = pdguiMenuWidth();
+    f32 dialogH = pdguiMenuHeight();
+    ImVec2 menuPos = pdguiMenuPos();
+    f32 dialogX = menuPos.x;
+    f32 dialogY = menuPos.y;
+
+    ImGui::SetNextWindowPos(ImVec2(dialogX, dialogY));
+    ImGui::SetNextWindowSize(ImVec2(dialogW, dialogH));
+
+    ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoTitleBar
+                            | ImGuiWindowFlags_NoBackground;
+
+    if (!ImGui::Begin("##ci_settings_redirect", nullptr, wflags)) {
+        ImGui::End();
+        /* S311: pool slot leak guard — if Begin fails mid-frame the
+         * menuCloseDialog cascade hasn't fired yet, so drop the slot
+         * defensively (idempotent). */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
+        return 1;
+    }
+
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
+    /* On first appearance or dialog switch: play open cue, select sub-tab. */
+    static struct menudialogdef *s_LastDialog = nullptr;
+    if (ImGui::IsWindowAppearing() || s_LastDialog != def) {
+        inputUiCancelCapture();
+        ImGui::SetWindowFocus();
+        s_NeedsFocus = true;
+        s_SettingsSaveStatus.cancelDeparture();
+        s_SettingsSubTab = ciRedirectTargetTabForDialog(def);
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        sysLogPrintf(LOG_NOTE,
+            "MENU_IMGUI: CI Options redirect OPEN (dialog=%p subtab=%d)",
+            (void *)def, (int)s_SettingsSubTab);
+        s_LastDialog = def;
+    }
+
+    /* PD title frame -- same look as the main menu. */
+    f32 pdTitleH = drawPdWindowFrame(dialogX, dialogY, dialogW, dialogH,
+                                      "Settings");
+
+    const bool titleCloseCi = pdguiConsumeTitleClose() != 0;
+    bool wantBack = !ImGui::IsWindowAppearing() && !s_CaptureActive &&
+        (titleCloseCi || pdguiMenuCancelPressed());
+    if (wantBack) pdguiNavSuppressActivation();
+    ImGui::BeginDisabled(wantBack);
+
+    /* S305: content inset — clear the nineslice chrome border + breathing room. */
+    float insLr = 0, insRr = 0, insTr = 0, insBr = 0;
+    pdguiThemeGetContentInset(&insLr, &insRr, &insTr, &insBr);
+    float breatheR = pdguiScale(8.0f);
+    float padXr = pdguiScale(16.0f);
+    if (insLr + breatheR > padXr) padXr = insLr + breatheR;
+    float padRr = pdguiScale(16.0f);
+    if (insRr + breatheR > padRr) padRr = insRr + breatheR;
+    float padTr = pdTitleH + ImGui::GetStyle().WindowPadding.y + breatheR;
+    if (insTr + breatheR + pdTitleH > padTr) padTr = insTr + breatheR + pdTitleH;
+
+    ImGui::SetCursorPos(ImVec2(padXr, padTr));
+
+    /* Compute the scrollable body region, reserving the docked action bar
+     * height per the S192 primitive.  contentH must match what renderMainMenu
+     * passes to renderSettingsView so the settings body looks identical. */
+    f32 avail   = ImGui::GetContentRegionAvail().y;
+    f32 bodyH   = pdguiBodyHeightForActionBar(avail);
+    f32 contentH = bodyH;
+    float bodyW = dialogW - padXr - padRr;
+    if (bodyW < pdguiScale(80.0f)) bodyW = pdguiScale(80.0f);
+
+    if (ImGui::BeginChild("##ci_settings_body",
+                           ImVec2(bodyW, bodyH),
+                           ImGuiChildFlags_NavFlattened,
+                           ImGuiWindowFlags_NoBackground)) {
+        renderSettingsView(scale, contentH);
+    }
+    ImGui::EndChild();
+
+    /* Docked action bar -- Back button, always visible. */
+    ImGui::BeginDisabled(s_CaptureActive != 0);
+    if (pdguiBeginActionBar("##ci_settings_ab")) {
+        f32 barW = ImGui::GetContentRegionAvail().x;
+        if (pdguiActionBarButton("Back", 1, barW)) {
+            wantBack = true;
+        }
+    }
+    pdguiEndActionBar();
+    ImGui::EndDisabled();
+
+    ImGui::EndDisabled();
+    renderInputCaptureModal();
+
+    bool leave = wantBack && s_SettingsSaveStatus.requestDeparture();
+    leave = renderSettingsSaveDeparture() || leave;
+
+    /* D-pad wrapping must be called before End(). */
+    pdguiNavTickWrap();
+
+    ImGui::End();
+    if (leave) {
+        inputUiCancelCapture();
+        sysLogPrintf(LOG_NOTE, "MENU_IMGUI: CI Options redirect CLOSE (dialog=%p)%s",
+                     (void *)def, titleCloseCi ? " [via X]" : "");
+        s_LastDialog = nullptr;
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuGraphFirePop(MENU_TYPE_CI_OPTIONS, "close");
+    }
+    return 1;
+}
+
+static s32 renderCiDeadPlayer2(struct menudialog *dialog,
+                                struct menu *menu,
+                                s32 winW, s32 winH)
+{
+    (void)menu;
+    (void)winW;
+    (void)winH;
+    (void)dialog;
+
+    /* P2 CI dialogs are DEAD -- no split-screen.  This renderer exists to
+     * catch any fringe path that still pushes them, show a brief notice,
+     * and auto-pop so the menu stack stays healthy.
+     *
+     * Batch 3 policy: rather than silently noop (which would leave a stuck
+     * invisible dialog on the stack) we render a small informative modal
+     * with a docked OK action bar button.  On first appearance we log and
+     * start a one-frame countdown so the user can read the message. */
+    pdguiPopupDarkenBehind(0.55f);
+
+    f32 scale = pdguiScaleFactor();
+    f32 dW = pdguiScale(520.0f);
+    f32 dH = pdguiScale(220.0f);
+    ImVec2 disp = ImGui::GetIO().DisplaySize;
+    f32 dX = (disp.x - dW) * 0.5f;
+    f32 dY = (disp.y - dH) * 0.5f;
+
+    ImGui::SetNextWindowPos(ImVec2(dX, dY));
+    ImGui::SetNextWindowSize(ImVec2(dW, dH));
+
+    ImGuiWindowFlags wflags = ImGuiWindowFlags_NoResize
+                            | ImGuiWindowFlags_NoMove
+                            | ImGuiWindowFlags_NoCollapse
+                            | ImGuiWindowFlags_NoSavedSettings
+                            | ImGuiWindowFlags_NoTitleBar
+                            | ImGuiWindowFlags_NoBackground;
+
+    if (!ImGui::Begin("##ci_dead_p2", nullptr, wflags)) {
+        ImGui::End();
+        /* S311: pool slot leak guard. */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
+        return 1;
+    }
+
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
+    if (ImGui::IsWindowAppearing()) {
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+        sysLogPrintf(LOG_NOTE,
+            "MENU_IMGUI: CI Player-2 dialog (deprecated; no split-screen)");
+    }
+
+    f32 pdTitleH = drawPdWindowFrame(dX, dY, dW, dH, "Not Available");
+    pdguiSetCursorBelowTitle(pdTitleH);
+
+    ImGui::TextWrapped(
+        "Split-screen is not supported in this PC port.  Player-2 "
+        "settings are no longer applicable.");
+    ImGui::Dummy(ImVec2(0, pdguiScale(8.0f)));
+    ImGui::TextDisabled("This dialog was reached via a legacy menu path.");
+
+    /* Docked action bar with OK button. */
+    f32 avail = ImGui::GetContentRegionAvail().y;
+    f32 bodyH = pdguiBodyHeightForActionBar(avail);
+    ImGui::Dummy(ImVec2(0, bodyH - ImGui::GetStyle().ItemSpacing.y));
+
+    bool wantClose = false;
+    if (pdguiBeginActionBar("##ci_dead_p2_ab")) {
+        f32 barW = ImGui::GetContentRegionAvail().x;
+        if (pdguiActionBarButton("OK", 1, barW)) {
+            wantClose = true;
+        }
+    }
+    pdguiEndActionBar();
+
+    /* S311: title X / Escape / Enter all close the dead-P2 notice. */
+    if (!ImGui::IsWindowAppearing() &&
+        (pdguiConsumeTitleClose() ||
+         pdguiMenuCancelPressed() ||
+         pdguiMenuAcceptPressed())) {
+        wantClose = true;
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    }
+
+    if (wantClose) {
+        menuGraphFirePop(MENU_TYPE_CI_OPTIONS, "close");
+    }
+
+    pdguiNavTickWrap();
+    ImGui::End();
+    return 1;
+}
+
+/* ========================================================================
+ * D5 P3 Batch 4 -- Cinema renderer (g_CinemaMenuDialog)
+ *
+ * Replaces the legacy MENUITEMTYPE_LIST dialog with a grouped, scrollable
+ * list of unlocked cutscenes.  All group enumeration, completion gating,
+ * and play-trigger side effects delegate to the existing menuhandlerCinema
+ * in mainmenu.c via the cn_* shadow-struct call-through pattern.  We do
+ * not duplicate getNumCompletedMissions() / g_CutsceneCountsByMission --
+ * the handler owns them.
+ * ======================================================================== */
+
+static s32 s_CinemaSelectIdx = 0;
+static bool s_CinemaRegistered = false;
+
+static uintptr_t cn_handlerQuery(s32 op, uintptr_t value)
+{
+    struct cn_menuitem  it{};
+    union  cn_handlerdata hd{};
+    hd.list.value = value;
+    return menuhandlerCinema(op, &it, &hd);
+}
+
+static s32 renderCinemaList(struct menudialog *dialog,
+                             struct menu *menu,
+                             s32 winW, s32 winH)
+{
+    (void)dialog; (void)menu; (void)winW; (void)winH;
+
+    pdguiPopupDarkenBehind(0.55f);
+
+    f32 mw = pdguiMenuWidth() * 0.55f;
+    f32 mh = pdguiMenuHeight() * 0.80f;
+    ImVec2 pos = pdguiCenterPos(mw, mh);
+
+    ImGui::SetNextWindowPos(pos);
+    ImGui::SetNextWindowSize(ImVec2(mw, mh));
+
+    ImGuiWindowFlags wf = ImGuiWindowFlags_NoResize
+                        | ImGuiWindowFlags_NoMove
+                        | ImGuiWindowFlags_NoCollapse
+                        | ImGuiWindowFlags_NoSavedSettings
+                        | ImGuiWindowFlags_NoTitleBar
+                        | ImGuiWindowFlags_NoBackground;
+
+    if (!ImGui::Begin("##cinema_list", nullptr, wf)) {
+        ImGui::End();
+        /* S311: pool slot leak guard. */
+        menupoolReleaseDialog(menupoolDialogDef(dialog));
+        return 1;
+    }
+
+    menupoolAcquireDialog(menupoolDialogDef(dialog), &g_CtxImGuiMenu);
+
+    if (ImGui::IsWindowAppearing()) {
+        ImGui::SetWindowFocus();
+        s_CinemaSelectIdx = 0;
+        pdguiPlaySound(PDGUI_SND_OPENDIALOG);
+    }
+
+    f32 titleH = pdguiScale(39.0f);
+    pdguiDrawPdDialog(pos.x, pos.y, mw, mh, "Cinema", 1);
+
+    /* S305: content inset — clear the nineslice chrome border + breathing room. */
+    float insLc = 0, insRc = 0, insTc = 0, insBc = 0;
+    pdguiThemeGetContentInset(&insLc, &insRc, &insTc, &insBc);
+    float breatheC = pdguiScale(8.0f);
+    float padXc = pdguiScale(16.0f);
+    if (insLc + breatheC > padXc) padXc = insLc + breatheC;
+    float padRc = pdguiScale(16.0f);
+    if (insRc + breatheC > padRc) padRc = insRc + breatheC;
+    float padTc = titleH + ImGui::GetStyle().WindowPadding.y + breatheC;
+    if (insTc + breatheC + titleH > padTc) padTc = insTc + breatheC + titleH;
+    ImGui::SetCursorPos(ImVec2(padXc, padTc));
+
+    /* S311: title X / Escape / B close. */
+    bool wantClose = false;
+    s32 selectedCutscene = -1;
+    if (!ImGui::IsWindowAppearing() &&
+        (pdguiConsumeTitleClose() ||
+         pdguiMenuCancelPressed())) {
+        wantClose = true;
+        pdguiNavSuppressActivation();
+    }
+
+    /* Query the legacy handler for option count + group count. */
+    uintptr_t optionCount = cn_handlerQuery(MENUOP_GETOPTIONCOUNT, 0);
+    uintptr_t groupCount  = cn_handlerQuery(MENUOP_GETOPTGROUPCOUNT, 0);
+
+    /* Selection is presentation state; native focus includes the footer. */
+    if (optionCount == 0) optionCount = 1; /* at least Play All */
+    if (s_CinemaSelectIdx < 0 || (uintptr_t)s_CinemaSelectIdx > optionCount)
+        s_CinemaSelectIdx = 0;
+    const bool focusFirstRow = ImGui::IsWindowAppearing();
+
+    /* ---- Body: scrollable cutscene list ---- */
+    f32 avail = ImGui::GetContentRegionAvail().y;
+    f32 bodyH = pdguiBodyHeightForActionBar(avail);
+    /* S305: body width respects the content inset */
+    float bodyWc = mw - padXc - padRc;
+    if (bodyWc < pdguiScale(80.0f)) bodyWc = pdguiScale(80.0f);
+
+    if (ImGui::BeginChild("##cinema_body", ImVec2(bodyWc, bodyH),
+                          ImGuiChildFlags_NavFlattened,
+                          ImGuiWindowFlags_NoBackground
+                          | ImGuiWindowFlags_AlwaysVerticalScrollbar)) {
+
+        /* Track which group we're inside so we can print headers. */
+        s32 nextGroupIndex = 0;
+        uintptr_t nextGroupStart = 0;
+
+        /* Resolve first group start */
+        if ((s32)groupCount > 0) {
+            nextGroupStart = cn_handlerQuery(MENUOP_GETGROUPSTARTINDEX, 0);
+        }
+
+        for (uintptr_t i = 0; i < optionCount; i++) {
+            /* Emit group header when this option is the start of the next group.
+             * Group 0 ("Special") starts at option 1 (since option 0 is always
+             * "Play All" per the legacy handler). */
+            while ((s32)nextGroupIndex < (s32)groupCount &&
+                   (i == 0 || (s32)(i - 1) == (s32)nextGroupStart)) {
+                if (i > 0) {
+                    /* Print header for the group that starts at option (i-1) */
+                    uintptr_t gname = cn_handlerQuery(MENUOP_GETOPTGROUPTEXT,
+                                                      nextGroupIndex);
+                    if (nextGroupIndex > 0) ImGui::Spacing();
+                    ImGui::TextDisabled("%s", gname ? (const char *)gname : "");
+                    ImGui::Separator();
+                }
+                nextGroupIndex++;
+                if ((s32)nextGroupIndex < (s32)groupCount) {
+                    nextGroupStart = cn_handlerQuery(MENUOP_GETGROUPSTARTINDEX,
+                                                      nextGroupIndex);
+                } else {
+                    nextGroupStart = (uintptr_t)-1;
+                }
+            }
+
+            /* Fetch option text.  Value 0 = "Play All"; 1..N = specific. */
+            uintptr_t textPtr = cn_handlerQuery(MENUOP_GETOPTIONTEXT, i);
+            const char *label = (textPtr ? (const char *)textPtr : "");
+
+            bool isActive = (s_CinemaSelectIdx == (s32)i);
+
+            ImGui::PushID((int)i);
+            if (focusFirstRow && i == 0) {
+                ImGui::SetKeyboardFocusHere();
+                ImGui::SetNavCursorVisible(true);
+            }
+            if (ImGui::Selectable(label, isActive, ImGuiSelectableFlags_None,
+                                  ImVec2(0, pdguiScale(36.0f)))) {
+                selectedCutscene = (s32)i;
+            }
+            if (ImGui::IsItemHovered() || ImGui::IsItemFocused())
+                s_CinemaSelectIdx = (s32)i;
+            ImGui::PopID();
+        }
+    }
+    ImGui::EndChild();
+
+    /* Docked action bar: Back */
+    if (pdguiBeginActionBar("##cinema_ab")) {
+        f32 barW = ImGui::GetContentRegionAvail().x;
+        bool backActive = (s_CinemaSelectIdx == (s32)optionCount);
+        if (pdguiActionBarButton("Back", backActive ? 1 : 0, barW)) {
+            wantClose = true;
+        }
+        if (ImGui::IsItemHovered() || ImGui::IsItemFocused())
+            s_CinemaSelectIdx = (s32)optionCount;
+    }
+    pdguiEndActionBar();
+
+    pdguiNavTickWrap();
+    ImGui::End();
+
+    if (wantClose) {
+        pdguiNavSuppressActivation();
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        menuGraphFirePop(MENU_TYPE_CINEMA, "back");
+    } else if (selectedCutscene >= 0) {
+        pdguiNavSuppressActivation();
+        pdguiPlaySound(PDGUI_SND_SELECT);
+        /* The legacy SET handler closes the dialog and starts playback. */
+        cn_handlerQuery(MENUOP_SET, (uintptr_t)selectedCutscene);
+    }
+    return 1;
+}
+
+/* ========================================================================
+ * Registration
+ * ======================================================================== */
+
+extern "C" {
+
+void pdguiMainMenuReset(void)
+{
+    inputUiCancelCapture();
+    pdguiMainMenuSetView(0, "external-reset");
+}
+
+/* B-303 (2026-05-01): post-exit auto-pop of the Main Menu over CI. Called
+ * from menutick's CI-on-spawn block after a campaign "Exit to Main Menu" or
+ * a Forge "End Match" routes the player back to CITRAINING. Pushes the
+ * canonical g_CiMenuViaPauseMenuDialog (same dialog the Pause press opens)
+ * so menu pool dedup, input context attachment, and chrome rendering all
+ * match the manual path; then sets the inline view so the menu opens
+ * directly on Play / Mission Select (view=1) for the campaign exit
+ * case, or on the top-level Main Menu (view=0) for the Forge exit case.
+ *
+ * Idempotent: if the dialog is already open (e.g. raced with a manual
+ * Pause press), menuPushRootDialog's pool dedup returns without
+ * duplicating; pdguiMainMenuSetView is unconditionally re-applied so the
+ * caller's view request still wins. */
+void pdguiMainMenuOpenAtView(s32 view, const char *reason)
+{
+    if (view < 0) view = 0;
+    extern struct menudialogdef g_CiMenuViaPauseMenuDialog;
+    extern void menuPushRootDialog(struct menudialogdef *def, s32 root);
+    /* MENUROOT_MAINMENU is a #define in src/include/constants.h:1818
+     * (value 2). This C++ TU intentionally avoids including types.h /
+     * constants.h (the bool=s32 macro breaks C++), so we mirror the
+     * literal here. If the constant ever moves, both sites flip. */
+    static const s32 MENUROOT_MAINMENU_LOCAL = 2;
+    menuPushRootDialog(&g_CiMenuViaPauseMenuDialog, MENUROOT_MAINMENU_LOCAL);
+    pdguiMainMenuSetView(view, reason ? reason : "ext-open-at-view");
+}
+
+void pdguiMenuMainMenuRegister(void)
+{
+    if (!s_RegisteredPc) {
+        pdguiHotswapRegister(
+            &g_CiMenuViaPcMenuDialog,
+            renderMainMenu,
+            "Main Menu (PC)"
+        );
+        s_RegisteredPc = true;
+    }
+
+    if (!s_RegisteredPause) {
+        pdguiHotswapRegister(
+            &g_CiMenuViaPauseMenuDialog,
+            renderMainMenu,
+            "Main Menu (Pause)"
+        );
+        s_RegisteredPause = true;
+    }
+
+    /* S195 Batch 3 -- CI Options sub-dialogs all redirect to the unified
+     * Settings view.  Register once (idempotent: pdguiHotswapRegister skips
+     * duplicates silently if called twice, per its contract).  These
+     * registrations replace the legacy DANGER/DEFAULT type-fallback that
+     * previously caught CI Options from warning.cpp. */
+    static bool s_RegisteredCi = false;
+    if (!s_RegisteredCi) {
+        pdguiHotswapRegister(
+            &g_CiOptionsViaPcMenuDialog,
+            renderCiSettingsRedirect,
+            "CI Options (PC -> unified Settings)"
+        );
+        pdguiHotswapRegister(
+            &g_CiOptionsViaPauseMenuDialog,
+            renderCiSettingsRedirect,
+            "CI Options (Pause -> unified Settings)"
+        );
+        pdguiHotswapRegister(
+            &g_CiControlOptionsMenuDialog,
+            renderCiSettingsRedirect,
+            "CI Control Options -> Settings.Controls"
+        );
+        /* g_CiControlOptionsMenuDialog2 is PAL-only (mainmenu.c #if
+         * VERSION >= VERSION_PAL_FINAL).  Not present in NTSC builds. */
+        pdguiHotswapRegister(
+            &g_CiControlStyleMenuDialog,
+            renderCiSettingsRedirect,
+            "CI Control Style -> Settings.Controls"
+        );
+        pdguiHotswapRegister(
+            &g_CiDisplayMenuDialog,
+            renderCiSettingsRedirect,
+            "CI Display -> Settings.Video"
+        );
+
+        /* P2 variants: DEAD (no split-screen).  Dedicated dead-dialog
+         * renderer with auto-pop so the menu stack stays healthy. */
+        pdguiHotswapRegister(
+            &g_CiControlStylePlayer2MenuDialog,
+            renderCiDeadPlayer2,
+            "CI Control Style P2 (DEAD -- no split-screen)"
+        );
+        pdguiHotswapRegister(
+            &g_CiDisplayPlayer2MenuDialog,
+            renderCiDeadPlayer2,
+            "CI Display P2 (DEAD -- no split-screen)"
+        );
+        pdguiHotswapRegister(
+            &g_CiControlPlayer2MenuDialog,
+            renderCiDeadPlayer2,
+            "CI Control P2 (DEAD -- no split-screen)"
+        );
+        s_RegisteredCi = true;
+    }
+
+    /* S202 Batch 4 -- Cinema dialog.  Separate static guard so this is
+     * independent of CI Options plumbing. */
+    if (!s_CinemaRegistered) {
+        pdguiHotswapRegister(
+            &g_CinemaMenuDialog,
+            renderCinemaList,
+            "Cinema (cutscene viewer)"
+        );
+        s_CinemaRegistered = true;
+    }
+
+    sysLogPrintf(LOG_NOTE, "pdgui_menu_mainmenu: Registered (PC + Pause + 9 CI redirects + Cinema)");
+}
+
+} /* extern "C" */

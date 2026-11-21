@@ -1,0 +1,31 @@
+warning: in the working copy of 'port/src/weapon_graph_v2_runtime.cpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/game/chr.c', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/game/gamefile.c', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/game/prop.c', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/include/game/bondgun.h', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/include/types.h', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'tests/test_weapon_graph_v2_equipped.cpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'tools/smoke-verify/generate_weapon_mesh_ingress_fixtures.py', CRLF will be replaced by LF the next time Git touches it
+tests-input-before.json: f3aa5c3e1015cb7f47eeabbb0c7319cee824c76c, 107 exact dirty inputs
+
+  Perfect Dark PC Port - Session Build
+  Session:  grid-78a80000
+  Target:   tests
+  BuildDir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\grid-78a80000
+
+Build queue: queued 'grid-78a80000' for target 'tests'. Do not use -NoQueue unless Mike explicitly asks.
+Build queue: starting 'grid-78a80000' after waiting 0s.
+Build output: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\grid-78a80000\_build-session.out.log
+Build errors: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\grid-78a80000\_build-session.err.log
+
+  Session build cleanup:
+    .\devtools\build-session.ps1 -Remove -Session grid-78a80000
+warning: in the working copy of 'port/src/weapon_graph_v2_runtime.cpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/game/chr.c', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/game/gamefile.c', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/game/prop.c', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/include/game/bondgun.h', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'src/include/types.h', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'tests/test_weapon_graph_v2_equipped.cpp', CRLF will be replaced by LF the next time Git touches it
+warning: in the working copy of 'tools/smoke-verify/generate_weapon_mesh_ingress_fixtures.py', CRLF will be replaced by LF the next time Git touches it
+tests-input-after.json: f3aa5c3e1015cb7f47eeabbb0c7319cee824c76c, 107 exact dirty inputs

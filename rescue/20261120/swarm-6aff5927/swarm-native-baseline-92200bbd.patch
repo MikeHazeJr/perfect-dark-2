@@ -1,0 +1,1117 @@
+diff --git a/port/src/swarm_test.c b/port/src/swarm_test.c
+--- a/port/src/swarm_test.c
++++ b/port/src/swarm_test.c
+@@ -40,6 +40,7 @@
+ #include "lib/ailist.h"
+ #include "lib/collision.h"
+ #include "game/bg.h"
++#include "game/pad.h"
+ #include "game/spawnpool.h"  /* spawnPoolCorrectPosition for ring spawn fix-up */
+ #include "game/chr.h"
+ #include "game/chraction.h"
+@@ -61,6 +62,7 @@
+  * the local GL texture. g_NetMode + NETMODE_CLIENT come from here. */
+ #include "net/net.h"
+ #include "swarm_test.h"
++#include "swarm_gpu.h"
+ 
+ /* Forward decls -- these come from src/game (no public header includes them
+  * with the right linkage from C++/legacy headers). */
+@@ -169,38 +171,6 @@
+ 	chr->fadealpha = -1;
+ }
+ 
+-/* GPU swarm module (port/fast3d/swarm_gpu.cpp). When that module is not
+- * yet built, the stub below is used and swarmGpuAvailable() returns 0.
+- *
+- * B-308 first slice (c3807, 2026-05-15): swarmGpuStepAndApply now takes
+- * a `method` argument and a `player_propnum`. `method` is one of
+- * SWARM_METHOD_GPU_POS_ONLY or SWARM_METHOD_GPU_FULL (passing CPU here is
+- * a no-op caller error); the GPU side gates the AI compute step on it.
+- * player_propnum is the CPU's prop index for the local player; the GPU
+- * writes it back into the per-bot target_propnum field so the CPU
+- * consumer can correlate. */
+-extern s32  swarmGpuAvailable(void);
+-extern void swarmGpuStepAndApply(struct coord *player_pos,
+-                                 struct chrdata **chrs, s32 count,
+-                                 s32 method, s32 player_propnum);
+-/* Slice 2 c029 (2026-05-16): invalidate the async readback ring.
+- * Called after any respawn that changes chr identity at slot indices
+- * (cycler tick, session start, session end, despawn_all). The ring
+- * holds last frame's positions; if the chr at slot i has been replaced
+- * by a different chrnum, applying the stale snapshot would teleport
+- * the new chr. Invalidating drops the next 2 frames of position
+- * application, which is visually imperceptible during the cycler's
+- * own respawn burst. No-op if the ring isn't armed (driver fell back
+- * to blocking readback). */
+-extern void swarmGpuInvalidateReadback(void);
+-
+-/* c029 Slice 3 (2026-05-16): invalidate the per-bot floor cache.
+- * Same call-sites as swarmGpuInvalidateReadback above. The drift
+- * threshold (60 cm) would catch most respawn relocations on its own,
+- * but explicit invalidation is correct-by-construction and costs only
+- * a memset of the cache array on the next dispatch. */
+-extern void swarmGpuInvalidateFloorCache(void);
+-
+ /* ------------------------------------------------------------------
+  * Cycle ladder (S594h-Unit-A, 2026-05-01).
+  *
+@@ -251,6 +221,13 @@
+ static s32          s_SwarmLogTickAcc;  /* throttle per-frame log to ~1 / 60 frames */
+ static s32          s_SwarmRespawnsThisCycle; /* count of replacement spawns since last cycle change */
+ 
++static struct swarm_gpu_baseline s_Baseline;
++static u32 s_BaselineGeneration;
++static u32 s_BaselineStageEpoch;
++static s32 s_BaselineLastFrame;
++static s32 s_BaselineLastPopulation;
++static s32 s_BaselineFailed;
++
+ /* S594h-A2 (2026-05-01): team mode + visibility mode module state. */
+ static swarm_team_mode_t s_TeamMode = SWARM_TEAMS_SIMS_VS_PLAYERS;
+ static swarm_vis_mode_t  s_VisMode  = SWARM_VIS_ALWAYS_SEE;
+@@ -767,7 +744,7 @@
+  *   (see context/designs/in-flight/gpu-swarm-bot-pipeline.md).
+  * ------------------------------------------------------------------ */
+ static struct chrdata *spawn_one_skedar(struct coord *pos, RoomNum *rooms,
+-                                        s32 team_idx, f32 *out_scale)
++                                        s32 team_idx, f32 scale_override, f32 *out_scale)
+ {
+ 	const swarm_method_t method = testScenarioActiveMethod();
+ 
+@@ -826,7 +803,7 @@
+ 	 * collision and chr->model->scale only for rendering. Applying
+ 	 * the same factor to all three keeps the visual and collider
+ 	 * footprints matched. */
+-	const f32 rand_scale = swarm_pick_scale();
++	const f32 rand_scale = scale_override > 0.0f ? scale_override : swarm_pick_scale();
+ 	chr->radius = (s32)(30.0f * rand_scale);
+ 	if (chr->radius < 4) chr->radius = 4;
+ 	chr->height = (s32)(185.0f * rand_scale);
+@@ -1147,6 +1124,158 @@
+ 	return swarm_snap_spawn_to_safe_floor(pos, room, chr_radius);
+ }
+ 
++/* This fixture deliberately uses authored pads and a private PRNG. Benchmark
++ * setup must not seed the engine RNG or change the ordinary spawn ladder. */
++#define SWARM_BASELINE_SEED 0x534b4544u
++#define SWARM_BASELINE_PLAYER_PAD 175
++
++static s32 swarm_baseline_fail(const char *reason)
++{
++	if (!s_BaselineFailed) {
++		sysLogPrintf(LOG_ERROR,
++			"SWARM.BASELINE: {\"event\":\"invalid\",\"stage_epoch\":%u,\"reason\":\"%s\"}",
++			s_Baseline.stage_epoch, reason);
++	}
++	s_BaselineFailed = 1;
++	return 0;
++}
++
++static s32 swarm_baseline_pad(s32 number, struct pad *pad, f32 radius, f32 height)
++{
++	if (!g_PadsFile || number < 0 || number >= g_PadsFile->numpads
++			|| padGetPackedOffset(number) == 0) return 0;
++	padUnpack(number, PADFIELD_POS | PADFIELD_ROOM, pad);
++	RoomNum room = (RoomNum)pad->room;
++	if (room < 0 && !swarm_snap_spawn_to_safe_floor(&pad->pos, &room, radius)) return 0;
++	if (!swarm_finalize_spawn_candidate(&pad->pos, &room, radius, height)) return 0;
++	pad->room = room;
++	return 1;
++}
++
++static f32 swarm_baseline_scale(u32 *rng)
++{
++	u32 value = *rng;
++	value ^= value << 13;
++	value ^= value >> 17;
++	value ^= value << 5;
++	*rng = value;
++	const f32 fraction = (f32)(value & 0xffffu) / 65536.0f;
++	return 0.35f + 0.30f * fraction * fraction;
++}
++
++static void swarm_baseline_log_actor(s32 slot, s32 pad, struct chrdata *chr)
++{
++	const struct swarm_gpu_identity *id = &s_Baseline.actors[slot];
++	const struct coord *pos = &chr->prop->pos;
++	char rooms[96] = {0};
++	s32 length = 0;
++	for (s32 i = 0; i < ARRAYCOUNT(chr->prop->rooms) && chr->prop->rooms[i] >= 0; i++) {
++		length += snprintf(rooms + length, sizeof(rooms) - length, "%s%d",
++			i ? "," : "", chr->prop->rooms[i]);
++	}
++	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"spawn\",\"stage_epoch\":%u,"
++		"\"slot\":%d,\"source_row\":%d,\"generation\":%u,\"chrnum\":%d,\"prop_index\":%d,"
++		"\"position\":[%.9g,%.9g,%.9g],\"rooms\":[%s],\"team\":%u,\"body\":\"base:skedar\","
++		"\"model_scale\":%.9g,\"radius\":%d,\"height\":%d,\"yaw\":%.9g,"
++		"\"animation\":%d,\"animation_frame\":%.9g,\"support_up\":[0,1,0]}",
++		s_Baseline.stage_epoch, slot, pad, id->generation, id->chrnum, id->prop_index,
++		pos->x, pos->y, pos->z, rooms, (u32)chr->team, chr->model->scale, (s32)chr->radius,
++		(s32)chr->height, modelGetChrRotY(chr->model), modelGetAnimNum(chr->model),
++		modelGetCurAnimFrame(chr->model));
++}
++
++static s32 swarm_baseline_spawn(void)
++{
++	static const s32 pads[SWARM_BASELINE_COUNT] = {0, 1, 2, 3};
++	const swarm_method_t method = testScenarioActiveMethod();
++	struct pad anchor = {0};
++	struct prop *player = g_Vars.currentplayer->prop;
++	const asset_entry_t *body = assetCatalogResolve("base:skedar");
++	if (g_NetMode != NETMODE_NONE || g_StageNum != STAGE_MP_SKEDAR
++			|| (method != SWARM_METHOD_CPU && method != SWARM_METHOD_GPU_FULL)
++			|| !g_StageSetup.padfiledata || !player->chr || !body || body->type != ASSET_BODY) {
++		return swarm_baseline_fail("wrong_stage_backend_or_body");
++	}
++	if (!swarm_baseline_pad(SWARM_BASELINE_PLAYER_PAD, &anchor, 30.0f, 185.0f)) {
++		return swarm_baseline_fail("player_pad_geometry");
++	}
++	RoomNum player_rooms[2] = {anchor.room, -1};
++	if (!chrMoveToPos(player->chr, &anchor.pos, player_rooms, 0.0f, true)) {
++		return swarm_baseline_fail("player_anchor_rejected");
++	}
++
++	s_Baseline.stage_epoch = ++s_BaselineStageEpoch;
++	const char *mode = method == SWARM_METHOD_CPU ? "CPU" : "GPU_FULL";
++	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"start\",\"stage_epoch\":%u,"
++		"\"mode\":\"%s\",\"map\":\"base:mp_skedar\",\"seed\":%u,\"count\":%d,"
++		"\"player_anchor\":[%.9g,%.9g,%.9g]}",
++		s_Baseline.stage_epoch, mode, SWARM_BASELINE_SEED, SWARM_BASELINE_COUNT,
++		player->pos.x, player->pos.y, player->pos.z);
++
++	u32 rng = SWARM_BASELINE_SEED;
++	s_SwarmCount = SWARM_BASELINE_COUNT;
++	for (s32 i = 0; i < SWARM_BASELINE_COUNT; i++) {
++		struct pad pad = {0};
++		const f32 scale = swarm_baseline_scale(&rng);
++		if (!swarm_baseline_pad(pads[i], &pad, (s32)(30.0f * scale), (s32)(185.0f * scale))) {
++			despawn_all();
++			return swarm_baseline_fail("actor_pad_geometry");
++		}
++		RoomNum rooms[2] = {pad.room, -1};
++		struct chrdata *chr = spawn_one_skedar(&pad.pos, rooms, 0, scale, NULL);
++		s_Swarm[i].chr = chr;
++		struct prop *prop = swarm_live_prop_for_chr(chr);
++		if (!prop || !chr->model || (method == SWARM_METHOD_CPU && !chr->aibot)) {
++			despawn_all();
++			return swarm_baseline_fail("actor_not_ready");
++		}
++		/* Both backends begin at the same actual clip, frame and blend. */
++		modelSetAnimation(chr->model, (s16)ANIM_SKEDAR_RUNNING, 0, 0.0f, 0.5f, 0.0f);
++		s_Baseline.actors[i].generation = ++s_BaselineGeneration;
++		s_Baseline.actors[i].chrnum = chr->chrnum;
++		s_Baseline.actors[i].prop_index = (s32)(prop - g_Vars.props);
++		s_Baseline.actors[i].prop = prop;
++		swarm_baseline_log_actor(i, pads[i], chr);
++	}
++	s_BaselineLastFrame = g_Vars.lvframenum;
++	s_BaselineLastPopulation = g_Vars.lvframenum;
++	testScenarioSetCurrentSwarmCount(SWARM_BASELINE_COUNT);
++	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"ready\",\"stage_epoch\":%u}",
++		s_Baseline.stage_epoch);
++	return 1;
++}
++
++static s32 swarm_baseline_check_population(void)
++{
++	const s32 frame = g_Vars.lvframenum;
++	if (frame < s_BaselineLastFrame || s_SwarmCount != SWARM_BASELINE_COUNT) {
++		return swarm_baseline_fail("stage_restart_or_size_change");
++	}
++	s_BaselineLastFrame = frame;
++	char rows[160] = {0};
++	s32 length = 0;
++	for (s32 i = 0; i < SWARM_BASELINE_COUNT; i++) {
++		struct chrdata *chr = s_Swarm[i].chr;
++		struct prop *prop = swarm_live_prop_for_chr(chr);
++		const struct swarm_gpu_identity *id = &s_Baseline.actors[i];
++		if (!prop || !chr->model || chr->actiontype == ACT_DEAD || chr->actiontype == ACT_DIE
++				|| chr->chrnum != id->chrnum || prop != id->prop
++				|| prop - g_Vars.props != id->prop_index) {
++			return swarm_baseline_fail("actor_lost_or_replaced");
++		}
++		if (frame - s_BaselineLastPopulation >= 60) {
++			length += snprintf(rows + length, sizeof(rows) - length, "%s[%d,%u,%d,%d]",
++				i ? "," : "", i, id->generation, id->chrnum, id->prop_index);
++		}
++	}
++	if (frame - s_BaselineLastPopulation >= 60) {
++		s_BaselineLastPopulation = frame;
++		sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"population\",\"stage_epoch\":%u,"
++			"\"actors\":[%s]}", s_Baseline.stage_epoch, rows);
++	}
++	return 1;
++}
++
+ /* Forward decl: respawn_ring is defined below respawn_swarm but
+  * respawn_swarm needs to call it. */
+ static void respawn_ring(s32 count);
+@@ -1266,7 +1395,7 @@
+ 			? (i & 1) : 0;
+ 		f32 chosen_scale = 0.5f;
+ 		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms,
+-			team_idx, &chosen_scale);
++			team_idx, 0.0f, &chosen_scale);
+ 		if (chr) {
+ 			s_Swarm[i].chr           = chr;
+ 			s_Swarm[i].counted_kill  = 0;
+@@ -1377,7 +1506,7 @@
+ 		RoomNum spawn_rooms[2] = { corrected_room, -1 };
+ 		f32 chosen_scale = 0.5f;
+ 		struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms,
+-			team_idx, &chosen_scale);
++			team_idx, 0.0f, &chosen_scale);
+ 		if (chr) {
+ 			s_Swarm[i].chr           = chr;
+ 			s_Swarm[i].counted_kill  = 0;
+@@ -1595,7 +1724,7 @@
+ 	const s32 team_idx = (s32)s_Swarm[i].team_idx;
+ 	f32 chosen_scale = 0.5f;
+ 	struct chrdata *chr = spawn_one_skedar(&pos, spawn_rooms,
+-		team_idx, &chosen_scale);
++		team_idx, 0.0f, &chosen_scale);
+ 	if (!chr) return 0;
+ 	s_Swarm[i].chr           = chr;
+ 	s_Swarm[i].counted_kill  = 0;
+@@ -2200,6 +2329,12 @@
+  * ------------------------------------------------------------------ */
+ void swarmTestTick(void)
+ {
++	if (s_BaselineFailed) return;
++	if (s_Baseline.stage_epoch && (!testScenarioIsSwarmActive()
++			|| g_StageNum != s_SwarmLastStage || g_NetMode != NETMODE_NONE)) {
++		swarm_baseline_fail("benchmark_left_stage");
++		return;
++	}
+ 	if (!testScenarioIsSwarmActive()) {
+ 		if (s_SwarmInitialized) {
+ 			swarmTestOnSessionEnd();
+@@ -2271,6 +2406,8 @@
+ 			/* Player not yet alive; wait for next tick. */
+ 			return;
+ 		}
++		const s32 paired_baseline = sysArgCheck("--debug-swarm-paired-baseline");
++		if (paired_baseline && g_Vars.lvframenum < 4) return;
+ 		resolve_skedar_assets();
+ 		apply_player_setup();
+ 
+@@ -2299,7 +2436,11 @@
+ 
+ 		/* Reset ladder position to the initial-count entry (idx 0 = 4). */
+ 		s_LadderIdx = 0;
+-		respawn_swarm(TESTSCEN_SWARM_INITIAL_COUNT);
++		if (paired_baseline) {
++			if (!swarm_baseline_spawn()) return;
++		} else {
++			respawn_swarm(TESTSCEN_SWARM_INITIAL_COUNT);
++		}
+ 		/* Slice 2 c029: drop any stale ring contents from a prior session
+ 		 * before the first dispatch fills it with current-session data. */
+ 		swarmGpuInvalidateReadback();
+@@ -2522,6 +2663,8 @@
+ 		player_pos     = g_Vars.currentplayer->prop->pos;
+ 		player_propnum = (s32)(g_Vars.currentplayer->prop - g_Vars.props);
+ 	}
++	if (s_Baseline.stage_epoch && !swarm_baseline_check_population()) return;
++
+ 	/* B-308 first slice (c3807, 2026-05-15): both GPU_POS_ONLY and
+ 	 * GPU_FULL run the same SSBO-driven seek path. The method argument
+ 	 * just gates the AI compute step inside the shader (do_ai uniform)
+@@ -2552,15 +2695,20 @@
+ 					? s_Swarm[i].chr : NULL;
+ 			}
+ 			swarmGpuStepAndApply(&player_pos, chrs, s_SwarmCount,
+-				(s32)method_now, player_propnum);
++				(s32)method_now, player_propnum, s_Baseline.stage_epoch ? &s_Baseline : NULL);
++		} else if (s_Baseline.stage_epoch) {
++			swarm_baseline_fail("gpu_compute_unavailable");
++			return;
+ 		} else {
+ 			gpu_fallback_seek_tick(&player_pos);
+ 		}
+ 	}
+ 	/* CPU mode: AI handles everything; nothing to do here. */
+ 
+-	death_poll_and_respawn();
+-	cycler_tick();
++	if (!s_Baseline.stage_epoch) {
++		death_poll_and_respawn();
++		cycler_tick();
++	}
+ 
+ 	/* Throttle per-frame log to ~1 line per 60 frames. */
+ 	s_SwarmLogTickAcc++;
+diff --git a/port/include/swarm_gpu.h b/port/include/swarm_gpu.h
+--- a/port/include/swarm_gpu.h
++++ b/port/include/swarm_gpu.h
+@@ -3,9 +3,6 @@
+  * extraction layer (port/fast3d/swarm_gpu.cpp).
+  *
+  * Track 2c (c3807, 2026-05-16): the extraction primitive lives here.
+- * Most callers (port/src/swarm_test.c) still forward-declare the older
+- * step / invalidate entry points inline; new callers should #include
+- * this header instead so the surface is auditable in one place.
+  *
+  * The extraction API reads rows of the ping-pong RGBA32F state texture
+  * that Track 2a (commit 2af02855) wrote alongside the boid SSBO. The
+@@ -22,19 +19,31 @@
+ 
+ #include <PR/ultratypes.h>
+ 
+-/* Probe + dispatch entry points (defined in port/fast3d/swarm_gpu.cpp).
+- * port/src/swarm_test.c forward-declares these inline today; new
+- * callers should #include this header instead. The fully-typed
+- * signatures live in the .cpp; the prototypes here intentionally use
+- * forward-declared struct types so this header stays light and is
+- * safe to include from either C or C++ TUs. */
++/* Probe + dispatch entry points (defined in port/fast3d/swarm_gpu.cpp). */
+ struct coord;
+ struct chrdata;
++struct prop;
+ 
++enum { SWARM_BASELINE_COUNT = 4 };
++
++struct swarm_gpu_identity {
++	u32 generation;
++	s32 chrnum;
++	s32 prop_index;
++	const struct prop *prop;
++};
++
++/* Optional, fixed-size evidence for the paired offline diagnostic. */
++struct swarm_gpu_baseline {
++	u32 stage_epoch;
++	struct swarm_gpu_identity actors[SWARM_BASELINE_COUNT];
++};
++
+ s32  swarmGpuAvailable(void);
+ void swarmGpuStepAndApply(struct coord *player_pos,
+                           struct chrdata **chrs, s32 count,
+-                          s32 method, s32 player_propnum);
++                          s32 method, s32 player_propnum,
++                          const struct swarm_gpu_baseline *baseline);
+ void swarmGpuInvalidateReadback(void);
+ void swarmGpuInvalidateFloorCache(void);
+ 
+diff --git a/port/fast3d/swarm_gpu.cpp b/port/fast3d/swarm_gpu.cpp
+--- a/port/fast3d/swarm_gpu.cpp
++++ b/port/fast3d/swarm_gpu.cpp
+@@ -82,6 +82,7 @@
+ #include <PR/ultratypes.h>
+ #include "types.h"
+ #include "swarm_test.h"
++#include "swarm_gpu.h"
+ #include "system.h"
+ #include "testscenarios.h"
+ /* Track 2d (c3807, 2026-05-16): listen-host GPU swarm state sync. The
+@@ -181,6 +182,9 @@
+ #ifndef GL_SHADER_STORAGE_BUFFER
+ #define GL_SHADER_STORAGE_BUFFER          0x90D2
+ #endif
++#ifndef GL_BUFFER_UPDATE_BARRIER_BIT
++#define GL_BUFFER_UPDATE_BARRIER_BIT      0x00000200
++#endif
+ #ifndef GL_SHADER_STORAGE_BARRIER_BIT
+ #define GL_SHADER_STORAGE_BARRIER_BIT     0x00002000
+ #endif
+@@ -531,6 +535,16 @@
+  * sample / AI loops to skip slots whose chr identity has changed. */
+ static s16     s_ScratchChrnum[SWARM_GPU_MAX];
+ 
++/* These receipts travel with the same ring slot and fence as the GPU bytes. */
++struct swarm_baseline_submission {
++	s32 serial;
++	struct swarm_gpu_baseline identity;
++};
++static swarm_baseline_submission s_BaselineRing[SWARM_READBACK_RING_DEPTH];
++static u32 s_BaselineEpoch;
++static s32 s_BaselineSerial;
++static const s32 kBaselineSubmissionLimit = 12;
++
+ /* ------------------------------------------------------------------
+  * c029 Slice 3 (2026-05-16): per-bot floor cache (Strategy 1A hybrid).
+  *
+@@ -879,6 +893,9 @@
+      * write side with bit-exact SSBO parity (CPU consumer reads SSBO,
+      * texture is silent / observe-only).
+      */
++    if (P._pad_s0 != 0) {
++        b[i]._pad_m0 = P._pad_s0;
++    }
+     if (P.state_tex_enable != 0) {
+         int x = int(i);
+         imageStore(StateOut, ivec2(x, 0),
+@@ -1151,6 +1168,7 @@
+ 			s_ReadbackRingFence[i] = NULL;
+ 		}
+ 		s_ReadbackRingCount[i] = 0;
++		s_BaselineRing[i].serial = 0;
+ 		/* Wipe the per-slot chrnum snapshot. Defensive: even if a future
+ 		 * code path reads s_ReadbackRingChrnum without re-stamping, the
+ 		 * -1 sentinel guarantees the consumer's identity check fails
+@@ -1397,15 +1415,84 @@
+  * stays readable at 4096-bot scale. */
+ #define SWARM_AI_LOG_MAX        8
+ 
++static bool swarmBaselineCheckGl(const struct swarm_gpu_baseline *baseline, const char *operation)
++{
++	if (!baseline) return true;
++	const GLenum error = glGetError();
++	if (error == GL_NO_ERROR) return true;
++	sysLogPrintf(LOG_ERROR, "SWARM.BASELINE: {\"event\":\"invalid\",\"stage_epoch\":%u,"
++		"\"reason\":\"%s\",\"gl_error\":%u}", baseline->stage_epoch, operation, (u32)error);
++	return false;
++}
++
++static bool swarmBaselineReadback(const swarm_baseline_submission &submitted,
++                                  const struct swarm_gpu_baseline *current,
++                                  struct chrdata **chrs, s32 count)
++{
++	if (!current || count != SWARM_BASELINE_COUNT
++			|| current->stage_epoch != submitted.identity.stage_epoch) return false;
++
++	char actors[160] = {};
++	s32 length = 0;
++	for (s32 i = 0; i < SWARM_BASELINE_COUNT; i++) {
++		const struct swarm_gpu_identity &id = submitted.identity.actors[i];
++		const struct swarm_gpu_identity &live = current->actors[i];
++		struct chrdata *chr = chrs[i];
++		if (s_BoidScratch[i]._pad_m0 != submitted.serial || id.generation != live.generation
++				|| !chr || !chr->prop || id.chrnum != chr->chrnum || id.chrnum != s_ScratchChrnum[i]
++				|| id.prop != chr->prop || id.prop_index != live.prop_index) return false;
++		length += snprintf(actors + length, sizeof(actors) - length, "%s[%d,%u,%d,%d]",
++			i ? "," : "", i, id.generation, id.chrnum, id.prop_index);
++	}
++	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"gpu_readback\",\"stage_epoch\":%u,"
++		"\"serial\":%d,\"markers\":[%d,%d,%d,%d],\"actors\":[%s],\"gl_error\":0}",
++		current->stage_epoch, submitted.serial,
++		s_BoidScratch[0]._pad_m0, s_BoidScratch[1]._pad_m0,
++		s_BoidScratch[2]._pad_m0, s_BoidScratch[3]._pad_m0, actors);
++	return true;
++}
++
++static void swarmBaselineLogApply(const swarm_baseline_submission &submitted, s32 slot,
++                                  const struct coord &before, const struct coord &requested,
++                                  const struct coord &actual)
++{
++	const struct swarm_gpu_identity &id = submitted.identity.actors[slot];
++	sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"gpu_apply\",\"stage_epoch\":%u,"
++		"\"serial\":%d,\"slot\":%d,\"actor\":[%d,%u,%d,%d],\"committed\":true,"
++		"\"before\":[%.9g,%.9g,%.9g],\"requested\":[%.9g,%.9g,%.9g],"
++		"\"actual\":[%.9g,%.9g,%.9g],\"gl_error\":0}",
++		submitted.identity.stage_epoch, submitted.serial, slot, slot,
++		id.generation, id.chrnum, id.prop_index, before.x, before.y, before.z,
++		requested.x, requested.y, requested.z, actual.x, actual.y, actual.z);
++}
++
+ void swarmGpuStepAndApply(struct coord *player_pos,
+                           struct chrdata **chrs, s32 count,
+-                          s32 method, s32 player_propnum)
++                          s32 method, s32 player_propnum,
++                          const struct swarm_gpu_baseline *baseline)
+ {
+ 	if (!swarmGpuAvailable()) return;
+ 	if (count <= 0)           return;
+ 	if (count > SWARM_GPU_MAX) count = SWARM_GPU_MAX;
+ 	if (!ensure_resources())  return;
++	if (baseline && s_BaselineSerial < kBaselineSubmissionLimit
++			&& !swarmBaselineCheckGl(baseline, "gpu_pre_dispatch")) return;
+ 
++	swarm_baseline_submission submitted = {};
++	swarm_baseline_submission readback = {};
++	if (baseline) {
++		if (s_BaselineEpoch != baseline->stage_epoch) {
++			s_BaselineEpoch = baseline->stage_epoch;
++			s_BaselineSerial = 0;
++			sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"gpu_init\",\"stage_epoch\":%u,"
++				"\"compiled\":true,\"linked\":true,\"gl_error\":0}", baseline->stage_epoch);
++		}
++		if (s_BaselineSerial < kBaselineSubmissionLimit) {
++			submitted.serial = ++s_BaselineSerial;
++			submitted.identity = *baseline;
++		}
++	}
++
+ 	/* B-311 SAFE_MAX=64 rate-limited warning retired at c029/2026-05-15.
+ 	 * The CHRVTX pool exhaustion that caused display-list corruption at
+ 	 * 128+ alive chrs was structurally fixed by bumping the chr vtxstore
+@@ -1597,7 +1684,7 @@
+ 	 * the shader sees state_tex_enable = 0 and runs the SSBO-only path
+ 	 * (bit-exact pre-2a). _pad fields stay zero for std430 hygiene. */
+ 	s_Params.state_tex_enable = s_StateTexArmed ? 1 : 0;
+-	s_Params._pad_s0 = 0;
++	s_Params._pad_s0 = submitted.serial;
+ 	s_Params._pad_s1 = 0;
+ 	s_Params._pad_s2 = 0;
+ 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_ParamsSsbo);
+@@ -1634,8 +1721,14 @@
+ 	 * subsequent CPU readback (glGetBufferSubData) and any image-sampling
+ 	 * consumer (none today; slated for 2b) see the dispatch's writes.
+ 	 * Bit cost is negligible vs the SSBO bit alone. */
+-	s_glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT
+-		| GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
++	s_glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
++		| (submitted.serial ? GL_BUFFER_UPDATE_BARRIER_BIT : 0));
++	if (submitted.serial && !swarmBaselineCheckGl(baseline, "gpu_dispatch")) return;
++	if (submitted.serial) {
++		sysLogPrintf(LOG_NOTE, "SWARM.BASELINE: {\"event\":\"gpu_dispatch\",\"stage_epoch\":%u,"
++			"\"serial\":%d,\"count\":%d,\"gl_error\":0}",
++			submitted.identity.stage_epoch, submitted.serial, count);
++	}
+ 
+ 	/* Track 2a (c3807, 2026-05-16): ping-pong swap. Next dispatch writes
+ 	 * to the texture this dispatch just consumed as read (= started as
+@@ -1710,6 +1803,8 @@
+ 			if (wait == GL_ALREADY_SIGNALED
+ 					|| wait == GL_CONDITION_SATISFIED) {
+ 				consumed_count = s_ReadbackRingCount[read_idx];
++				readback = s_BaselineRing[read_idx];
++				s_BaselineRing[read_idx].serial = 0;
+ 				if (consumed_count > 0) {
+ 					glBindBuffer(GL_COPY_READ_BUFFER,
+ 						s_ReadbackRingBuf[read_idx]);
+@@ -1753,6 +1848,7 @@
+ 		s_ReadbackRingFence[write_idx] =
+ 			s_glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+ 		s_ReadbackRingCount[write_idx] = count;
++		s_BaselineRing[write_idx] = submitted;
+ 		/* Stamp the chrnum the GPU just computed for. The consumer (next
+ 		 * frame's pass through this function) checks this against the
+ 		 * live chrs[i]->chrnum and skips the apply if death_poll_and_
+@@ -1780,7 +1876,15 @@
+ 				? (s16)c->chrnum : (s16)-1;
+ 		}
+ 		consumed_count = count;
++		readback = submitted;
+ 	}
++	if ((submitted.serial || readback.serial)
++			&& !swarmBaselineCheckGl(baseline, "gpu_native_readback")) return;
++	if (readback.serial && !swarmBaselineReadback(readback, baseline, chrs, consumed_count)) {
++		sysLogPrintf(LOG_ERROR, "SWARM.BASELINE: {\"event\":\"invalid\",\"stage_epoch\":%u,"
++			"\"reason\":\"gpu_readback_identity_or_serial\"}", readback.identity.stage_epoch);
++		return;
++	}
+ 
+ 	/* From here on, `consumed_count` is the authoritative number of
+ 	 * bots whose data lives in s_BoidScratch[]. In the async ring path
+@@ -1916,6 +2020,8 @@
+ 		 * back to legacy chrSetPos if a future refactor breaks the
+ 		 * invariant. */
+ 		if (chr->actiontype != ACT_SKJUMP) {
++			const struct coord before = readback.serial ? chr->prop->pos : newpos;
++			s32 committed = 1;
+ 			if (ce->valid) {
+ 				chrSetPosWithCachedGround(chr, &newpos, rooms, face_deg,
+ 					ce->ground, ce->floorcol, ce->floortype, ce->floorroom);
+@@ -1924,8 +2030,12 @@
+ 				 * the pre-pass always populates ce on a MISS, and HIT
+ 				 * implies ce was already valid. Counted by s_PerfCacheMiss
+ 				 * external to this site so it shows up in playtest logs. */
+-				chrSetPos(chr, &newpos, rooms, face_deg, true);
++				committed = chrSetPos(chr, &newpos, rooms, face_deg, true);
+ 			}
++			if (readback.serial && committed) {
++				const struct coord requested = {s_BoidScratch[i].px, s_BoidScratch[i].py, s_BoidScratch[i].pz};
++				swarmBaselineLogApply(readback, i, before, requested, chr->prop->pos);
++			}
+ 		}
+ 
+ 		/* Velocity stats accumulator -- emitted at the 60-frame interval
+diff --git a/tools/smoke-verify/tests/skedar_swarm_baseline_cpu.json b/tools/smoke-verify/tests/skedar_swarm_baseline_cpu.json
+new file mode 100644
+--- /dev/null
++++ b/tools/smoke-verify/tests/skedar_swarm_baseline_cpu.json
+@@ -0,0 +1,72 @@
++{
++  "scenario_name": "skedar_swarm_baseline_cpu",
++  "description": "Capture the four-actor CPU Skedar baseline for paired evidence verification.",
++  "tags": [
++    "debug",
++    "swarm",
++    "skedar",
++    "paired-baseline"
++  ],
++  "log_channel_mask": "all",
++  "verbose": 0,
++  "timeout_seconds": 75,
++  "install_state": "clean",
++  "boot_args": [
++    "--portable",
++    "--no-update-check",
++    "--no-sound",
++    "--no-net",
++    "--debug-swarm-map",
++    "base:mp_skedar",
++    "--debug-swarm-paired-baseline",
++    "--launch-scenario",
++    "swarm_cpu"
++  ],
++  "input_sequence": [
++    {
++      "at_ms": 0,
++      "type": "wait_until",
++      "condition": "offline_gameplay_ready",
++      "timeout_ms": 12000,
++      "stable_ms": 1000
++    },
++    {
++      "at_ms": 35000,
++      "type": "screenshot",
++      "path": "skedar_swarm_baseline_cpu-35s.bmp"
++    },
++    {
++      "at_ms": 50000,
++      "type": "screenshot",
++      "path": "skedar_swarm_baseline_cpu-50s.bmp"
++    },
++    {
++      "at_ms": 60000,
++      "type": "exit"
++    }
++  ],
++  "assertions": {
++    "required_lines": [
++      "SWARM\\.BASELINE: .*\"event\"\\s*:\\s*\"ready\"",
++      "SMOKE: result=scripted_exit"
++    ],
++    "forbidden_patterns": [
++      "EXCEPTION_ACCESS_VIOLATION",
++      "FATAL: ",
++      "SMOKE: result=timeout",
++      "LOUDFAIL\\.LOAD: .*unrecoverable"
++    ],
++    "required_counts": [
++      {
++        "min": 1,
++        "pattern": "SMOKE\\.GLSHOT: captured \\d+x\\d+ -> .*skedar_swarm_baseline_cpu-35s\\.bmp$",
++        "max": 1
++      },
++      {
++        "min": 1,
++        "pattern": "SMOKE\\.GLSHOT: captured \\d+x\\d+ -> .*skedar_swarm_baseline_cpu-50s\\.bmp$",
++        "max": 1
++      }
++    ]
++  }
++}
+diff --git a/tools/smoke-verify/tests/skedar_swarm_baseline_gpu.json b/tools/smoke-verify/tests/skedar_swarm_baseline_gpu.json
+new file mode 100644
+--- /dev/null
++++ b/tools/smoke-verify/tests/skedar_swarm_baseline_gpu.json
+@@ -0,0 +1,74 @@
++{
++  "scenario_name": "skedar_swarm_baseline_gpu",
++  "description": "Capture the four-actor GPU_FULL Skedar baseline for paired evidence verification.",
++  "tags": [
++    "debug",
++    "swarm",
++    "skedar",
++    "paired-baseline"
++  ],
++  "log_channel_mask": "all",
++  "verbose": 0,
++  "timeout_seconds": 75,
++  "install_state": "clean",
++  "boot_args": [
++    "--portable",
++    "--no-update-check",
++    "--no-sound",
++    "--no-net",
++    "--debug-swarm-map",
++    "base:mp_skedar",
++    "--debug-swarm-paired-baseline",
++    "--launch-scenario",
++    "swarm_gpu"
++  ],
++  "input_sequence": [
++    {
++      "at_ms": 0,
++      "type": "wait_until",
++      "condition": "offline_gameplay_ready",
++      "timeout_ms": 12000,
++      "stable_ms": 1000
++    },
++    {
++      "at_ms": 35000,
++      "type": "screenshot",
++      "path": "skedar_swarm_baseline_gpu-35s.bmp"
++    },
++    {
++      "at_ms": 50000,
++      "type": "screenshot",
++      "path": "skedar_swarm_baseline_gpu-50s.bmp"
++    },
++    {
++      "at_ms": 60000,
++      "type": "exit"
++    }
++  ],
++  "assertions": {
++    "required_lines": [
++      "SWARM\\.BASELINE: .*\"event\"\\s*:\\s*\"ready\"",
++      "SWARM\\.BASELINE: .*\"event\"\\s*:\\s*\"gpu_readback\"",
++      "SWARM\\.BASELINE: .*\"event\"\\s*:\\s*\"gpu_apply\"",
++      "SMOKE: result=scripted_exit"
++    ],
++    "forbidden_patterns": [
++      "EXCEPTION_ACCESS_VIOLATION",
++      "FATAL: ",
++      "SMOKE: result=timeout",
++      "LOUDFAIL\\.LOAD: .*unrecoverable"
++    ],
++    "required_counts": [
++      {
++        "min": 1,
++        "pattern": "SMOKE\\.GLSHOT: captured \\d+x\\d+ -> .*skedar_swarm_baseline_gpu-35s\\.bmp$",
++        "max": 1
++      },
++      {
++        "min": 1,
++        "pattern": "SMOKE\\.GLSHOT: captured \\d+x\\d+ -> .*skedar_swarm_baseline_gpu-50s\\.bmp$",
++        "max": 1
++      }
++    ]
++  }
++}
+diff --git a/tools/smoke-verify/verify_skedar_swarm_pair.py b/tools/smoke-verify/verify_skedar_swarm_pair.py
+new file mode 100644
+--- /dev/null
++++ b/tools/smoke-verify/verify_skedar_swarm_pair.py
+@@ -0,0 +1,336 @@
++"""Check paired four-actor Skedar Swarm evidence without running the game."""
++import argparse
++import gzip
++import hashlib
++import json
++import math
++from pathlib import Path
++import re
++import struct
++
++MARKER = b"SWARM.BASELINE: "
++SLOTS = set(range(4))
++TIMES = (35000, 50000)
++ACTOR_FIELDS = (
++    "source_row", "generation", "chrnum", "prop_index", "position", "rooms",
++    "team", "body", "model_scale", "radius", "height", "yaw", "animation",
++    "animation_frame", "support_up",
++)
++
++
++def require(condition, message):
++    if not condition:
++        raise ValueError(message)
++
++
++def distinct_keys(pairs):
++    obj = {}
++    for key, value in pairs:
++        require(key not in obj, f"duplicate JSON field {key}")
++        obj[key] = value
++    return obj
++
++
++def reject_constant(value):
++    raise ValueError(f"invalid JSON constant {value}")
++
++
++def parse(data):
++    return json.loads(data, object_pairs_hook=distinct_keys, parse_constant=reject_constant)
++
++
++def integer(value, minimum=0):
++    return type(value) is int and value >= minimum
++
++
++def finite(value):
++    return type(value) in (float, int) and math.isfinite(value)
++
++
++def vector(value):
++    return isinstance(value, list) and len(value) == 3 and all(map(finite, value))
++
++
++def path_name(name):
++    return re.split(r"[/\\]", name)[-1]
++
++
++def artifact(root, item):
++    path = (root / item["path"]).resolve(strict=True)
++    require(path.is_file() and path.is_relative_to(root), f"unsafe artifact path {path.name}")
++    with path.open("rb") as stream:
++        digest = hashlib.file_digest(stream, "sha256").hexdigest()
++    require(item["sha256"] == digest, f"artifact SHA-256 differs: {path.name}")
++    return path, digest
++
++
++def bmp_dimensions(path):
++    with path.open("rb") as stream:
++        header = stream.read(54)
++    require(len(header) == 54 and header[:2] == b"BM", f"invalid BMP: {path.name}")
++    size, = struct.unpack_from("<I", header, 2)
++    offset, dib, width, height, planes, bpp, compression = struct.unpack_from("<IIiiHHI", header, 10)
++    require(
++        (offset, dib, planes, bpp, compression) == (54, 40, 1, 24, 0)
++        and width > 0 and height > 0,
++        f"unexpected native BMP layout: {path.name}",
++    )
++    require(
++        size == 54 + ((width * 3 + 3) & ~3) * height == path.stat().st_size,
++        f"invalid native BMP size: {path.name}",
++    )
++    return width, height
++
++
++def read_log(path):
++    records, requests, captures, exits = [], [], [], []
++    require(path.stat().st_size <= 64 * 1024 * 1024, "native log exceeds 64 MiB")
++    with path.open("rb") as stream:
++        for number, line in enumerate(stream, 1):
++            if MARKER in line:
++                data = line.partition(MARKER)[2].strip()
++                require(len(data) <= 2048 and len(records) < 4096, "baseline records exceed bounds")
++                records.append((number, parse(data)))
++            request = re.search(rb"SMOKE: screenshot at_ms=(\d+) -> (.+?)\s*$", line)
++            if request:
++                requests.append((number, int(request[1]), path_name(request[2].decode())))
++            capture = re.search(rb"SMOKE\.GLSHOT: captured (\d+)x(\d+) -> (.+?)\s*$", line)
++            if capture:
++                captures.append((number, (int(capture[1]), int(capture[2])), path_name(capture[3].decode())))
++            exit_event = re.search(rb"SMOKE: (scripted exit at_ms=\d+|result=\S+)", line)
++            if exit_event:
++                exits.append((number, exit_event[1]))
++    return records, requests, captures, exits
++
++
++def actor_row(event):
++    row = {key: event[key] for key in ACTOR_FIELDS}
++    for key in ("source_row", "chrnum", "prop_index", "team", "animation"):
++        require(integer(row[key]), f"invalid actor {key}")
++    require(integer(row["generation"], 1), "invalid actor generation")
++    require(isinstance(row["body"], str) and row["body"], "missing actor body")
++    require(vector(row["position"]) and vector(row["support_up"]), "invalid actor pose vectors")
++    require(math.isclose(math.hypot(*row["support_up"]), 1, abs_tol=1e-4), "invalid actor support basis")
++    rooms = row["rooms"]
++    require(isinstance(rooms, list) and rooms and all(map(integer, rooms)), "invalid actor rooms")
++    require(len(set(rooms)) == len(rooms), "duplicate actor rooms")
++    for key in ("model_scale", "radius", "height"):
++        require(finite(row[key]) and row[key] > 0, f"invalid actor {key}")
++    require(finite(row["yaw"]) and finite(row["animation_frame"]), "invalid actor animation pose")
++    return row
++
++
++def identity(slot, row):
++    return [slot, row["generation"], row["chrnum"], row["prop_index"]]
++
++
++def verify_events(records, mode, captures, exit_line):
++    require(records, "missing baseline records")
++    _, start = records[0]
++    require(
++        start["event"] == "start" and start["mode"] == mode
++        and start["map"] == "base:mp_skedar" and start["count"] == 4
++        and integer(start["seed"]) and vector(start["player_anchor"]),
++        "invalid paired benchmark start",
++    )
++    epoch = start["stage_epoch"]
++    require(integer(epoch, 1), "missing stage epoch")
++    rows, dispatches, population_lines = {}, {}, []
++    ready = initialized = False
++    last_serial = 0
++    for line, event in records[1:]:
++        kind = event["event"]
++        require(event["stage_epoch"] == epoch, f"benchmark stage changed at line {line}")
++        if kind == "spawn":
++            slot = event["slot"]
++            require(
++                not ready and type(slot) is int and slot in SLOTS and slot not in rows,
++                f"unexpected actor replacement or slot at line {line}",
++            )
++            rows[slot] = actor_row(event)
++            continue
++        if kind == "ready":
++            require(not ready and set(rows) == SLOTS and line < captures[0][0], "invalid actor readiness")
++            ready = True
++            continue
++        expected = [identity(slot, rows[slot]) for slot in sorted(rows)]
++        if kind == "population":
++            require(ready and event["actors"] == expected, "live benchmark population changed")
++            population_lines.append(line)
++            continue
++        require(
++            kind in ("gpu_init", "gpu_dispatch", "gpu_readback", "gpu_apply")
++            and mode == "GPU_FULL" and ready,
++            f"unexpected backend or lifecycle event {kind} at line {line}",
++        )
++        require(event["gl_error"] == 0, f"GL error at line {line}")
++        if kind == "gpu_init":
++            require(
++                not initialized and event["compiled"] is True and event["linked"] is True,
++                "missing native shader compile or link",
++            )
++            initialized = True
++            continue
++        serial = event["serial"]
++        require(initialized and integer(serial, 1), "invalid GPU initialization or sequence")
++        if kind == "gpu_dispatch":
++            require(serial > last_serial and event["count"] == 4, "invalid GPU dispatch order")
++            dispatches[serial] = {"readback": False, "applied": set(), "motion": False, "last_apply": None}
++            last_serial = serial
++            continue
++        require(serial in dispatches, "GPU result has no matching dispatch")
++        batch = dispatches[serial]
++        if kind == "gpu_readback":
++            require(not batch["readback"], "duplicate GPU readback")
++            require(event["markers"] == [serial] * 4, "shader result did not echo the dispatch serial")
++            require(event["actors"] == expected, "GPU readback actor identity differs")
++            batch["readback"] = True
++        elif kind == "gpu_apply":
++            slot = event["slot"]
++            require(
++                batch["readback"] and type(slot) is int and slot in SLOTS
++                and slot not in batch["applied"] and event["actor"] == expected[slot],
++                "GPU application identity or ordering differs",
++            )
++            before, requested, actual = (event[key] for key in ("before", "requested", "actual"))
++            require(all(map(vector, (before, requested, actual))), "invalid GPU positions")
++            require(event["committed"] is True, "actor commit was not witnessed")
++            require(math.dist(requested, actual) <= 1e-3, "actual GPU position differs from request")
++            batch["motion"] |= math.dist(before, actual) > 1e-3
++            batch["applied"].add(slot)
++            batch["last_apply"] = line
++    require(ready, "missing four-actor readiness")
++    for key in ("source_row", "chrnum", "prop_index"):
++        require(len({row[key] for row in rows.values()}) == 4, f"actors share {key}")
++    first_capture, second_capture = (capture[0] for capture in captures)
++    windows = ((0, first_capture), (first_capture, second_capture), (second_capture, exit_line))
++    require(
++        all(any(start < line < end for line in population_lines) for start, end in windows),
++        "missing live population witness before, between or after native captures",
++    )
++    qualified = [
++        serial for serial, batch in dispatches.items()
++        if batch["applied"] == SLOTS and batch["motion"] and batch["last_apply"] < first_capture
++    ]
++    require(
++        mode == "CPU" or qualified,
++        "no matching GPU dispatch, native readback and four-actor commit before the first capture",
++    )
++    return start["seed"], start["player_anchor"], rows, qualified
++
++
++def managed_recipe(path):
++    with gzip.open(path, "rb") as stream:
++        data = stream.read(16 * 1024 * 1024 + 1)
++    require(len(data) <= 16 * 1024 * 1024, "managed recipe exceeds 16 MiB")
++    return parse(data)
++
++
++def verify_recipe_member(recipe, path, digest):
++    require(
++        sum(
++            path_name(name) == path.name and entry["sha256"] == digest
++            for name, entry in recipe["changed"].items()
++        ) == 1,
++        f"managed recipe does not bind {path.name}",
++    )
++
++
++def verify_run(directory, mode):
++    root = directory.resolve(strict=True)
++    manifest = parse((root / "manifest.json").read_bytes())
++    require(manifest["schema"] == 1 and manifest["mode"] == mode, "unexpected manifest")
++    require(manifest["run_id"] and manifest["queue_id"], "missing run or queue identity")
++    require(re.fullmatch(r"[a-f0-9]{40}", manifest["source_commit"]), "invalid frozen source commit")
++    artifacts = {
++        key: artifact(root, manifest[key])
++        for key in ("client", "arena", "scenario", "source_manifest", "fixture", "receipt", "log")
++    }
++    recipe = managed_recipe(artifacts["receipt"][0])
++    require(
++        recipe["schema"] == 1 and recipe["complete"] is True
++        and recipe["id"] == manifest["run_id"]
++        and recipe["definition"]["sha256"] == artifacts["fixture"][1]
++        and recipe["provenance"]["git_head"] == manifest["source_commit"],
++        "managed recipe does not match the run, fixture and source commit",
++    )
++    receipt = recipe["outcome"]
++    fixture_name = parse(artifacts["fixture"][0].read_bytes())["scenario_name"]
++    require(
++        receipt["name"] == fixture_name and receipt["passed"] is True
++        and type(receipt["exit_code"]) is int and receipt["exit_code"] == 0
++        and not receipt["launch_error"],
++        "expected one passing smoke receipt with clean exit",
++    )
++    closeout = receipt["launch_closeout"]
++    require(
++        integer(closeout["process_id"], 1) and closeout["ownership_established"] is True
++        and closeout["verified"] is True and not closeout["cleanup_errors"],
++        "native actor closeout was not verified",
++    )
++    verify_recipe_member(recipe, *artifacts["log"])
++    records, requests, captures, exits = read_log(artifacts["log"][0])
++    require(
++        [event for _, event in exits] == [b"scripted exit at_ms=60000", b"result=scripted_exit"]
++        and records and records[-1][0] < exits[0][0],
++        "expected one native scripted exit at 60s",
++    )
++    require([time for _, time, _ in requests] == list(TIMES), "expected capture requests at 35s and 50s")
++    require(len(captures) == len(manifest["captures"]) == 2, "expected two native captures")
++    capture_paths, capture_hashes = [], []
++    for binding, request, capture in zip(manifest["captures"], requests, captures, strict=True):
++        path, digest = artifact(root, binding)
++        request_line, time, name = request
++        actual_line, dimensions, actual_name = capture
++        require(
++            request_line < actual_line < exits[0][0]
++            and binding["at_ms"] == time and name == actual_name == path.name
++            and dimensions == bmp_dimensions(path),
++            "native capture provenance differs",
++        )
++        verify_recipe_member(recipe, path, digest)
++        capture_paths.append(path)
++        capture_hashes.append(digest)
++    require(len(set(capture_paths)) == len(capture_paths), "run reused a capture path")
++    seed, anchor, actors, qualified = verify_events(records, mode, captures, exits[0][0])
++    return {
++        "run_id": manifest["run_id"],
++        "queue_id": manifest["queue_id"],
++        "source_commit": manifest["source_commit"],
++        "inputs": {key: artifacts[key][1] for key in ("client", "arena", "scenario", "source_manifest")},
++        "seed": seed,
++        "anchor": anchor,
++        "actors": actors,
++        "captures": capture_hashes,
++        "qualified_gpu_serials": qualified,
++    }
++
++
++def verify_pair(cpu_path, gpu_path):
++    cpu = verify_run(cpu_path, "CPU")
++    gpu = verify_run(gpu_path, "GPU_FULL")
++    require(cpu["run_id"] != gpu["run_id"], "CPU and GPU require distinct run IDs")
++    for key in ("source_commit", "inputs", "seed", "anchor", "actors"):
++        require(cpu[key] == gpu[key], f"CPU and GPU {key} differs")
++    return {
++        "verdict": "evidence_consistent", "visual_inspection": "required",
++        "provider_activation": "required", "cpu": cpu, "gpu": gpu,
++    }
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("cpu_run", type=Path)
++    parser.add_argument("gpu_run", type=Path)
++    args = parser.parse_args()
++    try:
++        result = verify_pair(args.cpu_run, args.gpu_run)
++    except (ValueError, TypeError, KeyError, OSError, OverflowError, IndexError) as error:
++        print(json.dumps({"verdict": "invalid_input", "reason": str(error)}))
++        return 1
++    print(json.dumps(result, indent=2))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())

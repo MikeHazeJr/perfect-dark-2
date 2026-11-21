@@ -1,0 +1,615 @@
+test_active_attack_cap_is_checked (__main__.EncounterContractTests.test_active_attack_cap_is_checked) ... ERROR
+test_airborne_and_kind_caps_are_checked (__main__.EncounterContractTests.test_airborne_and_kind_caps_are_checked) ... ERROR
+test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) ... 
+  test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'generation': 2}) ... ERROR
+  test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'target_generation': 3}) ... ERROR
+  test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'target_check_tick': 8}) ... ERROR
+  test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'target_alive': False}) ... ERROR
+  test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'line_of_sight': False}) ... ERROR
+  test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'hostile': False}) ... ERROR
+  test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'distance': 51}) ... ERROR
+test_attack_lifetime_is_checked (__main__.EncounterContractTests.test_attack_lifetime_is_checked) ... ERROR
+test_closed_route_body_penetration_rejected (__main__.EncounterContractTests.test_closed_route_body_penetration_rejected) ... ERROR
+test_closed_route_wrong_collider_rejected (__main__.EncounterContractTests.test_closed_route_wrong_collider_rejected) ... ERROR
+test_complete_replays_only_semantics (__main__.EncounterContractTests.test_complete_replays_only_semantics) ... ERROR
+test_cooldown_between_attacks_is_checked (__main__.EncounterContractTests.test_cooldown_between_attacks_is_checked) ... ERROR
+test_direct_objective_shortcut_rejected (__main__.EncounterContractTests.test_direct_objective_shortcut_rejected) ... ERROR
+test_duplicate_giant_rejected (__main__.EncounterContractTests.test_duplicate_giant_rejected) ... ERROR
+test_duplicate_hit_rejected (__main__.EncounterContractTests.test_duplicate_hit_rejected) ... ERROR
+test_early_finale_cannot_skip_surviving_raiders (__main__.EncounterContractTests.test_early_finale_cannot_skip_surviving_raiders) ... ERROR
+test_event_order_and_end_are_checked (__main__.EncounterContractTests.test_event_order_and_end_are_checked) ... ERROR
+test_giant_damage_shortcut_rejected (__main__.EncounterContractTests.test_giant_damage_shortcut_rejected) ... ERROR
+test_giant_health_must_follow_damage (__main__.EncounterContractTests.test_giant_health_must_follow_damage) ... ERROR
+test_giant_must_fit_at_spawn (__main__.EncounterContractTests.test_giant_must_fit_at_spawn) ... ERROR
+test_giant_visual_only_scaling_rejected (__main__.EncounterContractTests.test_giant_visual_only_scaling_rejected) ... ERROR
+test_loader_rejects_duplicates_and_non_json_constants (__main__.EncounterContractTests.test_loader_rejects_duplicates_and_non_json_constants) ... ok
+test_loader_rejects_unbounded_inputs (__main__.EncounterContractTests.test_loader_rejects_unbounded_inputs) ... FAIL
+test_matrix_cannot_omit_native_case (__main__.EncounterContractTests.test_matrix_cannot_omit_native_case) ... ERROR
+test_missing_blocked_route_witness (__main__.EncounterContractTests.test_missing_blocked_route_witness) ... ERROR
+test_native_shape_never_certifies_native_run (__main__.EncounterContractTests.test_native_shape_never_certifies_native_run) ... ERROR
+test_native_shape_without_receipts_rejected (__main__.EncounterContractTests.test_native_shape_without_receipts_rejected) ... ERROR
+test_population_bound_is_checked (__main__.EncounterContractTests.test_population_bound_is_checked) ... ERROR
+test_same_blocker_cannot_close_distinct_tunnels (__main__.EncounterContractTests.test_same_blocker_cannot_close_distinct_tunnels) ... ERROR
+test_spawn_budget_is_checked (__main__.EncounterContractTests.test_spawn_budget_is_checked) ... ERROR
+test_spawn_tick_budget_is_checked (__main__.EncounterContractTests.test_spawn_tick_budget_is_checked) ... ERROR
+test_stale_epoch_rejected (__main__.EncounterContractTests.test_stale_epoch_rejected) ... ERROR
+test_synthetic_cannot_enter_native_route (__main__.EncounterContractTests.test_synthetic_cannot_enter_native_route) ... ERROR
+test_telegraph_required_at_damage (__main__.EncounterContractTests.test_telegraph_required_at_damage) ... ERROR
+test_undersized_open_crossing_rejected (__main__.EncounterContractTests.test_undersized_open_crossing_rejected) ... ERROR
+test_wave_cannot_spawn_through_closed_tunnel (__main__.EncounterContractTests.test_wave_cannot_spawn_through_closed_tunnel) ... ERROR
+test_wave_cannot_spawn_worker_on_unassigned_route (__main__.EncounterContractTests.test_wave_cannot_spawn_worker_on_unassigned_route) ... ERROR
+test_wrong_portal_rejected (__main__.EncounterContractTests.test_wrong_portal_rejected) ... ERROR
+
+======================================================================
+ERROR: test_active_attack_cap_is_checked (__main__.EncounterContractTests.test_active_attack_cap_is_checked)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 276, in test_active_attack_cap_is_checked
+    self.reject("active attack limit", lambda result: result["plan"]["limits"].update(
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_airborne_and_kind_caps_are_checked (__main__.EncounterContractTests.test_airborne_and_kind_caps_are_checked)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 280, in test_airborne_and_kind_caps_are_checked
+    self.reject("airborne attack limit", lambda result: result["plan"]["limits"].update(max_airborne_attacks=1))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'generation': 2})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 267, in test_attack_checks_target_generation_age_range_and_los
+    self.reject(reason, lambda result: select(result, "attack_hit").update(changes))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'target_generation': 3})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 267, in test_attack_checks_target_generation_age_range_and_los
+    self.reject(reason, lambda result: select(result, "attack_hit").update(changes))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'target_check_tick': 8})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 267, in test_attack_checks_target_generation_age_range_and_los
+    self.reject(reason, lambda result: select(result, "attack_hit").update(changes))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'target_alive': False})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 267, in test_attack_checks_target_generation_age_range_and_los
+    self.reject(reason, lambda result: select(result, "attack_hit").update(changes))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'line_of_sight': False})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 267, in test_attack_checks_target_generation_age_range_and_los
+    self.reject(reason, lambda result: select(result, "attack_hit").update(changes))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'hostile': False})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 267, in test_attack_checks_target_generation_age_range_and_los
+    self.reject(reason, lambda result: select(result, "attack_hit").update(changes))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) (changes={'distance': 51})
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 267, in test_attack_checks_target_generation_age_range_and_los
+    self.reject(reason, lambda result: select(result, "attack_hit").update(changes))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_attack_lifetime_is_checked (__main__.EncounterContractTests.test_attack_lifetime_is_checked)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 290, in test_attack_lifetime_is_checked
+    self.reject("duration limit", lambda result: result["plan"]["limits"].update(max_attack_ticks=2))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_closed_route_body_penetration_rejected (__main__.EncounterContractTests.test_closed_route_body_penetration_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 199, in test_closed_route_body_penetration_rejected
+    self.reject("admitted a body", lambda result: select(result, "tunnel_passage", 3).update(resolved_side=-14))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_closed_route_wrong_collider_rejected (__main__.EncounterContractTests.test_closed_route_wrong_collider_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 202, in test_closed_route_wrong_collider_rejected
+    self.reject("blocker collision", lambda result: select(result, "tunnel_passage", 3).update(hit_blocker="gate-east"))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_complete_replays_only_semantics (__main__.EncounterContractTests.test_complete_replays_only_semantics)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 156, in test_complete_replays_only_semantics
+    verified = verify(trace(), MATRIX)
+                      ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_cooldown_between_attacks_is_checked (__main__.EncounterContractTests.test_cooldown_between_attacks_is_checked)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 287, in test_cooldown_between_attacks_is_checked
+    self.reject("cooldown violated", repeat)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_direct_objective_shortcut_rejected (__main__.EncounterContractTests.test_direct_objective_shortcut_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 196, in test_direct_objective_shortcut_rejected
+    self.reject("normal player input", lambda result: select(result, "tunnel_close").update(source="use_door"))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_duplicate_giant_rejected (__main__.EncounterContractTests.test_duplicate_giant_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 241, in test_duplicate_giant_rejected
+    self.reject("more than once", duplicate)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_duplicate_hit_rejected (__main__.EncounterContractTests.test_duplicate_hit_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 273, in test_duplicate_hit_rejected
+    self.reject("duplicate damage", duplicate)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_early_finale_cannot_skip_surviving_raiders (__main__.EncounterContractTests.test_early_finale_cannot_skip_surviving_raiders)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 235, in test_early_finale_cannot_skip_surviving_raiders
+    self.reject("raider drain", move_finale)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_event_order_and_end_are_checked (__main__.EncounterContractTests.test_event_order_and_end_are_checked)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 301, in test_event_order_and_end_are_checked
+    self.reject("missing or reordered", lambda result: select(result, "tunnel_close").update(seq=700))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_giant_damage_shortcut_rejected (__main__.EncounterContractTests.test_giant_damage_shortcut_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 250, in test_giant_damage_shortcut_rejected
+    self.reject("bypassed live player combat", lambda result: select(result, "giant_damage").update(source="debug_kill"))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_giant_health_must_follow_damage (__main__.EncounterContractTests.test_giant_health_must_follow_damage)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 253, in test_giant_health_must_follow_damage
+    self.reject("health does not match", lambda result: select(result, "giant_damage").update(remaining_health=1))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_giant_must_fit_at_spawn (__main__.EncounterContractTests.test_giant_must_fit_at_spawn)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 247, in test_giant_must_fit_at_spawn
+    self.reject("spawn clearance", lambda result: select(result, "giant_spawn").update(clearance_height=200))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_giant_visual_only_scaling_rejected (__main__.EncounterContractTests.test_giant_visual_only_scaling_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 244, in test_giant_visual_only_scaling_rejected
+    self.reject("collider and model scale", lambda result: select(result, "giant_spawn").update(radius=15))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_matrix_cannot_omit_native_case (__main__.EncounterContractTests.test_matrix_cannot_omit_native_case)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 184, in test_matrix_cannot_omit_native_case
+    verify(trace(), copied)
+           ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_missing_blocked_route_witness (__main__.EncounterContractTests.test_missing_blocked_route_witness)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 208, in test_missing_blocked_route_witness
+    self.reject("missing blocked", lambda result: remove(result, "tunnel_passage", 3))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_native_shape_never_certifies_native_run (__main__.EncounterContractTests.test_native_shape_never_certifies_native_run)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 170, in test_native_shape_never_certifies_native_run
+    result = verify(candidate(trace()), MATRIX, native_candidate=True)
+                              ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_native_shape_without_receipts_rejected (__main__.EncounterContractTests.test_native_shape_without_receipts_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 175, in test_native_shape_without_receipts_rejected
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_population_bound_is_checked (__main__.EncounterContractTests.test_population_bound_is_checked)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 228, in test_population_bound_is_checked
+    self.reject("raider limit", lambda result: result["plan"]["limits"].update(max_alive_raiders=2))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_same_blocker_cannot_close_distinct_tunnels (__main__.EncounterContractTests.test_same_blocker_cannot_close_distinct_tunnels)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 190, in test_same_blocker_cannot_close_distinct_tunnels
+    self.reject("duplicate blocker", duplicate)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_spawn_budget_is_checked (__main__.EncounterContractTests.test_spawn_budget_is_checked)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 222, in test_spawn_budget_is_checked
+    self.reject("wave spawn budget", lambda result: result["plan"]["waves"][0].update(max_spawns=1))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_spawn_tick_budget_is_checked (__main__.EncounterContractTests.test_spawn_tick_budget_is_checked)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 225, in test_spawn_tick_budget_is_checked
+    self.reject("per-tick spawn budget", lambda result: select(result, "raider_spawn", 1).update(tick=2))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_stale_epoch_rejected (__main__.EncounterContractTests.test_stale_epoch_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 298, in test_stale_epoch_rejected
+    self.reject("stale stage epoch", lambda result: select(result, "tunnel_close").update(stage_epoch=16))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_synthetic_cannot_enter_native_route (__main__.EncounterContractTests.test_synthetic_cannot_enter_native_route)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 167, in test_synthetic_cannot_enter_native_route
+    verify(trace(), MATRIX, native_candidate=True)
+           ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_telegraph_required_at_damage (__main__.EncounterContractTests.test_telegraph_required_at_damage)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 295, in test_telegraph_required_at_damage
+    self.reject("before its configured telegraph", change_tick)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_undersized_open_crossing_rejected (__main__.EncounterContractTests.test_undersized_open_crossing_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 205, in test_undersized_open_crossing_rejected
+    self.reject("open tunnel", lambda result: select(result, "tunnel_passage").update(resolved_side=14))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_wave_cannot_spawn_through_closed_tunnel (__main__.EncounterContractTests.test_wave_cannot_spawn_through_closed_tunnel)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 216, in test_wave_cannot_spawn_through_closed_tunnel
+    self.reject("closed or unknown", append_spawn)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_wave_cannot_spawn_worker_on_unassigned_route (__main__.EncounterContractTests.test_wave_cannot_spawn_worker_on_unassigned_route)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 219, in test_wave_cannot_spawn_worker_on_unassigned_route
+    self.reject("outside the authored wave", lambda result: select(result, "raider_spawn", 2).update(tunnel="center"))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_wrong_portal_rejected (__main__.EncounterContractTests.test_wrong_portal_rejected)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 193, in test_wrong_portal_rejected
+    self.reject("portal differs", lambda result: select(result, "tunnel_close").update(portal="portal-east"))
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 150, in reject
+    result = trace()
+             ^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 51, in trace
+    start_attack("raider-1", 7, 1, "jump")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 31, in start_attack
+    event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
+TypeError: trace.<locals>.event() got multiple values for argument 'kind'
+
+======================================================================
+FAIL: test_loader_rejects_unbounded_inputs (__main__.EncounterContractTests.test_loader_rejects_unbounded_inputs)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\followup-acceptance\test_verify_skedar_swarm_encounter.py", line 313, in test_loader_rejects_unbounded_inputs
+    with self.assertRaisesRegex(ContractError, "nesting"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: ContractError not raised
+
+----------------------------------------------------------------------
+Ran 34 tests in 0.013s
+
+FAILED (failures=1, errors=38)

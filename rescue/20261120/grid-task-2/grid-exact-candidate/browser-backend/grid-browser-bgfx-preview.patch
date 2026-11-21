@@ -1,0 +1,108 @@
+diff --git a/port/fast3d/pdgui_menu_mainmenu.cpp b/port/fast3d/pdgui_menu_mainmenu.cpp
+index 019d511..0871d71 100644
+--- a/port/fast3d/pdgui_menu_mainmenu.cpp
++++ b/port/fast3d/pdgui_menu_mainmenu.cpp
+@@ -32,6 +32,7 @@
+ #include <vector>
+ 
+ #include "glad/glad.h"
++#include "gfx_bgfx.h"
+ #include "../external/stb_image.h"
+ /* S306: direct.h / unistd.h provide rmdir() for the BATCH 2 theme/mod
+  * deletion flow. MinGW uses _rmdir; POSIX uses rmdir. */
+@@ -6081,21 +6082,31 @@ static GridBrowserPane s_GridBrowserPane = GridBrowserPane::Maps;
+ static bool s_GridFocusVersions = false;
+ static int s_GridInspectedArena = -1;
+ static SDL_GLContext s_GridPreviewContext = nullptr;
++static bool s_GridPreviewBgfx = false;
+ static std::vector<GridMapPreview> s_GridMapPreviews;
+ static u32 s_GridBrowserCatalogGeneration = 0;
+ static bool s_GridPreviewStale = false;
+ static int s_GridPreviewPending = -1;
+ static double s_GridPreviewSince = 0;
+ 
+-static void gridResetMapPreviews(SDL_GLContext context)
++static void gridReleaseMapPreview(const GridMapPreview &image, SDL_GLContext context)
+ {
+-    if (context && context == s_GridPreviewContext && glDeleteTextures) {
+-        for (const auto &image : s_GridMapPreviews) {
+-            if (image.texture) glDeleteTextures(1, &image.texture);
+-        }
++    if (!image.texture) return;
++    if (s_GridPreviewBgfx) {
++        gfxBgfxPdguiTexDestroy(image.texture);
++    } else if (context && context == s_GridPreviewContext && glDeleteTextures) {
++        glDeleteTextures(1, &image.texture);
++    }
++}
++
++static void gridResetMapPreviews(SDL_GLContext context, bool bgfx)
++{
++    for (const auto &image : s_GridMapPreviews) {
++        gridReleaseMapPreview(image, context);
+     }
+     s_GridMapPreviews.clear();
+     s_GridPreviewContext = context;
++    s_GridPreviewBgfx = bgfx;
+     s_GridPreviewStale = false;
+ }
+ 
+@@ -6202,8 +6213,12 @@ static void gridLoadScreenshot(GridMapPreview &image)
+         }
+         auto *rgba = stbi_load_from_memory(encoded.data(), bytes, &width, &height, &channels, 4);
+         if (!rgba) continue;
+-        glGenTextures(1, &image.texture);
+-        if (image.texture) {
++        if (s_GridPreviewBgfx) {
++            image.texture = gfxBgfxPdguiTexCreate(width, height, rgba, 1, 1);
++        } else {
++            glGenTextures(1, &image.texture);
++        }
++        if (!s_GridPreviewBgfx && image.texture) {
+             GLint bound = 0, alignment = 0, rowLength = 0, unpackBuffer = 0, skipRows = 0, skipPixels = 0;
+             glGetIntegerv(GL_TEXTURE_BINDING_2D, &bound);
+             glGetIntegerv(GL_UNPACK_ALIGNMENT, &alignment);
+@@ -6228,10 +6243,12 @@ static void gridLoadScreenshot(GridMapPreview &image)
+             glPixelStorei(GL_UNPACK_SKIP_PIXELS, skipPixels);
+             glBindTexture(GL_TEXTURE_2D, static_cast<GLuint>(bound));
+             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, static_cast<GLuint>(unpackBuffer));
+-            image.nativeSize = ImVec2((float)width, (float)height);
+         }
+         stbi_image_free(rgba);
+-        if (image.texture) return;
++        if (image.texture) {
++            image.nativeSize = ImVec2((float)width, (float)height);
++            return;
++        }
+     }
+ }
+ 
+@@ -6287,8 +6304,9 @@ static void gridDrawRoomLayout(const std::vector<GridBrowserRoomFootprint> &room
+ static void gridDrawMapPreview(int arena, float scale)
+ {
+     SDL_GLContext context = SDL_GL_GetCurrentContext();
+-    if (s_GridPreviewStale || context != s_GridPreviewContext) {
+-        gridResetMapPreviews(context);
++    const bool bgfx = gfxBgfxActive() != 0;
++    if (s_GridPreviewStale || context != s_GridPreviewContext || bgfx != s_GridPreviewBgfx) {
++        gridResetMapPreviews(context, bgfx);
+         s_GridPreviewPending = -1;
+     }
+ 
+@@ -6308,14 +6326,13 @@ static void gridDrawMapPreview(int arena, float scale)
+         }
+         constexpr size_t MAX_PREVIEWS = 4;
+         if (s_GridMapPreviews.size() == MAX_PREVIEWS) {
+-            const GLuint old = s_GridMapPreviews.front().texture;
+-            if (old && glDeleteTextures) glDeleteTextures(1, &old);
++            gridReleaseMapPreview(s_GridMapPreviews.front(), context);
+             s_GridMapPreviews.erase(s_GridMapPreviews.begin());
+         }
+         s_GridMapPreviews.push_back(GridMapPreview{arena, 0, ImVec2(0, 0), {}});
+         cached = s_GridMapPreviews.end() - 1;
+         if (!entry.is_blank) {
+-            if (context && glGenTextures && glGetIntegerv && glBindBuffer) gridLoadScreenshot(*cached);
++            if (bgfx || (context && glGenTextures && glGetIntegerv && glBindBuffer)) gridLoadScreenshot(*cached);
+             if (!cached->texture) cached->rooms = gridBrowserReadRoomLayout(entry.id);
+         }
+     }

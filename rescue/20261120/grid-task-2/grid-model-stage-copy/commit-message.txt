@@ -1,0 +1,11 @@
+Modding - T-MODDING-021: Preserve atmosphere in Grid model imports
+
+Accept optional native stage rules for atmosphere when importing a model.
+Validate the original JSON and store its bytes in the generated scenario.
+An independently named arena can reuse the atmosphere from a reopened
+archive while its sky, fog, ambient lighting and song reference persist.
+
+Cover archive save, reopen, unrelated source bytes and write-free refusal.
+The final importer and conformance checks passed in q_20261119222736089_a175d921.
+
+Refs: T-MODDING-021

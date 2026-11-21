@@ -1,0 +1,4 @@
+Full compiler output SHA256 3549e7824219d3dd53ce9778f6c2036430dc2ae2a27c0ef8afb27b5f293dce5c
+227:FAILED: [code=1] CMakeFiles/pd.dir/src/game/bondgun.c.obj 
+230:C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c:4000:41: error: implicit declaration of function 'wgV2RuntimeNoiseAdmit'; did you mean 'wgV2RuntimeNoiseBegin'? [-Wimplicit-function-declaration]
+234:C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c:4043:9: error: implicit declaration of function 'wgV2RuntimeNoiseConsumed'; did you mean 'wgV2RuntimeNoiseComplete'? [-Wimplicit-function-declaration]

@@ -1,0 +1,19 @@
+pdgui_grid_browser_data.cpp SHA256 09DF45B44443EB1442DC4E346055DCB4C221B18F9B1E11E72DD9064E55426652
+C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-browser-copy\port\fast3d\pdgui_grid_browser_data.cpp: In function 'bool {anonymous}::readWorldPoint(const crude_json::value&, double&, double&)':
+C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-browser-copy\port\fast3d\pdgui_grid_browser_data.cpp:214:36: error: 'const struct crude_json::value' has no member named 'size'
+  214 |     if (!point.is_array() || point.size() != 3) return false;
+      |                                    ^~~~
+C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-browser-copy\port\fast3d\pdgui_grid_browser_data.cpp: In function 'std::vector<GridBrowserRoomFootprint> gridBrowserReadRoomLayout(const char*)':
+C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-browser-copy\port\fast3d\pdgui_grid_browser_data.cpp:348:41: error: 'const struct crude_json::value' has no member named 'size'
+  348 |             || !rows.is_array() || rows.size() > kRoomCountLimit) return {};
+      |                                         ^~~~
+C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-browser-copy\port\fast3d\pdgui_grid_browser_data.cpp:351:24: error: 'const struct crude_json::value' has no member named 'size'
+  351 |     rooms.reserve(rows.size());
+      |                        ^~~~
+Exception: C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-browser-copy\verify-browser-syntax.ps1:20
+Line |
+  20 |  … DE -ne 0) { throw "Syntax check failed for $unit (exit $LASTEXITCODE) …
+     |                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Syntax check failed for pdgui_grid_browser_data.cpp (exit 1)
+
+

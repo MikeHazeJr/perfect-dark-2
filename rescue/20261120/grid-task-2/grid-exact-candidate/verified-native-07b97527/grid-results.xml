@@ -1,0 +1,393 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Catch name="pd-tests.exe" filters="[grid-edit-room],[grid-edit-session],[grid-edit-snapshot],[grid-edit-playtest-view],[forge-level-doc][stagerules],[forge-level-doc][grid-variant-fallback],[forge-level-live],[imgui][widgets],A level gains a plain prop made from nothing*,Grid room extension carries a draft brightness change into one native room table,Grid room brightness preserves unsupported room sources and native overrides">
+  <Group name="pd-tests.exe">
+    <TestCase name="Grid native snapshot preserves exact member texts and optional presence" tags="[grid-edit-snapshot]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="193">
+      <Section name="omitted optional members remain omitted" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="198">
+        <OverallResults successes="1" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="authored optional members participate in the snapshot" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="201">
+        <OverallResults successes="2" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid v1 snapshots inherit exact pinned cover and refuse unsaved cover edits" tags="[grid-edit-snapshot]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="246">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid v1 snapshots restore pinned room lighting without sending rooms.json" tags="[grid-edit-snapshot]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="270">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid native snapshot requires the authenticated identity and digest" tags="[grid-edit-snapshot]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="309">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid native snapshot refuses malformed member framing after digest verification" tags="[grid-edit-snapshot]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="346">
+      <Section name="wrong version" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="353">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="wrong member count" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="356">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="duplicate member number" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="359">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="unavailable required member" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="362">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="member length extends past the snapshot" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="365">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="noncanonical arena ID" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="368">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="trailing member bytes" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="371">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="native member is invalid JSON even with valid framing" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="374">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid native snapshot encoding leaves outputs intact on refusal" tags="[grid-edit-snapshot]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="381">
+      <Section name="zero revision" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="390">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="lounge sentinel" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="391">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="invalid generation" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="392">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="unspecified base arena digest" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="393">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="unterminated arena identifier" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="394">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid snapshot offers and acknowledgments carry the exact revision and digest" tags="[grid-edit-snapshot][wire]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="401">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid snapshot offer framing refuses invalid fields transactionally" tags="[grid-edit-snapshot][wire]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="430">
+      <Section name="lounge is not a room" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="445">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="generation is required" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="448">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="revision is required" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="451">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="empty snapshots are invalid" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="454">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="snapshot length is capped" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="457">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="digest is required" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="460">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="lounge is not a room" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="445">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="generation is required" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="448">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="revision is required" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="451">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="empty snapshots are invalid" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="454">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="snapshot length is capped" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="457">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="digest is required" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="460">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid snapshot chunks accept the final bounded byte and reject overrun" tags="[grid-edit-snapshot][wire]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="484">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid snapshot authorization rejects old offers and edited bytes across generations" tags="[grid-edit-snapshot][wire]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_snapshot.cpp" line="546">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid requires the exact local native arena and logical identity" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="149">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid grants bind the exact invitation and authenticated connections" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="194">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid mirrors ordered host and guest edits and retries an exact stale refusal" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="259">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid resumes a detached draft with fresh authority and a verified snapshot" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="385">
+      <Section name="voluntary departure reuses the same live connection" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="409">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="a reconnect binds a new connection" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="410">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="A returning Grid creator verifies the snapshot and catches up before editing" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="502">
+      <Section name="An interrupted invitation preserves the host's edits" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="551">
+        <OverallResults successes="12" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="The host cannot overrun the retained catch-up history" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="566">
+        <OverallResults successes="70" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="An ordered authenticated tail advances the replica before the grant" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="585">
+        <OverallResults successes="38" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid commits a native spawn pose and its inverse across snapshot resume" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="630">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid focus leases bind to authenticated creators and expire on the host clock" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="750">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid grant wire rejects malformed or truncated creator privilege" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="868">
+      <Section name="invitation and confirmation carry no granted actor" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="920">
+        <OverallResults successes="31" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid refusal wire carries an exact rejection without granting access" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="964">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid review controls round trip within the existing v65 limit" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1013">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid review wire rejects malformed exact tuples transactionally" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1077">
+      <Section name="zero offer serial" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1111">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="zero draft revision" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1112">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="zero stage epoch" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1113">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="room outside the builder domain" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1114">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="zero extension" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1115">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="noncanonical arena ID" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1116">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="embedded terminator" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1117">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="empty staged digest" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1118">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="empty parent digest" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1119">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="unknown reply" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1120">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid opens an authorized native match baseline from borrowed bytes" tags="[grid-edit-room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1124">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid v65 dependency capability is a bounded opt-in" tags="[grid-edit-room][review-deps]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1153">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid dependency review proof is distinct from the legacy arena receipt" tags="[grid-edit-room][review-deps]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1199">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid transfer offer and request carry the exact bounded arena size" tags="[grid-edit-room][review-transfer]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1281">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid Apply binds the exact reviewed layout without advancing the match epoch" tags="[grid-edit-room][grid-layout-apply]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1346">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid Apply rejects stale generations and invalid dispositions transactionally" tags="[grid-edit-room][grid-layout-apply]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1432">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Shared Grid review chunk binds draft generation and a single exact payload" tags="[grid-edit-room][review-transfer]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_room.cpp" line="1493">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid playtest views round trip bounded presentation or an exact clear" tags="[grid-edit-playtest-view]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="85">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid playtest view errors preserve the buffer and prior view" tags="[grid-edit-playtest-view]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="128">
+      <Section name="invalid room identity" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="148">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="zero epoch" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="151">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="zero serial" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="154">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="excess room count" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="157">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="half-clear view" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="160">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="degenerate room" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="163">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="non-boolean bot flag" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="166">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid exact world frames extend the bounded legacy presentation" tags="[grid-edit-playtest-view]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="180">
+      <Section name="writer refuses invalid bounds or capacity without altering the packet" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="194">
+        <OverallResults successes="6" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="legacy prefix is byte identical and the footer is exact" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="207">
+        <OverallResults successes="2324" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="writer refuses invalid bounds or capacity without altering the packet" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="194">
+        <OverallResults successes="6" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="legacy prefix is byte identical and the footer is exact" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="207">
+        <OverallResults successes="2324" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid live map targets wrap only the existing exact placement commands" tags="[grid-edit-playtest-view]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="278">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid playtest cursor includes finite world positions only while visible" tags="[grid-edit-playtest-view]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="351">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Only the ready Grid host accesses both independent visibility flags" tags="[grid-edit-playtest-view]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_playtest_view.cpp" line="405">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid edits commit in document order with independent creator sequences" tags="[grid-edit-session]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_session.cpp" line="128">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid rejects malformed and invalid native edits without changing the draft" tags="[grid-edit-session]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_session.cpp" line="190">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid decoration moves preserve height and facing through the native snapshot" tags="[grid-decoration][grid-edit-session]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_session.cpp" line="239">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid enforces host grants and independent cross-role visibility" tags="[grid-edit-session]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_session.cpp" line="332">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid bounds membership and preserves the sequence across role changes" tags="[grid-edit-session]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_session.cpp" line="383">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid returns exact ordered commits only to authorized creators" tags="[grid-edit-session]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_session.cpp" line="414">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid requires a fresh snapshot beyond its retained commit history" tags="[grid-edit-session]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_session.cpp" line="485">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid leases isolate competing writes until host-clock expiry or release" tags="[grid-edit-session]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_session.cpp" line="528">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid releases held resources on creator downgrade and removal" tags="[grid-edit-session]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_grid_edit_session.cpp" line="575">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Level File startup weather preserves sibling source through edits and reopen" tags="[forge-level-doc][stagerules]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="743">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Either Grid atmosphere rule can be removed from a draft whose source had no stage.json" tags="[forge-level-doc][stagerules]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="815">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid room brightness preserves unsupported room sources and native overrides" tags="[forge-level-doc][grid-room-brightness]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="917">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid room extension carries a draft brightness change into one native room table" tags="[forge-level-doc][grid-room-brightness]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="2391">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid variant placement fallbacks are written to an independent native document" tags="[forge-level-doc][grid-variant-fallback]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="3593">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="A level gains a plain prop made from nothing, drawn with the model it is given" tags="[forge-level-doc]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="4103">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="The world shows a level as it was loaded until its file changes" tags="[forge-level-doc][forge-level-live]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="4843">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="A moved object is hidden where the stage has it and drawn where its file puts it" tags="[forge-level-doc][forge-level-live]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="4866">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="A new object is drawn, and one with nothing to draw it with is only counted" tags="[forge-level-doc][forge-level-live]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="4916">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="An object left out is hidden, and one put back that the stage never made is drawn" tags="[forge-level-doc][forge-level-live]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="4946">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="A file that is not the level as opened is refused, and the world shows none of it" tags="[forge-level-doc][forge-level-live]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="4987">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="An object is given a size, which the world draws its stand-in at" tags="[forge-level-doc][forge-level-live]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="5008">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Controller Activate tweaks numeric widgets without entering temporary text" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="176">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Physical Enter retains numeric text entry while mapped neutral leaves it owned" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="196">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Controller Activate enters text and edits through native character validation" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="212">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Native combo consumes Back for the complete parent frame" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="227">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Mapped controller Activate retains ImGui held button repeat" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="240">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="A new popup owner cannot reuse its opening activation" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="249">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Paired Back and Activate cancel numeric editing without reactivation" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="267">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Paired Back and Activate close a native combo without reopening it" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="300">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="An active native editor owns its keys while higher-level commands remain available" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="330">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Text Back wins simultaneous validation through keyboard and controller" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="350">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="First mapped Accept restores hidden navigation and activates the focused control" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="372">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Agent list entry focus activates its row on the first controller or keyboard Accept" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="382">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Opening Accept stays physically held but cannot activate or repeat until release" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="434">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Opening Back remains owned by the opening window until real release" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="459">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="A newly focused text field cannot reclaim opening Enter and submit on repeat" tags="[imgui][input][menus][widgets]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_pdgui_widget_navigation.cpp" line="479">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Private Grid readmission keeps the running Room and its access limits" tags="[grid-edit-room][net][room][transactions]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_room_transactions.cpp" line="117">
+      <Section name="the Room reports a match" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_room_transactions.cpp" line="129">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="a host-only ready round can still carry the lobby loading state" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_room_transactions.cpp" line="132">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Invite-only Grid resume still requires a separate leader invitation to the Room" tags="[grid-edit-room][net][room][transactions]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_room_transactions.cpp" line="154">
+      <OverallResult success="true"/>
+    </TestCase>
+    <OverallResults successes="40415" failures="0" expectedFailures="0"/>
+    <OverallResultsCases successes="72" failures="0" expectedFailures="0"/>
+  </Group>
+  <OverallResults successes="40415" failures="0" expectedFailures="0"/>
+  <OverallResultsCases successes="72" failures="0" expectedFailures="0"/>
+</Catch>

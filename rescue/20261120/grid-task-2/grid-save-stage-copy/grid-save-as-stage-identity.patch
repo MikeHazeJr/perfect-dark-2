@@ -1,0 +1,90 @@
+diff --git a/port/src/forge_level_io.c b/port/src/forge_level_io.c
+index f2ae71b..f96c25f 100644
+--- a/port/src/forge_level_io.c
++++ b/port/src/forge_level_io.c
+@@ -43,6 +43,7 @@
+ #include "grid_match_runtime.h"
+ #include "grid_match_package_io.h"
+ #include "game/playermgr.h"
++#include "game/stagetable.h"
+ #include "lib/collision.h"
+ #include "lib/main.h"
+ #include "lib/meshcollision.h"
+@@ -1384,6 +1385,40 @@ static s32 levelSaveVariantAwareCopy(forge_level_doc_t *doc, const forge_level_s
+ 	const mod_author_request_t *request, const grid_match_sources_t *checked, const char *dependency_plan,
+ 	const level_save_parent_t *parent, mod_author_result_t *target, s32 *handled, char *err, size_t err_cap);
+ 
++static s32 levelSaveLocalCopy(const mod_author_request_t *request, mod_author_result_t *target,
++		char *err, size_t err_cap)
++{
++	const s32 code = modAuthorSave(request, target, err, err_cap);
++	if (code != MOD_AUTHOR_OK) return code;
++
++	/* Keep the opened arena's resident catalog slot. The generic Mods
++	 * apply path rebuilds the whole catalog and can renumber that arena. */
++	u8 digest[SHA256_DIGEST_SIZE];
++	char hex[SHA256_HEX_SIZE], reason[192] = "";
++	if (modArchiveSha256(target->archive_path, digest) != 0) {
++		snprintf(reason, sizeof(reason), "The new arena could not be verified.");
++	} else {
++		sha256ToHex(digest, hex);
++		if (modmgrEnableAuthoredGridVariant(target->mod_dir, target->mod_id,
++				target->catalog_id, hex, reason, sizeof(reason))) {
++			catalog_stage_result_t stage;
++			if (catalogResolveStageForType(target->catalog_id, ASSET_ARENA, &stage)
++					&& stage.entry && strcmp(stage.entry->id, target->catalog_id) == 0
++					&& stage.stagenum >= STAGENUM_CUSTOM_START && stage.stagenum < STAGENUM_CUSTOM_END
++					&& stageTableOwnsCustom(stageGetIndex(stage.stagenum), stage.stagenum)) {
++				sysLogPrintf(LOG_NOTE, "MODAUTHOR.ENABLE.OK mod_id=%s restart_count=0", target->mod_id);
++				return MOD_AUTHOR_OK;
++			}
++			snprintf(reason, sizeof(reason), "No playable stage slot is available for the new arena.");
++		}
++	}
++
++	/* The archive is saved even when its local library admission fails. */
++	levelFail(err, err_cap, "The level was saved on disk, but the Grid library could not refresh", reason);
++	sysLogPrintf(LOG_WARNING, "FORGE.LEVEL.SAVE.LIBRARY: arena=%s %s", target->catalog_id, reason);
++	return MOD_AUTHOR_OK;
++}
++
+ static s32 levelSaveAs(forge_level_doc_t *doc, const forge_level_source_t *source,
+ 		const char *display_name, s32 require_direct, const forge_revision_t *last_saved,
+ 		const char *dependency_plan, const grid_match_sources_t *variant_sources,
+@@ -1496,8 +1531,13 @@ static s32 levelSaveAs(forge_level_doc_t *doc, const forge_level_source_t *sourc
+ 				&parent, target, &handled, err, err_cap);
+ 			if (handled || code != MOD_AUTHOR_OK) goto done;
+ 		}
+-		code = repeat ? levelSaveLastDestination(&request, source, last_saved, target, err, err_cap)
+-			: modAuthorRuntimeSave(&request, target, &restarts, err, err_cap);
++		if (repeat) {
++			code = levelSaveLastDestination(&request, source, last_saved, target, err, err_cap);
++		} else if (doc == s_Session.doc && forgeSessionIsActive() && g_NetMode == NETMODE_NONE) {
++			code = levelSaveLocalCopy(&request, target, err, err_cap);
++		} else {
++			code = modAuthorRuntimeSave(&request, target, &restarts, err, err_cap);
++		}
+ 	}
+ 
+ done:
+diff --git a/port/fast3d/pdgui_forge_editor.cpp b/port/fast3d/pdgui_forge_editor.cpp
+index c78367e..9862c32 100644
+--- a/port/fast3d/pdgui_forge_editor.cpp
++++ b/port/fast3d/pdgui_forge_editor.cpp
+@@ -4213,9 +4213,13 @@ static void forgeDrawLevelFileSection(void)
+ 			forgeLevelFileStatus(true, "Could not save: out of memory.");
+ 		} else {
+ 			if (forgeLevelSessionSaveAs(s_LevelFileName, result, err, sizeof(err)) == MOD_AUTHOR_OK) {
+-				forgeLevelFileStatus(false,
+-					"%s the level \"%s\" (%s). Choose it in %s or in match setup to play it.",
+-					result->updated ? "Updated" : "Saved", s_LevelFileName, result->catalog_id, forgeDisplayName());
++				if (err[0]) {
++					forgeLevelFileStatus(true, "%s", err);
++				} else {
++					forgeLevelFileStatus(false,
++						"%s the level \"%s\" (%s). Choose it in %s or in match setup to play it.",
++						result->updated ? "Updated" : "Saved", s_LevelFileName, result->catalog_id, forgeDisplayName());
++				}
+ 			} else {
+ 				forgeLevelFileStatus(true, "Could not save: %s", err);
+ 			}

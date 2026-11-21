@@ -1,0 +1,74 @@
+{
+  "scenario_name": "skedar_swarm_baseline_gpu",
+  "description": "Capture the four-actor GPU_FULL Skedar baseline for paired evidence verification.",
+  "tags": [
+    "debug",
+    "swarm",
+    "skedar",
+    "paired-baseline"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 75,
+  "install_state": "clean",
+  "boot_args": [
+    "--portable",
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--debug-swarm-map",
+    "base:mp_skedar",
+    "--debug-swarm-paired-baseline",
+    "--launch-scenario",
+    "swarm_gpu"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 12000,
+      "stable_ms": 1000
+    },
+    {
+      "at_ms": 35000,
+      "type": "screenshot",
+      "path": "skedar_swarm_baseline_gpu-35s.bmp"
+    },
+    {
+      "at_ms": 50000,
+      "type": "screenshot",
+      "path": "skedar_swarm_baseline_gpu-50s.bmp"
+    },
+    {
+      "at_ms": 60000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SWARM\\.BASELINE: .*\"event\"\\s*:\\s*\"ready\"",
+      "SWARM\\.BASELINE: .*\"event\"\\s*:\\s*\"gpu_readback\"",
+      "SWARM\\.BASELINE: .*\"event\"\\s*:\\s*\"gpu_apply\"",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "LOUDFAIL\\.LOAD: .*unrecoverable"
+    ],
+    "required_counts": [
+      {
+        "min": 1,
+        "pattern": "SMOKE\\.GLSHOT: captured \\d+x\\d+ -> .*skedar_swarm_baseline_gpu-35s\\.bmp$",
+        "max": 1
+      },
+      {
+        "min": 1,
+        "pattern": "SMOKE\\.GLSHOT: captured \\d+x\\d+ -> .*skedar_swarm_baseline_gpu-50s\\.bmp$",
+        "max": 1
+      }
+    ]
+  }
+}

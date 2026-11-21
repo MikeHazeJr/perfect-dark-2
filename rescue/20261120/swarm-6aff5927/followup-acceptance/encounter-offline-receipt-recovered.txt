@@ -1,0 +1,45 @@
+test_active_attack_cap_is_checked (__main__.EncounterContractTests.test_active_attack_cap_is_checked) ... ok
+test_airborne_and_kind_caps_are_checked (__main__.EncounterContractTests.test_airborne_and_kind_caps_are_checked) ... ok
+test_attack_checks_target_generation_age_range_and_los (__main__.EncounterContractTests.test_attack_checks_target_generation_age_range_and_los) ... ok
+test_attack_lifetime_is_checked (__main__.EncounterContractTests.test_attack_lifetime_is_checked) ... ok
+test_attack_needs_a_fresh_target_at_begin (__main__.EncounterContractTests.test_attack_needs_a_fresh_target_at_begin) ... ok
+test_attack_starts_per_tick_are_bounded (__main__.EncounterContractTests.test_attack_starts_per_tick_are_bounded) ... ok
+test_authored_wave_delay_is_checked (__main__.EncounterContractTests.test_authored_wave_delay_is_checked) ... ok
+test_closed_route_body_penetration_rejected (__main__.EncounterContractTests.test_closed_route_body_penetration_rejected) ... ok
+test_closed_route_wrong_collider_rejected (__main__.EncounterContractTests.test_closed_route_wrong_collider_rejected) ... ok
+test_complete_replays_only_semantics (__main__.EncounterContractTests.test_complete_replays_only_semantics) ... ok
+test_cooldown_between_attacks_is_checked (__main__.EncounterContractTests.test_cooldown_between_attacks_is_checked) ... ok
+test_direct_objective_shortcut_rejected (__main__.EncounterContractTests.test_direct_objective_shortcut_rejected) ... ok
+test_duplicate_giant_rejected (__main__.EncounterContractTests.test_duplicate_giant_rejected) ... ok
+test_duplicate_hit_rejected (__main__.EncounterContractTests.test_duplicate_hit_rejected) ... ok
+test_early_finale_cannot_skip_surviving_raiders (__main__.EncounterContractTests.test_early_finale_cannot_skip_surviving_raiders) ... ok
+test_event_order_and_end_are_checked (__main__.EncounterContractTests.test_event_order_and_end_are_checked) ... ok
+test_expired_attack_cannot_commit_damage (__main__.EncounterContractTests.test_expired_attack_cannot_commit_damage) ... ok
+test_giant_damage_shortcut_rejected (__main__.EncounterContractTests.test_giant_damage_shortcut_rejected) ... ok
+test_giant_health_must_follow_damage (__main__.EncounterContractTests.test_giant_health_must_follow_damage) ... ok
+test_giant_must_fit_at_spawn (__main__.EncounterContractTests.test_giant_must_fit_at_spawn) ... ok
+test_giant_visual_only_scaling_rejected (__main__.EncounterContractTests.test_giant_visual_only_scaling_rejected) ... ok
+test_loader_depth_ignores_brackets_in_escaped_strings (__main__.EncounterContractTests.test_loader_depth_ignores_brackets_in_escaped_strings) ... ok
+test_loader_rejects_duplicates_and_non_json_constants (__main__.EncounterContractTests.test_loader_rejects_duplicates_and_non_json_constants) ... ok
+test_loader_rejects_unbounded_inputs (__main__.EncounterContractTests.test_loader_rejects_unbounded_inputs) ... ok
+test_matrix_cannot_omit_native_case (__main__.EncounterContractTests.test_matrix_cannot_omit_native_case) ... ok
+test_missing_blocked_route_witness (__main__.EncounterContractTests.test_missing_blocked_route_witness) ... ok
+test_native_shape_never_certifies_native_run (__main__.EncounterContractTests.test_native_shape_never_certifies_native_run) ... ok
+test_native_shape_without_receipts_rejected (__main__.EncounterContractTests.test_native_shape_without_receipts_rejected) ... ok
+test_population_bound_is_checked (__main__.EncounterContractTests.test_population_bound_is_checked) ... ok
+test_same_blocker_cannot_close_distinct_tunnels (__main__.EncounterContractTests.test_same_blocker_cannot_close_distinct_tunnels) ... ok
+test_spawn_budget_is_checked (__main__.EncounterContractTests.test_spawn_budget_is_checked) ... ok
+test_spawn_spacing_is_checked (__main__.EncounterContractTests.test_spawn_spacing_is_checked) ... ok
+test_stale_epoch_rejected (__main__.EncounterContractTests.test_stale_epoch_rejected) ... ok
+test_synthetic_cannot_enter_native_route (__main__.EncounterContractTests.test_synthetic_cannot_enter_native_route) ... ok
+test_telegraph_required_at_damage (__main__.EncounterContractTests.test_telegraph_required_at_damage) ... ok
+test_undersized_open_crossing_rejected (__main__.EncounterContractTests.test_undersized_open_crossing_rejected) ... ok
+test_wave_cannot_advance_before_drain (__main__.EncounterContractTests.test_wave_cannot_advance_before_drain) ... ok
+test_wave_cannot_spawn_through_closed_tunnel (__main__.EncounterContractTests.test_wave_cannot_spawn_through_closed_tunnel) ... ok
+test_wave_cannot_spawn_worker_on_unassigned_route (__main__.EncounterContractTests.test_wave_cannot_spawn_worker_on_unassigned_route) ... ok
+test_wrong_portal_rejected (__main__.EncounterContractTests.test_wrong_portal_rejected) ... ok
+
+----------------------------------------------------------------------
+Ran 40 tests in 0.010s
+
+OK

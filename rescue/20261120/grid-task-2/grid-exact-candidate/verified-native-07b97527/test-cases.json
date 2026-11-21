@@ -1,0 +1,362 @@
+[
+  {
+    "name": "Grid native snapshot preserves exact member texts and optional presence",
+    "tags": "[grid-edit-snapshot]",
+    "success": "true"
+  },
+  {
+    "name": "Grid v1 snapshots inherit exact pinned cover and refuse unsaved cover edits",
+    "tags": "[grid-edit-snapshot]",
+    "success": "true"
+  },
+  {
+    "name": "Grid v1 snapshots restore pinned room lighting without sending rooms.json",
+    "tags": "[grid-edit-snapshot]",
+    "success": "true"
+  },
+  {
+    "name": "Grid native snapshot requires the authenticated identity and digest",
+    "tags": "[grid-edit-snapshot]",
+    "success": "true"
+  },
+  {
+    "name": "Grid native snapshot refuses malformed member framing after digest verification",
+    "tags": "[grid-edit-snapshot]",
+    "success": "true"
+  },
+  {
+    "name": "Grid native snapshot encoding leaves outputs intact on refusal",
+    "tags": "[grid-edit-snapshot]",
+    "success": "true"
+  },
+  {
+    "name": "Grid snapshot offers and acknowledgments carry the exact revision and digest",
+    "tags": "[grid-edit-snapshot][wire]",
+    "success": "true"
+  },
+  {
+    "name": "Grid snapshot offer framing refuses invalid fields transactionally",
+    "tags": "[grid-edit-snapshot][wire]",
+    "success": "true"
+  },
+  {
+    "name": "Grid snapshot chunks accept the final bounded byte and reject overrun",
+    "tags": "[grid-edit-snapshot][wire]",
+    "success": "true"
+  },
+  {
+    "name": "Grid snapshot authorization rejects old offers and edited bytes across generations",
+    "tags": "[grid-edit-snapshot][wire]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid requires the exact local native arena and logical identity",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid grants bind the exact invitation and authenticated connections",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid mirrors ordered host and guest edits and retries an exact stale refusal",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid resumes a detached draft with fresh authority and a verified snapshot",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "A returning Grid creator verifies the snapshot and catches up before editing",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid commits a native spawn pose and its inverse across snapshot resume",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid focus leases bind to authenticated creators and expire on the host clock",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid grant wire rejects malformed or truncated creator privilege",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid refusal wire carries an exact rejection without granting access",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid review controls round trip within the existing v65 limit",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid review wire rejects malformed exact tuples transactionally",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid opens an authorized native match baseline from borrowed bytes",
+    "tags": "[grid-edit-room]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid v65 dependency capability is a bounded opt-in",
+    "tags": "[grid-edit-room][review-deps]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid dependency review proof is distinct from the legacy arena receipt",
+    "tags": "[grid-edit-room][review-deps]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid transfer offer and request carry the exact bounded arena size",
+    "tags": "[grid-edit-room][review-transfer]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid Apply binds the exact reviewed layout without advancing the match epoch",
+    "tags": "[grid-edit-room][grid-layout-apply]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid Apply rejects stale generations and invalid dispositions transactionally",
+    "tags": "[grid-edit-room][grid-layout-apply]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Grid review chunk binds draft generation and a single exact payload",
+    "tags": "[grid-edit-room][review-transfer]",
+    "success": "true"
+  },
+  {
+    "name": "Grid playtest views round trip bounded presentation or an exact clear",
+    "tags": "[grid-edit-playtest-view]",
+    "success": "true"
+  },
+  {
+    "name": "Grid playtest view errors preserve the buffer and prior view",
+    "tags": "[grid-edit-playtest-view]",
+    "success": "true"
+  },
+  {
+    "name": "Grid exact world frames extend the bounded legacy presentation",
+    "tags": "[grid-edit-playtest-view]",
+    "success": "true"
+  },
+  {
+    "name": "Grid live map targets wrap only the existing exact placement commands",
+    "tags": "[grid-edit-playtest-view]",
+    "success": "true"
+  },
+  {
+    "name": "Grid playtest cursor includes finite world positions only while visible",
+    "tags": "[grid-edit-playtest-view]",
+    "success": "true"
+  },
+  {
+    "name": "Only the ready Grid host accesses both independent visibility flags",
+    "tags": "[grid-edit-playtest-view]",
+    "success": "true"
+  },
+  {
+    "name": "Grid edits commit in document order with independent creator sequences",
+    "tags": "[grid-edit-session]",
+    "success": "true"
+  },
+  {
+    "name": "Grid rejects malformed and invalid native edits without changing the draft",
+    "tags": "[grid-edit-session]",
+    "success": "true"
+  },
+  {
+    "name": "Grid decoration moves preserve height and facing through the native snapshot",
+    "tags": "[grid-decoration][grid-edit-session]",
+    "success": "true"
+  },
+  {
+    "name": "Grid enforces host grants and independent cross-role visibility",
+    "tags": "[grid-edit-session]",
+    "success": "true"
+  },
+  {
+    "name": "Grid bounds membership and preserves the sequence across role changes",
+    "tags": "[grid-edit-session]",
+    "success": "true"
+  },
+  {
+    "name": "Grid returns exact ordered commits only to authorized creators",
+    "tags": "[grid-edit-session]",
+    "success": "true"
+  },
+  {
+    "name": "Grid requires a fresh snapshot beyond its retained commit history",
+    "tags": "[grid-edit-session]",
+    "success": "true"
+  },
+  {
+    "name": "Grid leases isolate competing writes until host-clock expiry or release",
+    "tags": "[grid-edit-session]",
+    "success": "true"
+  },
+  {
+    "name": "Grid releases held resources on creator downgrade and removal",
+    "tags": "[grid-edit-session]",
+    "success": "true"
+  },
+  {
+    "name": "Level File startup weather preserves sibling source through edits and reopen",
+    "tags": "[forge-level-doc][stagerules]",
+    "success": "true"
+  },
+  {
+    "name": "Either Grid atmosphere rule can be removed from a draft whose source had no stage.json",
+    "tags": "[forge-level-doc][stagerules]",
+    "success": "true"
+  },
+  {
+    "name": "Grid room brightness preserves unsupported room sources and native overrides",
+    "tags": "[forge-level-doc][grid-room-brightness]",
+    "success": "true"
+  },
+  {
+    "name": "Grid room extension carries a draft brightness change into one native room table",
+    "tags": "[forge-level-doc][grid-room-brightness]",
+    "success": "true"
+  },
+  {
+    "name": "Grid variant placement fallbacks are written to an independent native document",
+    "tags": "[forge-level-doc][grid-variant-fallback]",
+    "success": "true"
+  },
+  {
+    "name": "A level gains a plain prop made from nothing, drawn with the model it is given",
+    "tags": "[forge-level-doc]",
+    "success": "true"
+  },
+  {
+    "name": "The world shows a level as it was loaded until its file changes",
+    "tags": "[forge-level-doc][forge-level-live]",
+    "success": "true"
+  },
+  {
+    "name": "A moved object is hidden where the stage has it and drawn where its file puts it",
+    "tags": "[forge-level-doc][forge-level-live]",
+    "success": "true"
+  },
+  {
+    "name": "A new object is drawn, and one with nothing to draw it with is only counted",
+    "tags": "[forge-level-doc][forge-level-live]",
+    "success": "true"
+  },
+  {
+    "name": "An object left out is hidden, and one put back that the stage never made is drawn",
+    "tags": "[forge-level-doc][forge-level-live]",
+    "success": "true"
+  },
+  {
+    "name": "A file that is not the level as opened is refused, and the world shows none of it",
+    "tags": "[forge-level-doc][forge-level-live]",
+    "success": "true"
+  },
+  {
+    "name": "An object is given a size, which the world draws its stand-in at",
+    "tags": "[forge-level-doc][forge-level-live]",
+    "success": "true"
+  },
+  {
+    "name": "Controller Activate tweaks numeric widgets without entering temporary text",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Physical Enter retains numeric text entry while mapped neutral leaves it owned",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Controller Activate enters text and edits through native character validation",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Native combo consumes Back for the complete parent frame",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Mapped controller Activate retains ImGui held button repeat",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "A new popup owner cannot reuse its opening activation",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Paired Back and Activate cancel numeric editing without reactivation",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Paired Back and Activate close a native combo without reopening it",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "An active native editor owns its keys while higher-level commands remain available",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Text Back wins simultaneous validation through keyboard and controller",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "First mapped Accept restores hidden navigation and activates the focused control",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Agent list entry focus activates its row on the first controller or keyboard Accept",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Opening Accept stays physically held but cannot activate or repeat until release",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Opening Back remains owned by the opening window until real release",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "A newly focused text field cannot reclaim opening Enter and submit on repeat",
+    "tags": "[imgui][input][menus][widgets]",
+    "success": "true"
+  },
+  {
+    "name": "Private Grid readmission keeps the running Room and its access limits",
+    "tags": "[grid-edit-room][net][room][transactions]",
+    "success": "true"
+  },
+  {
+    "name": "Invite-only Grid resume still requires a separate leader invitation to the Room",
+    "tags": "[grid-edit-room][net][room][transactions]",
+    "success": "true"
+  }
+]

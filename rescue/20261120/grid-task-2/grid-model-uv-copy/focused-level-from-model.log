@@ -1,0 +1,15 @@
+test_a_bad_id_is_refused (__main__.LevelFromModel.test_a_bad_id_is_refused) ... ok
+test_a_missing_selected_uv_set_is_refused (__main__.LevelFromModel.test_a_missing_selected_uv_set_is_refused) ... ok
+test_a_model_becomes_a_level_the_validator_accepts (__main__.LevelFromModel.test_a_model_becomes_a_level_the_validator_accepts) ... ok
+test_a_model_without_starts_is_refused_with_the_reason (__main__.LevelFromModel.test_a_model_without_starts_is_refused_with_the_reason) ... ok
+test_collision_takes_floors_and_walls_and_leaves_ceilings_and_decorations (__main__.LevelFromModel.test_collision_takes_floors_and_walls_and_leaves_ceilings_and_decorations) ... ok
+test_saved_level_reopens_with_the_materials_selected_uvs (__main__.LevelFromModel.test_saved_level_reopens_with_the_materials_selected_uvs) ... ok
+test_starts_stand_above_their_floor_facing_the_middle_in_ring_order (__main__.LevelFromModel.test_starts_stand_above_their_floor_facing_the_middle_in_ring_order) ... ok
+test_the_mirrored_part_is_wound_the_right_way (__main__.LevelFromModel.test_the_mirrored_part_is_wound_the_right_way) ... ok
+test_the_scene_has_one_textured_part_per_material_and_no_collision_only_mesh (__main__.LevelFromModel.test_the_scene_has_one_textured_part_per_material_and_no_collision_only_mesh) ... ok
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.315s
+
+OK
+LEVEL FROM MODEL: built model_room.pdarena (20773 bytes): 2 textured parts, 18 collision triangles (8 floors), 8 starts, room box [-1050.000000, -50.000000, -1050.000000] to [1050.000000, 450.000000, 1050.000000]; sha256 5badf3f25029ba89ce9b16a2af1de89ccbd67c0414876c9e02572ed15a75bf6a

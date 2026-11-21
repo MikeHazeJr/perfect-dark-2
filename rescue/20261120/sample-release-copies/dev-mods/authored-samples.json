@@ -1,0 +1,21 @@
+{
+  "schema": "pd2-authored-samples-v1",
+  "samples": [
+    {
+      "id": "blank_room",
+      "version": "0.1.0",
+      "members": {
+        "mod.json": "aedda137d46846d883348f006c4004d6a31550cc65b4a496bcf13882cb0a9c31",
+        "blank_room.pdarena": "c2091a1e303030febb6f4bdf57edfec32036037c672f0f8b6580bb63fc5db461"
+      }
+    },
+    {
+      "id": "model_room",
+      "version": "0.1.0",
+      "members": {
+        "mod.json": "b8f4e3d1baee8a993ed4d71ecb29238e0416b3f7a75c6f4327a4a55c07bbf971",
+        "model_room.pdarena": "19969dd34acd5ce446c6ea251d0c6a8c99a61a081d68de701873af92c8fe402e"
+      }
+    }
+  ]
+}

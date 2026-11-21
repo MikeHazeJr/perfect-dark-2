@@ -1,0 +1,51 @@
+{
+  "head": "1b29c009e5f9de558cbae2aab844fcd64e622761",
+  "clientQueue": "q_20261120030911032_c24a1e14",
+  "client": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\session-builds\\jenkins-client-n1124\\PerfectDark.exe",
+  "sha256": "E947F55F0FB4EC7CC06CA7AB0321B2D5EA7EE24924C8605AA87010FE337EFDEA",
+  "bytes": 120120780,
+  "compileLog": ".claude/session-builds/jenkins-client-n1124/_build-headless-20261119-220934-compile-client.out.log",
+  "compileLogSha256": "9BBEA9AA3EA16BA26116FE84AA53445F0B17E7B4DDCA2F15052304C941936DEC",
+  "observedDuringBuild": "2026-11-19T22:09:45.55236-05:00",
+  "observation": ".claude/jenkins-compile-unblock-N1124-N1125/client-link-source-scoped-observed.json",
+  "observationSha256": "86DD9929CEC0C9464E2BEA615DB3E9028FD374BCDA8B21AB48AFE0F083A10118",
+  "matchedNamedGridSources": {
+    "port/fast3d/pdgui_grid_browser_data.cpp": "84a4979ea1b9c8ee480b0afe34d81e6e03358745d88dbb03e4cef8c12f228ebb",
+    "port/fast3d/pdgui_grid_browser_data.h": "a3e60ef3a547e6251b58cfa7a1592dbd7e28de664025107d526cfd24cc1714bb",
+    "port/fast3d/pdgui_grid_browser_logic.h": "a0c80e1a19dfd9699e75826b4ea46bb9739bd94031711fd89ab84a38eeb226e2",
+    "port/fast3d/pdgui_menu_mainmenu.cpp": "2ac42869d010058a9b96640034741c89c954116e0ec48306d0f42f1482e4a268"
+  },
+  "allInputFreeze": false,
+  "gameRuntimeLaunched": false,
+  "freeGiB": 166.838,
+  "requiredGiB": 204,
+  "testBinarySha256": "07B975274A2A2D12FD6E33E52C064D3A5C6D23C7A525892F51C2ABA1D783B7DB",
+  "uniqueCases": 162,
+  "passedAssertions": 55715.0,
+  "testRuns": [
+    {
+      "testQueue": "q_20261120030551043_27638c3e",
+      "caseCount": 72,
+      "passedAssertions": "40415",
+      "xmlSha256": "2062CEB54F110C0EA95EA353A9B592BCCDD394708678107EB6EB8E88CF8F93F5"
+    },
+    {
+      "testQueue": "q_20261120030857430_bca9b7bb",
+      "caseCount": 47,
+      "passedAssertions": "11597",
+      "xmlSha256": "4C2D6281D0BB7378465B68DDF6500A9870E1F575CF27757F36733F6AEAEDFD34"
+    },
+    {
+      "testQueue": "q_20261120030938370_7ce527a6",
+      "caseCount": 22,
+      "passedAssertions": "2493",
+      "xmlSha256": "0572C4658101EB309574289153273601BAB44326560FABB174F6A978B629DD7A"
+    },
+    {
+      "testQueue": "q_20261120031324502_1fdf0dd7",
+      "caseCount": 21,
+      "passedAssertions": "1210",
+      "xmlSha256": "706C619AC15C4A250F0EA6287EA8B355DCF644CC558E040D8EC237868DAD4B07"
+    }
+  ]
+}

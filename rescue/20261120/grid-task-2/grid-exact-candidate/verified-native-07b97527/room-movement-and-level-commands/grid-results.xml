@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Catch name="pd-tests.exe" filters="[net][room][reconnect],[net][room][snapshots],[net][lobby][T-NETWORKING-011],[net][move][grid][numeric],[net][move][grid][ingress],Grid movement checks the host's local inventory for a typed selection,Grid movement discards stale and legacy frames after consuming the complete record,Grid requires a bot waypoint by changing only its native pad flag,Moving a start preserves a bot waypoint authored at its old position,A new spawn gets a pad of its own*,Large finite spawn coordinates survive adding*,An id is not handed out twice*,Moving a spawn off a template pad gives it a new pad and leaves the old one,Grid door triggers round-trip native volumes and run the level graph action,Grid edits native trigger anchor*,Grid Edit Placement routes its input and applies one native document edit">
+  <Group name="pd-tests.exe">
+    <TestCase name="Grid requires a bot waypoint by changing only its native pad flag" tags="[forge-level-doc][grid-navigation]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="499">
+      <Section name="hexadecimal flags preserve the other bits" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="505">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="numeric flags preserve their representation and other bits" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="506">
+        <OverallResults successes="2" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="the first change supplies an absent flag field" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="511">
+        <OverallResults successes="3" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Moving a start preserves a bot waypoint authored at its old position" tags="[forge-level-doc][grid-navigation]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="558">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="A new spawn gets a pad of its own, the pad's bounds and the next id; other rows keep their bytes" tags="[forge-level-doc]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="1028">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Large finite spawn coordinates survive adding, moving and reopening native source" tags="[forge-level-doc]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="1120">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="An id is not handed out twice, and a removed spawn leaves its pad" tags="[forge-level-doc]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="1160">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Moving a spawn off a template pad gives it a new pad and leaves the old one" tags="[forge-level-doc]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="1198">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid door triggers round-trip native volumes and run the level graph action" tags="[forge-level-doc][graph][level][volume]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="3025">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid edits native trigger anchor, size and target without replacing its identity" tags="[forge-level-doc][graph][level][volume]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_forge_level_doc.cpp" line="3216">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid Edit Placement routes its input and applies one native document edit" tags="[grid][modding][pdxxx][scenario][static]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_asset_native_source_contract.cpp" line="12544">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Lobby C projection preserves every field in the shared C++ player view" tags="[T-NETWORKING-011][lobby][net][view]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_view.cpp" line="15">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Listen host is a visible lobby participant and row compaction preserves leader identity" tags="[T-NETWORKING-011][lobby][net][roster]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_view.cpp" line="36">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Room UI authority follows accepted room ownership on host and remote clients" tags="[T-NETWORKING-011][authority][lobby][net]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_view.cpp" line="57">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Lobby preparation never masquerades as live gameplay readiness" tags="[T-NETWORKING-011][lobby][net][ready]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_view.cpp" line="86">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Room snapshots are independent and failed writes preserve accepted data" tags="[T-NETWORKING-011][net][room][snapshots]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_room_transactions.cpp" line="173">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Room reset clears private access and accepted snapshots including the permanent lounge" tags="[T-NETWORKING-011][net][room][snapshots]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_room_transactions.cpp" line="206">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Room leader reservation retains authority until expiry and then elects a present member" tags="[T-NETWORKING-011][net][reconnect][room]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_room_transactions.cpp" line="228">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid movement carries a typed reference and leaves force rooms in the outer frame" tags="[grid][move][net][numeric]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_player_move_wire.cpp" line="197">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid movement preserves the record and typed reference on refusal" tags="[grid][move][net][numeric]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_player_move_wire.cpp" line="254">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid Fiesta reconnect proves live movement after committing the authenticated command" tags="[grid][ingress][move][net]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_player_move_wire.cpp" line="417">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid movement checks the host's local inventory for a typed selection" tags="[grid][move][net]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="363">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid movement discards stale and legacy frames after consuming the complete record" tags="[grid][move][net]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="408">
+      <OverallResult success="true"/>
+    </TestCase>
+    <OverallResults successes="1210" failures="0" expectedFailures="0"/>
+    <OverallResultsCases successes="21" failures="0" expectedFailures="0"/>
+  </Group>
+  <OverallResults successes="1210" failures="0" expectedFailures="0"/>
+  <OverallResultsCases successes="21" failures="0" expectedFailures="0"/>
+</Catch>

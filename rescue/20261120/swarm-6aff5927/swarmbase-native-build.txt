@@ -1,0 +1,83 @@
+Retained wrapper child logs, copied after actual queue closeout.
+_build-session.out.log
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+WARNING: ccache compiler probe failed or timed out; building without ccache launcher.
+
+  Perfect Dark PC Port  -  Headless Build
+  Target:     client
+  Version:    0.1.105
+  Next ver:   False (-UseNextVersion)
+  Clean:      False
+  AutoCommit: False (-AutoCommit / -CommitPush)
+  Verbose:    False
+  Cores:      24
+  Generator:  Ninja
+  BuildDir:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase
+  ProjectDir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike
+
+  Auto-commit disabled (pass -AutoCommit to enable).
+
+------------------------------------------------------------
+  Cleaning Build Dir (smart-clean heuristic (see above))
+------------------------------------------------------------
+  Cleaned: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase
+
+------------------------------------------------------------
+  Configure (CMake - Ninja + ccache)
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174223-configure-cmake---ninja-ccache.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174223-configure-cmake---ninja-ccache.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174223-configure-cmake---ninja-ccache.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174223-configure-cmake---ninja-ccache.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174223-configure-cmake---ninja-ccache.cmdline.txt
+  [heartbeat] [2026-11-19T17:42:24] Configure (CMake - Ninja + ccache) running 0s pid=72140 stdout=0b stderr=0b ninja_log=missing
+
+ +                                                                          + 
+>>> Configure (CMake - Ninja + ccache) OK (4s) <<<
+
+------------------------------------------------------------
+  Generate Headers [pd_headers]
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174228-generate-headers-pd_headers.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174228-generate-headers-pd_headers.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174228-generate-headers-pd_headers.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174228-generate-headers-pd_headers.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174228-generate-headers-pd_headers.cmdline.txt
+  [heartbeat] [2026-11-19T17:42:28] Generate Headers [pd_headers] running 0s pid=65976 stdout=806b stderr=0b ninja_log=642b
+
+  |  Generate Headers [pd_headers]  (5s)   
+  /  Generate Headers [pd_headers]  (10s)   
+ +                                                                          + 
+>>> Generate Headers [pd_headers] OK (15s) <<<
+
+============================================================
+  Building: Client  (target: pd)
+  Dir:      C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase
+============================================================
+
+------------------------------------------------------------
+  Compile [Client]
+------------------------------------------------------------
+  [step-log] stdout: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174243-compile-client.out.log
+  [step-log] stderr: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174243-compile-client.err.log
+  [step-log] heartbeat: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174243-compile-client.heartbeat.log
+  [step-log] exit:   C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174243-compile-client.exit
+  [step-log] cmdline: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\swarmbase\_build-headless-20261119-174243-compile-client.cmdline.txt
+  [heartbeat] [2026-11-19T17:42:43] Compile [Client] running 0s pid=62452 stdout=264b stderr=0b ninja_log=46820b
+FAILED: [code=1] CMakeFiles/pd.dir/src/game/bondgun.c.obj 
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c:4000:41: error: implicit declaration of function 'wgV2RuntimeNoiseAdmit'; did you mean 'wgV2RuntimeNoiseBegin'? [-Wimplicit-function-declaration]
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/src/game/bondgun.c:4043:9: error: implicit declaration of function 'wgV2RuntimeNoiseConsumed'; did you mean 'wgV2RuntimeNoiseComplete'? [-Wimplicit-function-declaration]
+ninja: build stopped: subcommand failed.
+
+ +                                                                          + 
+>>> Compile [Client] FAILED (exit code 1) after 29s <<<
+
+============================================================
+  BUILD SUMMARY
+============================================================
+  [FAIL  ]  CLIENT      29s
+
+  Total time: 48s
+  Result: FAILED
+============================================================
+_build-session.err.log

@@ -1,0 +1,1 @@
+{"schema":"pd2.scenario.stage.v1","atmosphere":{"sky_rgb":[15,35,75],"fog":{"start":120,"end":480},"ambient_light":104,"primary_music":"base:song_sequence_b"}}

@@ -1,0 +1,237 @@
+[
+  {
+    "name": "F13: port/fast3d/pdgui_menu_mainmenu.cpp has no direct g_MpArenas[] reads",
+    "tags": "[catalog-mgr-arena][f13][gate3]",
+    "success": "true"
+  },
+  {
+    "name": "Grid commands use an exact little-endian payload without a sender field",
+    "tags": "[grid-edit][net][wire]",
+    "success": "true"
+  },
+  {
+    "name": "Grid spawn move payload preserves stable ID, coordinates and exact look",
+    "tags": "[grid-edit][net][wire]",
+    "success": "true"
+  },
+  {
+    "name": "Grid command failures preserve packet memory, cursors and outputs",
+    "tags": "[grid-edit][net][wire]",
+    "success": "true"
+  },
+  {
+    "name": "Grid command writers validate native edit values before writing any bytes",
+    "tags": "[grid-edit][net][wire]",
+    "success": "true"
+  },
+  {
+    "name": "Grid ambient-light reader verifies its boolean flag",
+    "tags": "[grid-edit][net][wire]",
+    "success": "true"
+  },
+  {
+    "name": "Grid authoritative deltas bind the author and exact next committed revision",
+    "tags": "[grid-edit][net][wire]",
+    "success": "true"
+  },
+  {
+    "name": "Grid sharing admits only canonical native owner types and suffixes",
+    "tags": "[grid-match-package-io]",
+    "success": "true"
+  },
+  {
+    "name": "Grid locates the first typed owner of a canonical descriptor",
+    "tags": "[grid-match-package-io]",
+    "success": "true"
+  },
+  {
+    "name": "Grid refuses malformed package locators without publishing a prefix",
+    "tags": "[grid-match-package-io]",
+    "success": "true"
+  },
+  {
+    "name": "Grid closes an eligible weapon archive when only its placed model was selected",
+    "tags": "[archive-owner][grid-match-cache][material-texture]",
+    "success": "true"
+  },
+  {
+    "name": "Grid exact source edges compose with native model textures in one closure",
+    "tags": "[grid-match-cache]",
+    "success": "true"
+  },
+  {
+    "name": "Grid source member read rejects expansion beyond its supplied bound",
+    "tags": "[grid-match-cache]",
+    "success": "true"
+  },
+  {
+    "name": "Grid package chunk borrows a bounded payload after an unaligned message prefix",
+    "tags": "[distribution][grid][net]",
+    "success": "true"
+  },
+  {
+    "name": "Grid package chunk write and read refusals preserve the packet and caller output",
+    "tags": "[distribution][grid][net]",
+    "success": "true"
+  },
+  {
+    "name": "Grid package receiver binds consent and admits only contiguous bytes or identical repeats",
+    "tags": "[distribution][grid][net]",
+    "success": "true"
+  },
+  {
+    "name": "Grid match consent waits for the focused receive action and authenticated offer",
+    "tags": "[distribution][network][readiness][smoke]",
+    "success": "true"
+  },
+  {
+    "name": "menu graph: main menu subviews have dedicated pool identities",
+    "tags": "[input][menu_graph][static]",
+    "success": "true"
+  },
+  {
+    "name": "menu graph: main menu view changes go through subview pool helper",
+    "tags": "[input][menu_graph][static]",
+    "success": "true"
+  },
+  {
+    "name": "menu graph: weapon and arena picker surfaces alphabetize catalog entries",
+    "tags": "[input][menu_graph][room][static]",
+    "success": "true"
+  },
+  {
+    "name": "stage.json atmosphere has independent validated settings",
+    "tags": "[scenario][stage][stagerules]",
+    "success": "true"
+  },
+  {
+    "name": "a stage.json the reader cannot use is refused whole",
+    "tags": "[scenario][stage][stagerules]",
+    "success": "true"
+  },
+  {
+    "name": "Grid Continue retires the world and exact leases before Room resync",
+    "tags": "[lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Grid guest downloads use a digest-named scratch path",
+    "tags": "[grid-edit][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Grid arena lease preflight precedes registration and cleanup preserves saved revisions",
+    "tags": "[grid-edit][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Grid Room score review uses the committed scorecard after stage retirement",
+    "tags": "[lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Grid guest retains the played arena from its installed or leased stage cache",
+    "tags": "[lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Grid live resume admits a Room member and rebinds only after an exact creator grant",
+    "tags": "[lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "An installed BYOR shared draft saves an exact local Variant without rebuilding the catalog",
+    "tags": "[grid-edit][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Staged Variant reviews stay on the admitted creator's exact private round",
+    "tags": "[grid-edit][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Staged arena transfer requires both review consents and an exact prepared receipt",
+    "tags": "[grid-edit][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Private structural review combines arena sources with the sealed running match selections",
+    "tags": "[grid-edit][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Private Grid playlist advances follow the admitted match audience",
+    "tags": "[grid-edit][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Grid transfer displays accepted bytes, verified package order and a scoped refusal",
+    "tags": "[distribution][grid][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Shared Draft input survives unrelated commits and marks a changed resource",
+    "tags": "[grid-edit][input][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Match packets exclude connected room guests outside the committed roster",
+    "tags": "[audience][distribution][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "Grid Room offers only exact required packages after proposal approval and guest consent",
+    "tags": "[grid][lifecycle][net]",
+    "success": "true"
+  },
+  {
+    "name": "A detached Grid creator can freshly authenticate to the Lounge during the private match",
+    "tags": "[grid-edit][lifecycle][net][static]",
+    "success": "true"
+  },
+  {
+    "name": "reconnect connect data preserves fresh protocol and stable slot hint",
+    "tags": "[b1064][net][reconnect]",
+    "success": "true"
+  },
+  {
+    "name": "reconnect connect data rejects malformed hints without output mutation",
+    "tags": "[b1064][net][reconnect]",
+    "success": "true"
+  },
+  {
+    "name": "only timeout disconnects retain reconnect authority",
+    "tags": "[b1064][net][reconnect]",
+    "success": "true"
+  },
+  {
+    "name": "server disconnect intent survives sender-local ENet reason loss",
+    "tags": "[b1064][b1092][net][reconnect]",
+    "success": "true"
+  },
+  {
+    "name": "reconnect player-state planner separates snapshots from live events",
+    "tags": "[b1064][b1096][b1097][net][reconnect]",
+    "success": "true"
+  },
+  {
+    "name": "reconnect world snapshots publish durable lifecycle state",
+    "tags": "[b1064][b1096][net][reconnect]",
+    "success": "true"
+  },
+  {
+    "name": "Grid reconnect records a preserved remote peer's position",
+    "tags": "[grid][move][net]",
+    "success": "true"
+  },
+  {
+    "name": "Grid offers round trip exact owner identity and reject a partial or changed payload",
+    "tags": "[grid-match-wire][netbuf]",
+    "success": "true"
+  },
+  {
+    "name": "Grid readiness carries the exact offer identity",
+    "tags": "[grid-match-wire][netbuf]",
+    "success": "true"
+  }
+]

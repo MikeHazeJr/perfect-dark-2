@@ -1,0 +1,485 @@
+{
+  "schema": 1,
+  "origin": "synthetic",
+  "level_id": "original:skedar_defense",
+  "scenario_id": "original:tunnel_scenario",
+  "stage_epoch": 17,
+  "events": [
+    {
+      "type": "encounter_start",
+      "tick": 0,
+      "stage_epoch": 17,
+      "level_id": "original:skedar_defense",
+      "scenario_id": "original:tunnel_scenario",
+      "authority": "local",
+      "seq": 1
+    },
+    {
+      "type": "wave_start",
+      "tick": 0,
+      "stage_epoch": 17,
+      "wave": "scouts",
+      "seq": 2
+    },
+    {
+      "type": "raider_spawn",
+      "tick": 0,
+      "stage_epoch": 17,
+      "actor": "scout",
+      "generation": 1,
+      "wave": "scouts",
+      "tunnel": "north",
+      "radius": 15,
+      "height": 80,
+      "scale": 0.5,
+      "seq": 3
+    },
+    {
+      "type": "actor_death",
+      "tick": 1,
+      "stage_epoch": 17,
+      "actor": "scout",
+      "generation": 1,
+      "cause": "player_weapon",
+      "seq": 4
+    },
+    {
+      "type": "wave_end",
+      "tick": 1,
+      "stage_epoch": 17,
+      "wave": "scouts",
+      "reason": "finished",
+      "seq": 5
+    },
+    {
+      "type": "wave_start",
+      "tick": 2,
+      "stage_epoch": 17,
+      "wave": "assault",
+      "seq": 6
+    },
+    {
+      "type": "raider_spawn",
+      "tick": 2,
+      "stage_epoch": 17,
+      "actor": "raider-1",
+      "generation": 1,
+      "wave": "assault",
+      "tunnel": "north",
+      "radius": 15,
+      "height": 80,
+      "scale": 0.5,
+      "seq": 7
+    },
+    {
+      "type": "raider_spawn",
+      "tick": 3,
+      "stage_epoch": 17,
+      "actor": "raider-2",
+      "generation": 1,
+      "wave": "assault",
+      "tunnel": "center",
+      "radius": 15,
+      "height": 80,
+      "scale": 0.5,
+      "seq": 8
+    },
+    {
+      "type": "raider_spawn",
+      "tick": 5,
+      "stage_epoch": 17,
+      "actor": "raider-3",
+      "generation": 1,
+      "wave": "assault",
+      "tunnel": "east",
+      "radius": 15,
+      "height": 80,
+      "scale": 0.5,
+      "seq": 9
+    },
+    {
+      "type": "tunnel_passage",
+      "tick": 6,
+      "stage_epoch": 17,
+      "actor": "raider-1",
+      "generation": 1,
+      "tunnel": "north",
+      "portal": "portal-north",
+      "start_side": -80,
+      "requested_side": 80,
+      "resolved_side": 80,
+      "hit_blocker": null,
+      "seq": 10
+    },
+    {
+      "type": "tunnel_passage",
+      "tick": 6,
+      "stage_epoch": 17,
+      "actor": "raider-2",
+      "generation": 1,
+      "tunnel": "center",
+      "portal": "portal-center",
+      "start_side": -80,
+      "requested_side": 80,
+      "resolved_side": 80,
+      "hit_blocker": null,
+      "seq": 11
+    },
+    {
+      "type": "tunnel_passage",
+      "tick": 6,
+      "stage_epoch": 17,
+      "actor": "raider-3",
+      "generation": 1,
+      "tunnel": "east",
+      "portal": "portal-east",
+      "start_side": -80,
+      "requested_side": 80,
+      "resolved_side": 80,
+      "hit_blocker": null,
+      "seq": 12
+    },
+    {
+      "type": "attack_start",
+      "tick": 7,
+      "stage_epoch": 17,
+      "actor": "raider-1",
+      "generation": 1,
+      "attack_id": 1,
+      "kind": "jump",
+      "target": "player",
+      "target_generation": 2,
+      "target_check_tick": 7,
+      "target_alive": true,
+      "line_of_sight": true,
+      "hostile": true,
+      "distance": 33,
+      "validated_reach": 50,
+      "seq": 13
+    },
+    {
+      "type": "attack_start",
+      "tick": 7,
+      "stage_epoch": 17,
+      "actor": "raider-2",
+      "generation": 1,
+      "attack_id": 2,
+      "kind": "drop",
+      "target": "player",
+      "target_generation": 2,
+      "target_check_tick": 7,
+      "target_alive": true,
+      "line_of_sight": true,
+      "hostile": true,
+      "distance": 33,
+      "validated_reach": 50,
+      "launch_support": "ceiling",
+      "seq": 14
+    },
+    {
+      "type": "attack_hit",
+      "tick": 9,
+      "stage_epoch": 17,
+      "actor": "raider-1",
+      "generation": 1,
+      "attack_id": 1,
+      "amount": 4,
+      "target": "player",
+      "target_generation": 2,
+      "target_check_tick": 9,
+      "target_alive": true,
+      "line_of_sight": true,
+      "hostile": true,
+      "distance": 33,
+      "validated_reach": 50,
+      "seq": 15
+    },
+    {
+      "type": "attack_end",
+      "tick": 10,
+      "stage_epoch": 17,
+      "actor": "raider-1",
+      "generation": 1,
+      "attack_id": 1,
+      "result": "landed",
+      "seq": 16
+    },
+    {
+      "type": "attack_end",
+      "tick": 10,
+      "stage_epoch": 17,
+      "actor": "raider-2",
+      "generation": 1,
+      "attack_id": 2,
+      "result": "landed",
+      "seq": 17
+    },
+    {
+      "type": "tunnel_close",
+      "tick": 11,
+      "stage_epoch": 17,
+      "tunnel": "north",
+      "portal": "portal-north",
+      "blocker": "gate-north",
+      "source": "player_interact",
+      "seq": 18
+    },
+    {
+      "type": "tunnel_passage",
+      "tick": 11,
+      "stage_epoch": 17,
+      "actor": "raider-1",
+      "generation": 1,
+      "tunnel": "north",
+      "portal": "portal-north",
+      "start_side": -80,
+      "requested_side": 80,
+      "resolved_side": -15,
+      "hit_blocker": "gate-north",
+      "seq": 19
+    },
+    {
+      "type": "tunnel_close",
+      "tick": 12,
+      "stage_epoch": 17,
+      "tunnel": "center",
+      "portal": "portal-center",
+      "blocker": "gate-center",
+      "source": "player_interact",
+      "seq": 20
+    },
+    {
+      "type": "tunnel_passage",
+      "tick": 12,
+      "stage_epoch": 17,
+      "actor": "raider-2",
+      "generation": 1,
+      "tunnel": "center",
+      "portal": "portal-center",
+      "start_side": -80,
+      "requested_side": 80,
+      "resolved_side": -15,
+      "hit_blocker": "gate-center",
+      "seq": 21
+    },
+    {
+      "type": "tunnel_close",
+      "tick": 13,
+      "stage_epoch": 17,
+      "tunnel": "east",
+      "portal": "portal-east",
+      "blocker": "gate-east",
+      "source": "player_interact",
+      "seq": 22
+    },
+    {
+      "type": "tunnel_passage",
+      "tick": 13,
+      "stage_epoch": 17,
+      "actor": "raider-3",
+      "generation": 1,
+      "tunnel": "east",
+      "portal": "portal-east",
+      "start_side": -80,
+      "requested_side": 80,
+      "resolved_side": -15,
+      "hit_blocker": "gate-east",
+      "seq": 23
+    },
+    {
+      "type": "wave_end",
+      "tick": 14,
+      "stage_epoch": 17,
+      "wave": "assault",
+      "reason": "all_tunnels_closed",
+      "seq": 24
+    },
+    {
+      "type": "actor_death",
+      "tick": 15,
+      "stage_epoch": 17,
+      "actor": "raider-1",
+      "generation": 1,
+      "cause": "player_weapon",
+      "seq": 25
+    },
+    {
+      "type": "actor_death",
+      "tick": 16,
+      "stage_epoch": 17,
+      "actor": "raider-2",
+      "generation": 1,
+      "cause": "player_weapon",
+      "seq": 26
+    },
+    {
+      "type": "actor_death",
+      "tick": 17,
+      "stage_epoch": 17,
+      "actor": "raider-3",
+      "generation": 1,
+      "cause": "player_weapon",
+      "seq": 27
+    },
+    {
+      "type": "finale_start",
+      "tick": 18,
+      "stage_epoch": 17,
+      "seq": 28
+    },
+    {
+      "type": "giant_spawn",
+      "tick": 19,
+      "stage_epoch": 17,
+      "actor": "giant",
+      "generation": 1,
+      "body_ref": "base:skedar_king",
+      "radius": 50,
+      "height": 240,
+      "scale": 2.0,
+      "clearance_radius": 60,
+      "clearance_height": 290,
+      "health": 50,
+      "seq": 29
+    },
+    {
+      "type": "attack_start",
+      "tick": 20,
+      "stage_epoch": 17,
+      "actor": "giant",
+      "generation": 1,
+      "attack_id": 3,
+      "kind": "melee",
+      "target": "player",
+      "target_generation": 2,
+      "target_check_tick": 20,
+      "target_alive": true,
+      "line_of_sight": true,
+      "hostile": true,
+      "distance": 33,
+      "validated_reach": 50,
+      "seq": 30
+    },
+    {
+      "type": "giant_damage",
+      "tick": 21,
+      "stage_epoch": 17,
+      "actor": "giant",
+      "generation": 1,
+      "source": "player_weapon",
+      "amount": 30,
+      "remaining_health": 20,
+      "seq": 31
+    },
+    {
+      "type": "attack_hit",
+      "tick": 22,
+      "stage_epoch": 17,
+      "actor": "giant",
+      "generation": 1,
+      "attack_id": 3,
+      "amount": 4,
+      "target": "player",
+      "target_generation": 2,
+      "target_check_tick": 22,
+      "target_alive": true,
+      "line_of_sight": true,
+      "hostile": true,
+      "distance": 33,
+      "validated_reach": 50,
+      "seq": 32
+    },
+    {
+      "type": "attack_end",
+      "tick": 23,
+      "stage_epoch": 17,
+      "actor": "giant",
+      "generation": 1,
+      "attack_id": 3,
+      "result": "resolved",
+      "seq": 33
+    },
+    {
+      "type": "giant_damage",
+      "tick": 24,
+      "stage_epoch": 17,
+      "actor": "giant",
+      "generation": 1,
+      "source": "player_weapon",
+      "amount": 21,
+      "remaining_health": 0,
+      "seq": 34
+    },
+    {
+      "type": "actor_death",
+      "tick": 25,
+      "stage_epoch": 17,
+      "actor": "giant",
+      "generation": 1,
+      "cause": "player_weapon",
+      "seq": 35
+    },
+    {
+      "type": "encounter_complete",
+      "tick": 26,
+      "stage_epoch": 17,
+      "result": "victory",
+      "seq": 36
+    }
+  ],
+  "plan": {
+    "tunnels": [
+      {
+        "id": "north",
+        "portal": "portal-north",
+        "blocker": "gate-north"
+      },
+      {
+        "id": "center",
+        "portal": "portal-center",
+        "blocker": "gate-center"
+      },
+      {
+        "id": "east",
+        "portal": "portal-east",
+        "blocker": "gate-east"
+      }
+    ],
+    "waves": [
+      {
+        "id": "scouts",
+        "max_spawns": 1,
+        "tunnels": [
+          "north"
+        ],
+        "delay_ticks": 0
+      },
+      {
+        "id": "assault",
+        "max_spawns": 4,
+        "tunnels": [
+          "north",
+          "center",
+          "east"
+        ],
+        "delay_ticks": 1
+      }
+    ],
+    "limits": {
+      "max_alive_raiders": 3,
+      "spawn_interval_ticks": 1,
+      "max_active_attacks": 2,
+      "max_attack_starts_per_tick": 2,
+      "max_airborne_attacks": 2,
+      "max_melee": 1,
+      "max_jumps": 1,
+      "max_drops": 1,
+      "max_attack_ticks": 8,
+      "min_attack_cooldown_ticks": 9,
+      "min_telegraph_ticks": 2
+    },
+    "giant": {
+      "body_ref": "base:skedar_king"
+    }
+  }
+}

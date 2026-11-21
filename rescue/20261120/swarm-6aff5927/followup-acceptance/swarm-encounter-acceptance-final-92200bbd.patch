@@ -1,0 +1,1174 @@
+diff --git a/tools/smoke-verify/verify_skedar_swarm_encounter.py b/tools/smoke-verify/verify_skedar_swarm_encounter.py
+new file mode 100644
+--- /dev/null
++++ b/tools/smoke-verify/verify_skedar_swarm_encounter.py
+@@ -0,0 +1,648 @@
++"""Replay the authored Skedar encounter trace for offline contract checks."""
++import argparse
++from collections import Counter
++from dataclasses import dataclass
++import json
++import math
++from pathlib import Path
++import re
++
++MAX_BYTES = 4 * 1024 * 1024
++MAX_EVENTS = 20000
++MAX_JSON_DEPTH = 32
++MAX_TICK = 2**32 - 1
++MAX_GENERATION = 2**64 - 1
++MAX_WAVES = 16
++MAX_RAIDERS = 4096
++IDENTIFIER = re.compile(r"[A-Za-z0-9][A-Za-z0-9_./:-]{0,127}\Z")
++SHA256 = re.compile(r"[a-f0-9]{64}\Z")
++ATTACK_LIMIT_BY_KIND = {"melee": "max_melee", "jump": "max_jumps", "drop": "max_drops"}
++EXTERNAL_CASES = {
++    "paired_baseline", "gpu_snapshot", "authored_round_trip", "native_collision",
++    "native_pose", "native_encounter", "stock", "listen_authority",
++    "network_lifecycle", "repeat_scale",
++}
++TRACE_CASES = {"three_tunnels", "bounded_waves", "bounded_attacks", "giant_finale"}
++LIMIT_FIELDS = {
++    "max_alive_raiders", "spawn_interval_ticks", "max_active_attacks",
++    "max_attack_starts_per_tick", "max_airborne_attacks", "max_melee",
++    "max_jumps", "max_drops", "max_attack_ticks", "min_attack_cooldown_ticks",
++    "min_telegraph_ticks",
++}
++PROVENANCE_FIELDS = {
++    "source_tree_sha256", "client_sha256", "public_level_sha256",
++    "public_scenario_sha256", "fixture_sha256", "native_log_sha256",
++    "managed_recipe_sha256",
++}
++
++
++class ContractError(ValueError):
++    pass
++
++
++def require(condition, description):
++    if not condition:
++        raise ContractError(description)
++
++
++def object_pairs(pairs):
++    obj = {}
++    for key, value in pairs:
++        require(key not in obj, f"duplicate JSON field {key}")
++        obj[key] = value
++    return obj
++
++
++def invalid_constant(value):
++    raise ContractError(f"invalid JSON constant {value}")
++
++
++def check_json_depth(text):
++    depth = 0
++    in_string = False
++    escaped = False
++    for char in text:
++        if in_string:
++            if escaped:
++                escaped = False
++            elif char == "\\":
++                escaped = True
++            elif char == '"':
++                in_string = False
++        elif char == '"':
++            in_string = True
++        elif char in "[{":
++            depth += 1
++            require(depth <= MAX_JSON_DEPTH, "JSON nesting is too deep")
++        elif char in "]}":
++            require(depth > 0, "unexpected JSON closing delimiter")
++            depth -= 1
++
++
++def load_json(path):
++    with path.open("rb") as stream:
++        data = stream.read(MAX_BYTES + 1)
++    require(len(data) <= MAX_BYTES, f"JSON input exceeds {MAX_BYTES} bytes")
++    text = data.decode("utf-8-sig")
++    check_json_depth(text)
++    return json.loads(text, object_pairs_hook=object_pairs, parse_constant=invalid_constant)
++
++
++def mapping(value, name):
++    require(isinstance(value, dict), f"{name} must be an object")
++    return value
++
++
++def sequence(value, name, low, high):
++    require(isinstance(value, list) and low <= len(value) <= high,
++            f"{name} must have {low} to {high} rows")
++    return value
++
++
++def field_id(obj, key):
++    value = obj.get(key)
++    require(isinstance(value, str) and IDENTIFIER.fullmatch(value), f"invalid {key}")
++    return value
++
++
++def uint(obj, key, low=0, high=MAX_TICK):
++    value = obj.get(key)
++    require(type(value) is int and low <= value <= high, f"invalid {key}")
++    return value
++
++
++def finite(obj, key):
++    value = obj.get(key)
++    require(type(value) in (int, float) and -1e8 <= value <= 1e8, f"invalid {key}")
++    return value
++
++
++def positive(obj, key):
++    value = finite(obj, key)
++    require(value > 0, f"{key} must be positive")
++    return value
++
++
++def unique_ids(rows, key):
++    items = [field_id(mapping(row, key), key) for row in rows]
++    require(len(items) == len(set(items)), f"duplicate {key}")
++    return items
++
++
++def authored_attack_reach(value, name):
++    reaches = mapping(value, name)
++    require(reaches and set(reaches) <= set(ATTACK_LIMIT_BY_KIND),
++            f"{name} needs at least one known attack kind")
++    return {kind: positive(reaches, kind) for kind in reaches}
++
++
++def read_plan(plan):
++    mapping(plan, "authored plan")
++    tunnels = sequence(plan.get("tunnels"), "tunnels", 3, 3)
++    tunnel_ids = unique_ids(tunnels, "id")
++    unique_ids(tunnels, "portal")
++    unique_ids(tunnels, "blocker")
++    waves = sequence(plan.get("waves"), "waves", 1, MAX_WAVES)
++    wave_ids = unique_ids(waves, "id")
++    wave_specs = {}
++    for wave_id, wave in zip(wave_ids, waves, strict=True):
++        routes = sequence(wave.get("tunnels"), f"{wave_id} tunnels", 1, 3)
++        require(
++            all(isinstance(route, str) and route in tunnel_ids for route in routes)
++            and len(routes) == len(set(routes)),
++            f"invalid authored routes for wave {wave_id}",
++        )
++        wave_specs[wave_id] = (
++            uint(wave, "max_spawns", 1, 65535), frozenset(routes), uint(wave, "delay_ticks"),
++        )
++    limits = mapping(plan.get("limits"), "limits")
++    require(set(limits) == LIMIT_FIELDS, "authored limits are incomplete or unknown")
++    for key in LIMIT_FIELDS:
++        uint(limits, key, 1)
++    active_limit = limits["max_active_attacks"]
++    require(
++        active_limit <= limits["max_alive_raiders"] <= MAX_RAIDERS
++        and limits["max_airborne_attacks"] <= active_limit
++        and limits["max_attack_starts_per_tick"] <= active_limit
++        and all(limits[key] <= active_limit for key in ATTACK_LIMIT_BY_KIND.values()),
++        "inconsistent attack or raider limits",
++    )
++    require(limits["min_telegraph_ticks"] < limits["max_attack_ticks"],
++            "telegraph must end before attack expiry")
++    giant = mapping(plan.get("giant"), "Giant specification")
++    body = field_id(giant, "body_ref")
++    require(":" in body, "Giant body must be a catalog ID")
++    return (
++        dict(zip(tunnel_ids, tunnels, strict=True)),
++        wave_specs,
++        limits,
++        (body, field_id(giant, "spawn_pad"), field_id(giant, "room")),
++        {
++            "raider": authored_attack_reach(plan.get("raider_attack_reach"), "raider attack reach"),
++            "giant": authored_attack_reach(giant.get("attack_reach"), "Giant attack reach"),
++        },
++    )
++
++
++@dataclass
++class Actor:
++    generation: int
++    role: str
++    radius: float
++    height: float
++    scale: float
++    health: float
++    spawned_tick: int
++
++
++@dataclass
++class Attack:
++    actor: str
++    generation: int
++    target: str
++    target_generation: int
++    kind: str
++    start_tick: int
++    launch_support: str | None
++    hit: bool = False
++
++
++class EncounterReplay:
++    def __init__(self, trace):
++        self.level = field_id(trace, "level_id")
++        self.scenario = field_id(trace, "scenario_id")
++        self.epoch = uint(trace, "stage_epoch", 1, MAX_GENERATION)
++        self.tunnels, self.waves, self.limits, self.giant_source, self.attack_reach = read_plan(trace.get("plan"))
++        self.wave_order = iter(self.waves)
++        self.current_wave = None
++        self.wave_spawns = 0
++        self.waves_finished = 0
++        self.wave_clock_start = 0
++        self.last_spawn_tick = None
++        self.closed = set()
++        self.closed_tick = {}
++        self.players = {}
++        self.player_generations = {}
++        self.open_crossings = Counter()
++        self.blocked_crossings = Counter()
++        self.actors = {}
++        self.generations = {}
++        self.attacks = {}
++        self.attackers = set()
++        self.active_kinds = Counter()
++        self.attack_start_tick = -1
++        self.starts_this_tick = 0
++        self.attack_ids = set()
++        self.last_attack = {}
++        self.raider_sizes = (0, 0, 0)
++        self.landings = set()
++        self.ceiling_drop_landed = False
++        self.hits = 0
++        self.raider_player_kills = 0
++        self.finale = False
++        self.giant = None
++        self.giant_attacked = False
++        self.giant_defeated = False
++        self.complete = False
++        self.tick = 0
++
++    def live_actor(self, row):
++        key = field_id(row, "actor")
++        generation = uint(row, "generation", 1, MAX_GENERATION)
++        actor = self.actors.get(key)
++        require(actor is not None and actor.generation == generation,
++                f"stale or absent actor {key} generation {generation}")
++        return key, actor
++
++    def spawn(self, row, role, health):
++        key = field_id(row, "actor")
++        generation = uint(row, "generation", 1, MAX_GENERATION)
++        require(key not in self.actors and generation > self.generations.get(key, 0),
++                f"duplicate or stale spawn {key} generation {generation}")
++        actor = Actor(generation, role, positive(row, "radius"), positive(row, "height"),
++                      positive(row, "scale"), health, self.tick)
++        require(actor.height >= 2 * actor.radius, "actor height cannot contain its capsule radius")
++        self.actors[key] = actor
++        self.generations[key] = generation
++        return key, actor
++
++    def encounter_start(self, row):
++        require(row.get("authority") in ("local", "listen_host"),
++                "trace must come from the local or listen-host authority")
++        require(row.get("level_id") == self.level and row.get("scenario_id") == self.scenario,
++                "runtime encounter identity differs from the trace envelope")
++        self.wave_clock_start = self.tick
++
++    def player_spawn(self, row):
++        key = field_id(row, "player")
++        generation = uint(row, "player_generation", 1, MAX_GENERATION)
++        require(key not in self.players and generation > self.player_generations.get(key, 0),
++                "duplicate or stale player incarnation")
++        self.players[key] = generation
++        self.player_generations[key] = generation
++
++    def require_live_player(self, row, key_field, generation_field):
++        key = field_id(row, key_field)
++        generation = uint(row, generation_field, 1, MAX_GENERATION)
++        require(self.players.get(key) == generation, "observed player generation is absent or stale")
++
++    def player_death(self, row):
++        self.require_live_player(row, "player", "player_generation")
++        del self.players[row["player"]]
++
++    def wave_start(self, row):
++        require(not self.finale and len(self.closed) < 3 and self.current_wave is None and not self.actors,
++                "wave started after closure or before the prior wave drained")
++        wave = field_id(row, "wave")
++        require(wave == next(self.wave_order, None), "wave started outside the authored order")
++        _, _, delay_ticks = self.waves[wave]
++        require(self.tick >= min(MAX_TICK, self.wave_clock_start + delay_ticks),
++                "authored wave delay was skipped")
++        self.current_wave = wave
++        self.wave_spawns = 0
++
++    def wave_end(self, row):
++        require(field_id(row, "wave") == self.current_wave, "wave ended out of order")
++        reason = row.get("reason")
++        max_spawns, routes, _ = self.waves[self.current_wave]
++        if reason == "all_tunnels_closed":
++            require(len(self.closed) == 3, "wave cancelled before all tunnels closed")
++        elif reason == "routes_closed":
++            require(routes <= self.closed and not self.actors,
++                    "a wave with no open routes must drain before advancing")
++        else:
++            require(reason == "finished", "unknown wave end reason")
++            require(self.wave_spawns == max_spawns and not self.actors,
++                    "wave finished before its spawn budget and raider drain")
++        self.current_wave = None
++        self.wave_clock_start = self.tick
++        self.waves_finished += 1
++
++    def raider_spawn(self, row):
++        tunnel = field_id(row, "tunnel")
++        require(tunnel in self.tunnels and tunnel not in self.closed, "raider spawned through a closed or unknown tunnel")
++        require(not self.finale and field_id(row, "wave") == self.current_wave, "raider spawned outside its active wave")
++        max_spawns, routes, _ = self.waves[self.current_wave]
++        require(tunnel in routes, "spawn route is outside the authored wave")
++        require(self.wave_spawns < max_spawns, "authored wave spawn budget exceeded")
++        require(len(self.actors) < self.limits["max_alive_raiders"],
++                "active raider limit exceeded")
++        require(self.last_spawn_tick is None or (
++            self.tick - self.last_spawn_tick >= self.limits["spawn_interval_ticks"]),
++            "spawn interval was skipped")
++        _, actor = self.spawn(row, "raider", 0)
++        self.raider_sizes = tuple(max(a, b) for a, b in zip(
++            self.raider_sizes, (actor.radius, actor.height, actor.scale), strict=True))
++        self.last_spawn_tick = self.tick
++        self.wave_spawns += 1
++
++    def tunnel(self, row):
++        tunnel = field_id(row, "tunnel")
++        require(tunnel in self.tunnels, f"unknown tunnel {tunnel}")
++        authored = self.tunnels[tunnel]
++        require(field_id(row, "portal") == authored["portal"], f"portal differs for tunnel {tunnel}")
++        return tunnel, authored
++
++    def tunnel_close(self, row):
++        tunnel, authored = self.tunnel(row)
++        require(tunnel not in self.closed and not self.finale, f"duplicate or late closure for {tunnel}")
++        require(row.get("source") == "player_interact", "closure must follow normal player input")
++        self.require_live_player(row, "player", "player_generation")
++        require(field_id(row, "blocker") == authored["blocker"], f"wrong closure blocker for {tunnel}")
++        require(row.get("collision_enabled") is True, "closure lacks committed blocker collision")
++        self.closed.add(tunnel)
++        self.closed_tick[tunnel] = self.tick
++
++    def tunnel_passage(self, row):
++        tunnel, authored = self.tunnel(row)
++        _, actor = self.live_actor(row)
++        require(actor.role == "raider", "tunnel passage witness must be a live raider")
++        start = finite(row, "start_side")
++        desired = finite(row, "requested_side")
++        resolved = finite(row, "resolved_side")
++        # An episode may accumulate several logged native sweeps. Its capsule
++        # extent along the portal normal is radius plus projected half-segment.
++        episode_start = uint(row, "episode_start_tick", actor.spawned_tick, self.tick)
++        uint(row, "sweep_count", 1, self.tick - episode_start + 1)
++        axes = tuple(abs(finite(row, f"{endpoint}_axis_dot")) for endpoint in ("start", "requested", "resolved"))
++        require(all(dot <= 1 for dot in axes), "capsule axis projection is outside [-1, 1]")
++        half_segment = actor.height * 0.5 - actor.radius
++        start_extent, desired_extent, resolved_extent = (
++            actor.radius + half_segment * dot for dot in axes
++        )
++        require(start <= -start_extent and desired >= desired_extent,
++                "passage episode must request an exterior-to-interior capsule crossing")
++        if tunnel in self.closed:
++            require(episode_start >= self.closed_tick[tunnel], "blocked episode started before closure")
++            require(
++                resolved <= -resolved_extent and row.get("hit_blocker") == authored["blocker"],
++                f"closed tunnel {tunnel} admitted a body or lacks its blocker collision",
++            )
++            self.blocked_crossings[tunnel] += 1
++        else:
++            require(resolved >= resolved_extent and row.get("hit_blocker") is None,
++                    f"open tunnel {tunnel} lacks a completed body crossing")
++            self.open_crossings[tunnel] += 1
++
++    def check_target(self, row, role, kind):
++        require(uint(row, "target_check_tick") == self.tick and row.get("target_alive") is True
++                and row.get("line_of_sight") is True and row.get("hostile") is True,
++                "attack lacks a fresh live hostile position and line of sight")
++        self.require_live_player(row, "target", "target_generation")
++        reaches = self.attack_reach[role]
++        reach = positive(row, "validated_reach")
++        require(kind in reaches and reach <= reaches[kind], "reported reach exceeded the authored attack limit")
++        require(0 <= finite(row, "distance") <= reach, "attack exceeded its validated reach")
++
++    def attack_start(self, row):
++        key, actor = self.live_actor(row)
++        require(key not in self.attackers,
++                "actor started a second active attack")
++        previous = self.last_attack.get((key, actor.generation))
++        require(previous is None or self.tick - previous >= self.limits["min_attack_cooldown_ticks"],
++                "per-actor attack cooldown violated")
++        attack_id = uint(row, "attack_id", 1)
++        require(attack_id not in self.attack_ids, "duplicate attack identity")
++        target = field_id(row, "target")
++        target_generation = uint(row, "target_generation", 1, MAX_GENERATION)
++        require(target != key, "actor selected itself as a target")
++        kind = row.get("kind")
++        require(isinstance(kind, str) and kind in ATTACK_LIMIT_BY_KIND, "unknown attack kind")
++        self.check_target(row, actor.role, kind)
++        require(len(self.attacks) < self.limits["max_active_attacks"], "active attack limit exceeded")
++        if kind in ("jump", "drop"):
++            require(self.active_kinds["jump"] + self.active_kinds["drop"] < self.limits["max_airborne_attacks"],
++                    "airborne attack limit exceeded")
++        require(self.active_kinds[kind] < self.limits[ATTACK_LIMIT_BY_KIND[kind]],
++                f"concurrent {kind} limit exceeded")
++        if self.tick != self.attack_start_tick:
++            self.attack_start_tick = self.tick
++            self.starts_this_tick = 0
++        require(self.starts_this_tick < self.limits["max_attack_starts_per_tick"],
++                "per-tick attack start limit exceeded")
++        launch_support = row.get("launch_support")
++        if kind == "drop":
++            require(launch_support in ("wall", "ceiling"), "drop lacks a valid elevated support")
++        self.attack_ids.add(attack_id)
++        self.last_attack[(key, actor.generation)] = self.tick
++        self.attacks[attack_id] = Attack(key, actor.generation, target, target_generation, kind, self.tick, launch_support)
++        self.attackers.add(key)
++        self.active_kinds[kind] += 1
++        self.starts_this_tick += 1
++
++    def active_attack(self, row):
++        key, actor = self.live_actor(row)
++        attack_id = uint(row, "attack_id", 1)
++        attack = self.attacks.get(attack_id)
++        require(attack is not None and (attack.actor, attack.generation) == (key, actor.generation),
++                "attack result lacks a matching live actor and attack")
++        return attack_id, attack
++
++    def attack_hit(self, row):
++        _, attack = self.active_attack(row)
++        require(not attack.hit, "attack registered duplicate damage")
++        age = self.tick - attack.start_tick
++        require(self.limits["min_telegraph_ticks"] <= age, "attack impact arrived before its configured telegraph")
++        require(age < self.limits["max_attack_ticks"], "attack impact exceeded its duration limit")
++        require(field_id(row, "target") == attack.target
++                and uint(row, "target_generation", 1, MAX_GENERATION) == attack.target_generation,
++                "attack hit stale or different target identity")
++        self.check_target(row, self.actors[attack.actor].role, attack.kind)
++        positive(row, "amount")
++        attack.hit = True
++        if (attack.actor, attack.generation) == self.giant:
++            self.giant_attacked = True
++        self.hits += 1
++
++    def attack_end(self, row):
++        attack_id, attack = self.active_attack(row)
++        result = row.get("result")
++        if attack.kind in ("jump", "drop"):
++            require(result in ("landed", "cancelled"), "airborne attack has no terminal transition")
++            if result == "landed":
++                require(self.tick > attack.start_tick, "airborne attack landed at its start tick")
++                self.landings.add(attack.kind)
++                if attack.kind == "drop" and attack.launch_support == "ceiling":
++                    self.ceiling_drop_landed = True
++        else:
++            require(result in ("resolved", "cancelled"), "attack has no terminal transition")
++        del self.attacks[attack_id]
++        self.attackers.remove(attack.actor)
++        self.active_kinds[attack.kind] -= 1
++
++    def actor_death(self, row):
++        key, actor = self.live_actor(row)
++        cause = row.get("cause")
++        require(cause in ("player_weapon", "native_environment"), "actor death bypassed combat")
++        require(key not in self.attackers, "actor retired with a live attack")
++        if actor.role == "giant":
++            require(cause == "player_weapon" and actor.health == 0 and self.giant_attacked,
++                    "Giant death lacks combat and zero health")
++            self.giant_defeated = True
++        elif cause == "player_weapon":
++            self.raider_player_kills += 1
++        del self.actors[key]
++
++    def finale_start(self, row):
++        require(not self.finale and len(self.closed) == 3 and self.current_wave is None
++                and self.waves_finished > 0 and not self.actors and not self.attacks,
++                "finale began before three closures and raider drain")
++        self.finale = True
++
++    def giant_spawn(self, row):
++        require(self.finale and self.giant is None, "Giant spawned early or more than once")
++        require(
++            tuple(field_id(row, field) for field in ("body_ref", "spawn_pad", "room")) == self.giant_source,
++            "Giant body or spawn differs from the authored catalog source",
++        )
++        health = positive(row, "health")
++        key, actor = self.spawn(row, "giant", health)
++        require(all(actual > normal for actual, normal in zip(
++            (actor.radius, actor.height, actor.scale), self.raider_sizes, strict=True)),
++            "Giant collider and model scale must exceed the raider envelope")
++        require(positive(row, "clearance_radius") >= actor.radius
++                and positive(row, "clearance_height") >= actor.height,
++                "Giant spawn clearance is smaller than its scaled collider")
++        self.giant = (key, actor.generation)
++
++    def giant_damage(self, row):
++        key, actor = self.live_actor(row)
++        require(self.giant == (key, actor.generation) and actor.health > 0
++                and row.get("source") == "player_weapon", "Giant damage bypassed live player combat")
++        self.require_live_player(row, "player", "player_generation")
++        remaining = max(0.0, actor.health - positive(row, "amount"))
++        require(math.isclose(finite(row, "remaining_health"), remaining, abs_tol=1e-4),
++                "Giant health does not match damage taken")
++        actor.health = remaining
++
++    def encounter_complete(self, row):
++        require(row.get("result") == "victory" and self.giant_defeated
++                and not self.actors and not self.attacks, "encounter completed before Giant defeat")
++        self.complete = True
++
++    def run(self, rows):
++        handlers = {
++            "encounter_start": self.encounter_start,
++            "player_spawn": self.player_spawn,
++            "player_death": self.player_death,
++            "wave_start": self.wave_start,
++            "wave_end": self.wave_end,
++            "raider_spawn": self.raider_spawn,
++            "tunnel_close": self.tunnel_close,
++            "tunnel_passage": self.tunnel_passage,
++            "attack_start": self.attack_start,
++            "attack_hit": self.attack_hit,
++            "attack_end": self.attack_end,
++            "actor_death": self.actor_death,
++            "finale_start": self.finale_start,
++            "giant_spawn": self.giant_spawn,
++            "giant_damage": self.giant_damage,
++            "encounter_complete": self.encounter_complete,
++        }
++        for ordinal, row in enumerate(sequence(rows, "events", 1, MAX_EVENTS), 1):
++            try:
++                mapping(row, "event")
++                require(uint(row, "seq", 1) == ordinal, "event sequence is missing or reordered")
++                require(uint(row, "stage_epoch", 1, MAX_GENERATION) == self.epoch,
++                        "event belongs to a stale stage epoch")
++                tick = uint(row, "tick")
++                require(tick >= self.tick and not self.complete, "tick regressed or arrived after completion")
++                self.tick = tick
++                oldest = next(iter(self.attacks.values()), None)
++                require(oldest is None or tick - oldest.start_tick <= self.limits["max_attack_ticks"],
++                        "active attack exceeded its duration limit")
++                kind = field_id(row, "type")
++                require((ordinal == 1) == (kind == "encounter_start"), "encounter start is missing or repeated")
++                require(kind in handlers, f"unknown event {kind}")
++                handlers[kind](row)
++            except ContractError as exc:
++                raise ContractError(f"event {ordinal}: {exc}") from exc
++
++        require(self.complete, "natural victory and terminal encounter result missing")
++        require(set(self.open_crossings) == set(self.tunnels), "missing open body crossing for a tunnel")
++        require(set(self.blocked_crossings) == set(self.tunnels), "missing blocked swept-body witness for a tunnel")
++        require(self.raider_player_kills > 0, "missing a raider defeated in player combat")
++        require("jump" in self.landings and self.ceiling_drop_landed,
++                "missing a completed jump or ceiling drop")
++        require(self.hits > 0, "missing a validated attack impact")
++        return {
++            "stage_epoch": self.epoch,
++            "tunnels_open_crossed": dict(self.open_crossings),
++            "tunnels_closed_blocked": dict(self.blocked_crossings),
++            "waves_finished": self.waves_finished,
++            "raider_player_kills": self.raider_player_kills,
++            "airborne_landings": sorted(self.landings),
++            "validated_attack_hits": self.hits,
++            "giant_actor": list(self.giant),
++        }
++
++
++def verify_matrix(matrix):
++    mapping(matrix, "acceptance matrix")
++    require(type(matrix.get("schema")) is int and matrix["schema"] == 1, "unsupported matrix schema")
++    cases = sequence(matrix.get("cases"), "acceptance cases",
++                     len(TRACE_CASES) + len(EXTERNAL_CASES), len(TRACE_CASES) + len(EXTERNAL_CASES))
++    ids = unique_ids(cases, "id")
++    require(set(ids) == TRACE_CASES | EXTERNAL_CASES, "acceptance matrix coverage differs")
++    for case in cases:
++        source = "trace" if case["id"] in TRACE_CASES else "native_evidence"
++        require(case.get("source") == source, f"case {case['id']} has wrong evidence source")
++        for key in ("run", "retain", "accept"):
++            require(isinstance(case.get(key), str) and case[key].strip(),
++                    f"case {case['id']} lacks {key}")
++    return cases
++
++
++def verify(trace, matrix, *, native_candidate=False):
++    cases = verify_matrix(matrix)
++    mapping(trace, "encounter trace")
++    require(type(trace.get("schema")) is int and trace["schema"] == 1, "unsupported trace schema")
++    origin = trace.get("origin")
++    require(origin in ("synthetic", "native_candidate"), "trace origin must be explicit")
++    if native_candidate:
++        require(origin == "native_candidate", "synthetic trace cannot enter the native evidence route")
++    if origin == "native_candidate":
++        provenance = mapping(trace.get("provenance"), "native provenance record")
++        for key in PROVENANCE_FIELDS:
++            value = provenance.get(key)
++            require(isinstance(value, str) and SHA256.fullmatch(value), f"invalid native provenance digest {key}")
++        field_id(provenance, "run_id")
++        field_id(provenance, "queue_id")
++    summary = EncounterReplay(trace).run(trace.get("events"))
++    return {
++        "verdict": "contract_pass",
++        "origin": origin,
++        "native_qualification": "unverified",
++        "native_gameplay_verified": False,
++        "trace_summary": summary,
++        "cases": [
++            {
++                "id": case["id"],
++                "verdict": "contract_pass" if case["source"] == "trace" else "requires_native_evidence",
++            }
++            for case in cases
++        ],
++    }
++
++
++def main():
++    parser = argparse.ArgumentParser(description=__doc__)
++    parser.add_argument("trace", type=Path)
++    parser.add_argument("--matrix", type=Path, default=Path(__file__).with_name("fixtures")
++                        / "skedar_swarm_encounter_acceptance.json")
++    parser.add_argument("--native-candidate", action="store_true",
++                        help="Require native candidate provenance fields for later independent evidence review")
++    options = parser.parse_args()
++    try:
++        result = verify(load_json(options.trace), load_json(options.matrix),
++                        native_candidate=options.native_candidate)
++    except (OSError, ValueError, OverflowError) as error:
++        print(json.dumps({"verdict": "invalid_input", "reason": str(error),
++                          "native_gameplay_verified": False}))
++        return 1
++    print(json.dumps(result, indent=2))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+diff --git a/tools/smoke-verify/test_verify_skedar_swarm_encounter.py b/tools/smoke-verify/test_verify_skedar_swarm_encounter.py
+new file mode 100644
+--- /dev/null
++++ b/tools/smoke-verify/test_verify_skedar_swarm_encounter.py
+@@ -0,0 +1,398 @@
++"""Synthetic tests for the offline Skedar encounter trace contract."""
++from copy import deepcopy
++import io
++import json
++from pathlib import Path
++import unittest
++
++from verify_skedar_swarm_encounter import ContractError, MAX_JSON_DEPTH, load_json, verify
++
++MATRIX_PATH = Path(__file__).with_name("fixtures") / "skedar_swarm_encounter_acceptance.json"
++MATRIX = load_json(MATRIX_PATH)
++EPOCH = 17
++
++
++def trace():
++    events = []
++
++    def event(event_type, tick, **fields):
++        events.append(dict(type=event_type, tick=tick, stage_epoch=EPOCH, **fields))
++
++    def spawn(actor, tick, tunnel, wave):
++        event("raider_spawn", tick, actor=actor, generation=1, wave=wave,
++              tunnel=tunnel, radius=15, height=80, scale=0.5)
++
++    def passage(actor, tick, tunnel, blocked=False):
++        event("tunnel_passage", tick, actor=actor, generation=1, tunnel=tunnel,
++              portal=f"portal-{tunnel}", start_side=-80, requested_side=80,
++              episode_start_tick=tick, sweep_count=1, start_axis_dot=0,
++              requested_axis_dot=0, resolved_axis_dot=0,
++              resolved_side=-15 if blocked else 80,
++              hit_blocker=f"gate-{tunnel}" if blocked else None)
++
++    def target_witness(tick):
++        return dict(target="player", target_generation=2, target_check_tick=tick,
++                    target_alive=True, line_of_sight=True, hostile=True, distance=33,
++                    validated_reach=50)
++
++    def start_attack(actor, tick, attack_id, kind, **fields):
++        event("attack_start", tick, actor=actor, generation=1, attack_id=attack_id,
++              kind=kind, **target_witness(tick), **fields)
++
++    def hit(actor, tick, attack_id):
++        event("attack_hit", tick, actor=actor, generation=1, attack_id=attack_id,
++              amount=4, **target_witness(tick))
++
++    event("encounter_start", 0, level_id="original:skedar_defense",
++          scenario_id="original:tunnel_scenario", authority="local")
++    event("player_spawn", 0, player="player", player_generation=2)
++    event("wave_start", 0, wave="scouts")
++    spawn("scout", 0, "north", "scouts")
++    event("actor_death", 1, actor="scout", generation=1, cause="player_weapon")
++    event("wave_end", 1, wave="scouts", reason="finished")
++    event("wave_start", 2, wave="assault")
++    spawn("raider-1", 2, "north", "assault")
++    spawn("raider-2", 3, "center", "assault")
++    spawn("raider-3", 5, "east", "assault")
++    passage("raider-1", 6, "north")
++    passage("raider-2", 6, "center")
++    passage("raider-3", 6, "east")
++    start_attack("raider-1", 7, 1, "jump")
++    start_attack("raider-2", 7, 2, "drop", launch_support="ceiling")
++    hit("raider-1", 9, 1)
++    event("attack_end", 10, actor="raider-1", generation=1, attack_id=1, result="landed")
++    event("attack_end", 10, actor="raider-2", generation=1, attack_id=2, result="landed")
++    for index, tunnel in enumerate(("north", "center", "east"), 1):
++        tick = 10 + index
++        event("tunnel_close", tick, tunnel=tunnel, portal=f"portal-{tunnel}",
++              blocker=f"gate-{tunnel}", source="player_interact", collision_enabled=True,
++              player="player", player_generation=2)
++        passage(f"raider-{index}", tick, tunnel, blocked=True)
++    event("wave_end", 14, wave="assault", reason="all_tunnels_closed")
++    for index in range(1, 4):
++        event("actor_death", 14 + index, actor=f"raider-{index}", generation=1, cause="player_weapon")
++    event("finale_start", 18)
++    event("giant_spawn", 19, actor="giant", generation=1, body_ref="base:sp_body_147", spawn_pad="giant-pad", room="arena",
++          radius=50, height=240, scale=2.0, clearance_radius=60, clearance_height=290, health=50)
++    start_attack("giant", 20, 3, "melee")
++    event("giant_damage", 21, actor="giant", generation=1, source="player_weapon", player="player", player_generation=2,
++          amount=30, remaining_health=20)
++    hit("giant", 22, 3)
++    event("attack_end", 23, actor="giant", generation=1, attack_id=3, result="resolved")
++    event("giant_damage", 24, actor="giant", generation=1, source="player_weapon", player="player", player_generation=2,
++          amount=21, remaining_health=0)
++    event("actor_death", 25, actor="giant", generation=1, cause="player_weapon")
++    event("encounter_complete", 26, result="victory")
++    result = {
++        "schema": 1,
++        "origin": "synthetic",
++        "level_id": "original:skedar_defense",
++        "scenario_id": "original:tunnel_scenario",
++        "stage_epoch": EPOCH,
++        "events": events,
++        "plan": {
++            "tunnels": [dict(id=name, portal=f"portal-{name}", blocker=f"gate-{name}")
++                        for name in ("north", "center", "east")],
++            "waves": [
++                dict(id="scouts", max_spawns=1, tunnels=["north"], delay_ticks=0),
++                dict(id="assault", max_spawns=4, tunnels=["north", "center", "east"], delay_ticks=1),
++            ],
++            "limits": {
++                "max_alive_raiders": 3,
++                "spawn_interval_ticks": 1,
++                "max_active_attacks": 2,
++                "max_attack_starts_per_tick": 2,
++                "max_airborne_attacks": 2,
++                "max_melee": 1,
++                "max_jumps": 1,
++                "max_drops": 1,
++                "max_attack_ticks": 8,
++                "min_attack_cooldown_ticks": 9,
++                "min_telegraph_ticks": 2,
++            },
++            "raider_attack_reach": {"melee": 50, "jump": 50, "drop": 50},
++            "giant": {"body_ref": "base:sp_body_147", "spawn_pad": "giant-pad", "room": "arena",
++                      "attack_reach": {"melee": 65}},
++        },
++    }
++    return resequence(result)
++
++
++def resequence(result):
++    for number, event in enumerate(result["events"], 1):
++        event["seq"] = number
++    return result
++
++
++def select(result, kind, occurrence=0):
++    return [event for event in result["events"] if event["type"] == kind][occurrence]
++
++
++def remove(result, kind, occurrence=0):
++    result["events"].remove(select(result, kind, occurrence))
++    return resequence(result)
++
++
++def after(result, anchor, event):
++    result["events"].insert(result["events"].index(anchor) + 1, event)
++    return resequence(result)
++
++
++def candidate(result):
++    result["origin"] = "native_candidate"
++    result["provenance"] = {
++        **{f"{name}_sha256": "0" * 64 for name in (
++            "source_tree", "client", "public_level", "public_scenario", "fixture",
++            "native_log", "managed_recipe")},
++        "run_id": "synthetic-provenance-shape",
++        "queue_id": "q_synthetic",
++    }
++    return result
++
++
++class BoundedInput:
++    def __init__(self, payload):
++        self.payload = payload
++
++    def open(self, mode):
++        assert mode == "rb"
++        return io.BytesIO(self.payload)
++
++
++class EncounterContractTests(unittest.TestCase):
++    def reject(self, reason, mutate):
++        result = trace()
++        mutate(result)
++        with self.assertRaisesRegex(ContractError, reason):
++            verify(result, MATRIX)
++
++    def test_complete_replays_only_semantics(self):
++        verified = verify(trace(), MATRIX)
++        self.assertEqual(verified["verdict"], "contract_pass")
++        self.assertEqual(verified["native_qualification"], "unverified")
++        self.assertFalse(verified["native_gameplay_verified"])
++        self.assertEqual(verified["trace_summary"]["airborne_landings"], ["drop", "jump"])
++        self.assertEqual(verified["trace_summary"]["waves_finished"], 2)
++        self.assertEqual(set(verified["trace_summary"]["tunnels_closed_blocked"]), {"north", "center", "east"})
++        self.assertEqual(sum(row["verdict"] == "requires_native_evidence" for row in verified["cases"]), 10)
++
++    def test_synthetic_cannot_enter_native_route(self):
++        with self.assertRaisesRegex(ContractError, "synthetic trace"):
++            verify(trace(), MATRIX, native_candidate=True)
++
++    def test_native_shape_never_certifies_native_run(self):
++        result = verify(candidate(trace()), MATRIX, native_candidate=True)
++        self.assertEqual(result["native_qualification"], "unverified")
++        self.assertFalse(result["native_gameplay_verified"])
++
++    def test_native_shape_without_receipts_rejected(self):
++        result = trace()
++        result["origin"] = "native_candidate"
++        with self.assertRaisesRegex(ContractError, "native provenance"):
++            verify(result, MATRIX)
++
++    def test_matrix_cannot_omit_native_case(self):
++        copied = deepcopy(MATRIX)
++        copied["cases"].pop()
++        with self.assertRaisesRegex(ContractError, "acceptance cases"):
++            verify(trace(), copied)
++
++    def test_same_blocker_cannot_close_distinct_tunnels(self):
++        def duplicate(result):
++            rows = result["plan"]["tunnels"]
++            rows[1]["blocker"] = rows[0]["blocker"]
++        self.reject("duplicate blocker", duplicate)
++
++    def test_wrong_portal_rejected(self):
++        self.reject("portal differs", lambda result: select(result, "tunnel_close").update(portal="portal-east"))
++
++    def test_direct_objective_shortcut_rejected(self):
++        self.reject("normal player input", lambda result: select(result, "tunnel_close").update(source="use_door"))
++
++    def test_closed_route_body_penetration_rejected(self):
++        self.reject("admitted a body", lambda result: select(result, "tunnel_passage", 3).update(resolved_side=-14))
++
++    def test_closed_route_wrong_collider_rejected(self):
++        self.reject("blocker collision", lambda result: select(result, "tunnel_passage", 3).update(hit_blocker="gate-east"))
++
++    def test_undersized_open_crossing_rejected(self):
++        self.reject("open tunnel", lambda result: select(result, "tunnel_passage").update(resolved_side=14))
++
++    def test_missing_blocked_route_witness(self):
++        self.reject("missing blocked", lambda result: remove(result, "tunnel_passage", 3))
++
++    def test_wave_cannot_spawn_through_closed_tunnel(self):
++        def append_spawn(result):
++            close = select(result, "tunnel_close")
++            spawn = dict(select(result, "raider_spawn", 2), tick=close["tick"], tunnel="north",
++                         actor="unexpected-raider")
++            after(result, close, spawn)
++        self.reject("closed or unknown", append_spawn)
++
++    def test_wave_cannot_spawn_worker_on_unassigned_route(self):
++        self.reject("outside the authored wave", lambda result: select(result, "raider_spawn").update(tunnel="center"))
++
++    def test_spawn_budget_is_checked(self):
++        self.reject("wave spawn budget", lambda result: result["plan"]["waves"][1].update(max_spawns=2))
++
++    def test_spawn_spacing_is_checked(self):
++        self.reject("spawn interval", lambda result: select(result, "raider_spawn", 2).update(tick=2))
++
++    def test_wave_cannot_advance_before_drain(self):
++        self.reject("spawn budget and raider drain", lambda result: remove(result, "actor_death"))
++
++    def test_authored_wave_delay_is_checked(self):
++        self.reject("wave delay", lambda result: result["plan"]["waves"][1].update(delay_ticks=2))
++
++    def test_population_bound_is_checked(self):
++        self.reject("raider limit", lambda result: result["plan"]["limits"].update(max_alive_raiders=2))
++
++    def test_early_finale_cannot_skip_surviving_raiders(self):
++        def move_finale(result):
++            finale = select(result, "finale_start")
++            result["events"].remove(finale)
++            after(result, select(result, "wave_end", 1), dict(finale, tick=14))
++        self.reject("raider drain", move_finale)
++
++    def test_duplicate_giant_rejected(self):
++        def duplicate(result):
++            giant = select(result, "giant_spawn")
++            after(result, giant, dict(giant, actor="second-giant"))
++        self.reject("more than once", duplicate)
++
++    def test_closed_wall_aligned_capsule_needs_its_full_projected_extent(self):
++        self.reject("closed tunnel", lambda result: select(result, "tunnel_passage", 3).update(
++            resolved_axis_dot=1, resolved_side=-20))
++
++    def test_open_crossing_can_span_multiple_native_sweeps(self):
++        result = trace()
++        select(result, "tunnel_passage").update(episode_start_tick=2, sweep_count=5,
++                                             resolved_axis_dot=1, resolved_side=60)
++        self.assertEqual(verify(result, MATRIX)["verdict"], "contract_pass")
++
++    def test_closed_attempt_must_start_after_the_blocker_commits(self):
++        self.reject("before closure", lambda result: select(result, "tunnel_passage", 3).update(
++            episode_start_tick=10, sweep_count=2))
++
++    def test_impact_rejects_the_player_generation_after_independent_death(self):
++        def retire(result):
++            after(result, select(result, "attack_start", 1), dict(type="player_death",
++                  tick=8, stage_epoch=EPOCH, player="player", player_generation=2))
++        self.reject("player generation is absent or stale", retire)
++
++    def test_giant_spawn_must_match_authored_pad_and_room(self):
++        for change in ({"room": "different-room"}, {"spawn_pad": "different-pad"}):
++            with self.subTest(change=change):
++                self.reject("spawn differs", lambda result: select(result, "giant_spawn").update(change))
++
++    def test_attack_cannot_inflate_reach_past_its_authored_kind_and_role(self):
++        self.reject("authored attack limit", lambda result: select(result, "attack_hit").update(
++            validated_reach=500, distance=400))
++        self.reject("authored attack limit", lambda result: select(result, "attack_start", 2).update(
++            kind="jump"))
++
++    def test_a_wall_drop_alone_does_not_prove_a_ceiling_drop(self):
++        self.reject("completed jump or ceiling drop", lambda result: select(result, "attack_start", 1).update(
++            launch_support="wall"))
++
++    def test_giant_visual_only_scaling_rejected(self):
++        self.reject("collider and model scale", lambda result: select(result, "giant_spawn").update(radius=15))
++
++    def test_giant_must_fit_at_spawn(self):
++        self.reject("spawn clearance", lambda result: select(result, "giant_spawn").update(clearance_height=200))
++
++    def test_giant_damage_shortcut_rejected(self):
++        self.reject("bypassed live player combat", lambda result: select(result, "giant_damage").update(source="debug_kill"))
++
++    def test_giant_health_must_follow_damage(self):
++        self.reject("health does not match", lambda result: select(result, "giant_damage").update(remaining_health=1))
++
++    def test_attack_checks_target_generation_age_range_and_los(self):
++        variants = [
++            ({"generation": 2}, "stale or absent actor"),
++            ({"target_generation": 3}, "stale or different target"),
++            ({"target_check_tick": 8}, "fresh live hostile"),
++            ({"target_alive": False}, "fresh live hostile"),
++            ({"line_of_sight": False}, "fresh live hostile"),
++            ({"hostile": False}, "fresh live hostile"),
++            ({"distance": 51}, "validated reach"),
++        ]
++        for changes, reason in variants:
++            with self.subTest(changes=changes):
++                self.reject(reason, lambda result: select(result, "attack_hit").update(changes))
++
++    def test_duplicate_hit_rejected(self):
++        def duplicate(result):
++            hit = select(result, "attack_hit")
++            after(result, hit, dict(hit))
++        self.reject("duplicate damage", duplicate)
++
++    def test_active_attack_cap_is_checked(self):
++        self.reject("active attack limit", lambda result: result["plan"]["limits"].update(
++            max_active_attacks=1, max_airborne_attacks=1, max_attack_starts_per_tick=1))
++
++    def test_attack_starts_per_tick_are_bounded(self):
++        self.reject("per-tick attack start limit", lambda result: result["plan"]["limits"].update(
++            max_attack_starts_per_tick=1))
++
++    def test_attack_needs_a_fresh_target_at_begin(self):
++        self.reject("fresh live hostile", lambda result: select(result, "attack_start").update(target_check_tick=6))
++
++    def test_airborne_and_kind_caps_are_checked(self):
++        self.reject("airborne attack limit", lambda result: result["plan"]["limits"].update(max_airborne_attacks=1))
++        self.reject("concurrent jump limit", lambda result: select(result, "attack_start", 1).update(kind="jump"))
++
++    def test_cooldown_between_attacks_is_checked(self):
++        def repeat(result):
++            end = select(result, "attack_end")
++            after(result, end, dict(select(result, "attack_start"), attack_id=90, tick=end["tick"],
++                                    target_check_tick=end["tick"]))
++        self.reject("cooldown violated", repeat)
++
++    def test_attack_lifetime_is_checked(self):
++        def late_end(result):
++            result["plan"]["limits"]["max_attack_ticks"] = 3
++            select(result, "attack_end", 0)["tick"] = 11
++            select(result, "attack_end", 1)["tick"] = 11
++        self.reject("duration limit", late_end)
++
++    def test_expired_attack_cannot_commit_damage(self):
++        def late_hit(result):
++            result["plan"]["limits"]["max_attack_ticks"] = 3
++            select(result, "attack_hit").update(tick=10, target_check_tick=10)
++        self.reject("impact exceeded its duration", late_hit)
++
++    def test_telegraph_required_at_damage(self):
++        def change_tick(result):
++            select(result, "attack_hit").update(tick=8, target_check_tick=8)
++        self.reject("before its configured telegraph", change_tick)
++
++    def test_stale_epoch_rejected(self):
++        self.reject("stale stage epoch", lambda result: select(result, "tunnel_close").update(stage_epoch=16))
++
++    def test_event_order_and_end_are_checked(self):
++        self.reject("missing or reordered", lambda result: select(result, "tunnel_close").update(seq=700))
++        self.reject("terminal encounter result", lambda result: remove(result, "encounter_complete"))
++
++    def test_loader_rejects_duplicates_and_non_json_constants(self):
++        with self.assertRaisesRegex(ContractError, "duplicate JSON field"):
++            load_json(BoundedInput(b'{"duplicate": 1, "duplicate": 2}'))
++        with self.assertRaisesRegex(ContractError, "invalid JSON constant"):
++            load_json(BoundedInput(b'{"number": NaN}'))
++
++    def test_loader_rejects_unbounded_inputs(self):
++        with self.assertRaisesRegex(ContractError, "exceeds"):
++            load_json(BoundedInput(b" " * (4 * 1024 * 1024 + 1)))
++        valid = b"[" * MAX_JSON_DEPTH + b"]" * MAX_JSON_DEPTH
++        self.assertIsInstance(load_json(BoundedInput(valid)), list)
++        with self.assertRaisesRegex(ContractError, "nesting"):
++            load_json(BoundedInput(b"[" + valid + b"]"))
++
++    def test_loader_depth_ignores_brackets_in_escaped_strings(self):
++        value = "\\" + '"' + "[" * (MAX_JSON_DEPTH + 1)
++        payload = json.dumps([value]).encode("utf-8")
++        self.assertEqual(load_json(BoundedInput(payload)), [value])
++
++
++if __name__ == "__main__":
++    unittest.main()
+diff --git a/tools/smoke-verify/fixtures/skedar_swarm_encounter_acceptance.json b/tools/smoke-verify/fixtures/skedar_swarm_encounter_acceptance.json
+new file mode 100644
+--- /dev/null
++++ b/tools/smoke-verify/fixtures/skedar_swarm_encounter_acceptance.json
+@@ -0,0 +1,113 @@
++{
++  "schema": 1,
++  "original_brief": "https://hazelcloud.slack.com/archives/C0C5S3S2F33/p1791827319616709",
++  "decision_scope": "Fixture limits are supplied by the authored scenario under test. The checker does not choose shipping values or certify any game run.",
++  "trace_contract": {
++    "subject": "One authoritative local or listen-host encounter. Use one native tick domain and a nonzero stage epoch. Sequence numbers start at one and never skip. Use live actor names and generations within the stage, never pointer values.",
++    "identity": "Use typed catalog IDs for the original level, scenario and Giant body. The authored plan declares three independent tunnel, portal and blocker IDs, an ordered finite wave schedule with opening routes and start delays, a spawn interval, Giant body and attack, spacing and telegraph limits.",
++    "tunnel_projection": "Each passage episode may accumulate actual sweeps across ticks. Compare signed start, desired and resolved centers with each oriented capsule extent projected along the portal normal. Closed episodes begin after the blocker commits. Retain the underlying native sweeps for physical acceptance.",
++    "hit": "Track independent player spawn and death generations. Recheck live hostile state and LOS at start and impact. Bound each reported effective reach by the authored world-space reach for that actor role and attack kind.",
++    "native_candidate": "Pass --native-candidate to require source, client, installed public level/scenario, fixture, managed recipe and log hashes plus run and queue identity. These fields link a candidate to files for separate review. This program always leaves native qualification unverified.",
++    "external_handoff": "Retain per-case commands, pd queue entry and closeout, exact build and authored asset hashes, raw logs/captures, a supported receipt, independent inspection and the verdict. Missing evidence remains open."
++  },
++  "cases": [
++    {
++      "id": "paired_baseline",
++      "source": "native_evidence",
++      "run": "Qualify frozen N-1055 unchanged first. Run the seeded four-actor CPU and GPU_FULL pair with the same prepared actor rows, room, team, scale, pose and installed authored inputs.",
++      "retain": "Paired verifier output, immutable run recipes, binary and source hashes, both native process logs and two native back-buffer captures per backend.",
++      "accept": "Both runs complete and close cleanly. The GPU submission, shader completion, readback and application match live actors in the capture windows. Inspect all four captures. Preserve a mismatch before applying the follow-up."
++    },
++    {
++      "id": "gpu_snapshot",
++      "source": "native_evidence",
++      "run": "Run the repaired GPU path on repeated identical seeds, no-empty, sparse and empty rows, generation reuse, retired actor rows and a same-map restart. Exercise an actually supported fenced path and any available fallback separately.",
++      "retain": "Input and output checksums per dispatch and producer epoch, row-identity and consumer traces, repeated native GPU results and exact application counters.",
++      "accept": "One immutable input drives each dispatch. Output writes, readback and application have the same stage and generation. Empty, dead, stale and previous-stage rows generate no movement or damage. Repeats agree within the predeclared comparison tolerance."
++    },
++    {
++      "id": "authored_round_trip",
++      "source": "native_evidence",
++      "run": "Author an original playable level through the supported level builder, import, or editor. Open it in Forge, save a variant and reopen it in a fresh native client. Play it after reopen and prove live provider activation and a controlled edit.",
++      "retain": "Original, reopened and edited user-authored members, package and source hashes, stable typed references, provider activation and consumed-row receipts after each reopen, and validation/asset native-source guard evidence.",
++      "accept": "The exact public source drives the native client after both reopenings. The edit changes the runtime binding. Each portal, provider, target and blocker matches the intended same-level authoring identity. Runtime caches can be rebuilt from the user-authored source."
++    },
++    {
++      "id": "three_tunnels",
++      "source": "trace",
++      "run": "In one encounter play, demonstrate a raider crossing each open tunnel. Use normal player interaction to close each distinct objective and repeat an exterior ingress attempt after each closure.",
++      "retain": "Three tunnel/portal/blocker bindings, the live raider generation and actual start, desired and resolved swept-body extents for each route.",
++      "accept": "Each intended opening is traversable before its closure. Each intended closed blocker stops the whole attempted body on the exterior side. No duplicate closure or closed-route spawn or crossing occurs."
++    },
++    {
++      "id": "bounded_waves",
++      "source": "trace",
++      "run": "Start the finite authored wave schedule, keep raiders attacking while the player closes the routes, and let surviving raiders retire through gameplay.",
++      "retain": "Authoritative wave starts and ends, authored and observed spawn limits, native actor identities and retirement events.",
++      "accept": "Each wave respects its authored order, budget, delay, open routes and spawn interval, and drains before advancing. Closure ends or cancels future wave admission, without despawning surviving threats to skip combat."
++    },
++    {
++      "id": "bounded_attacks",
++      "source": "trace",
++      "run": "Play a timeline with jump, drop and ordinary attacks, including overlapping opportunities. Exercise real player combat and both completed airborne transitions.",
++      "retain": "Attack start, same-tick target/LOS/range checks at impact, applied damage, actor and target generations, telegraph, duration and terminal state.",
++      "accept": "Start cooldowns, starts per native tick, concurrent attacks by kind, combined airborne count and airborne lifetime stay within authored limits. Starts and impacts require fresh live hostile targets with range and LOS. Impact requires telegraph, and one attack identity never double-applies damage."
++    },
++    {
++      "id": "native_collision",
++      "source": "native_evidence",
++      "run": "On the authored level test a high-step thin-wall sweep, glancing or diagonal convex corner, traversable tunnel, undersized tunnel, closure collision in each corridor, ledge and ceiling discontinuity. Use the production triangle collider and include moving support where the scenario permits it.",
++      "retain": "Public geometry/collider identity, actual world triangles or geometry fixture, per-step swept body start/goal/result, contact normal and separation, blocker identity and observable native captures.",
++      "accept": "The production volume cannot pass through thin walls or closed, undersized or concave routes; grazes slide or stop at the real support without tunneling. Open passages allow legal motion and report stable support. Synthetic trace and math controls only cover their own contract."
++    },
++    {
++      "id": "native_pose",
++      "source": "native_evidence",
++      "run": "Observe actual floor-to-wall, wall-to-ceiling, attached wall/ceiling travel, ledge/release, airborne jump and ceiling drop, then landing. Include an easy-to-see run on CPU and GPU with the same expected body and scale.",
++      "retain": "Actor/root/support orientation and distance, real surface/contact and animation transitions, velocity/release record, native captures or footage that show spacing and posture.",
++      "accept": "Pose and movement are aligned with support and gravity while attached, transition without snapping or skating, and converge correctly on landing. Attached feet and the visible model match the collision envelope through each transition."
++    },
++    {
++      "id": "giant_finale",
++      "source": "trace",
++      "run": "Close all three objectives, end wave admission, finish remaining gameplay combat, then engage a single Giant and defeat it with normal player damage.",
++      "retain": "Finale phase, native actor/generation, catalog body ID, model scale, radius, height, spawn clearance, attack and health/death events, terminal victory.",
++      "accept": "Finale starts once after all three closures and raider/attack drain. Exactly one properly cleared, scaled Giant uses the authored body, attempts combat and reaches zero health by ordinary player damage before victory."
++    },
++    {
++      "id": "native_encounter",
++      "source": "native_evidence",
++      "run": "Complete the saved and reopened authored encounter on the native client using ordinary player movement, pickup, objective use and combat. Include a second play that exercises another closure order.",
++      "retain": "Native level and process binding, raw trace consumed by this script, successful harness receipt, gameplay footage and independent visual/gameplay inspection.",
++      "accept": "Two real gameplay passes demonstrate authored scenario use, three closures while the encounter remains playable, bounded pressure and a clear Giant finale. Direct door interactions and injected kills may test plumbing separately."
++    },
++    {
++      "id": "stock",
++      "source": "native_evidence",
++      "run": "Launch ordinary local stock map gameplay and the stock Grid normal-bot route on the exact Swarm-enabled build.",
++      "retain": "Exact public inputs, ordinary client and stock gameplay receipts, a short capture covering AI, movement and kills, and cleanup closeout.",
++      "accept": "Normal gameplay launches and remains playable. Stock bot behavior, asset resolution and the normal Grid flow remain independent of an active Swarm encounter."
++    },
++    {
++      "id": "listen_authority",
++      "source": "native_evidence",
++      "run": "Use supported game QA to run one listen host and at least one peer through the authored scenario, and a normal two-player stock match as a separate regression.",
++      "retain": "Host/peer exact build and source identities, authority and accepted sequence/actor generation logs, objective/wave/Giant state followed by client render/pose receipts and connection closeout.",
++      "accept": "Only host state mutates authoritative actors, routes, damage or the finale. The peer sees matching live state, pose, closure and death without duplicate actors or stale shells. Stock two-player QA remains healthy."
++    },
++    {
++      "id": "network_lifecycle",
++      "source": "native_evidence",
++      "run": "Use supported gameplay QA for packet loss/delay/reordering conditions, player death, ordinary leave/rejoin, same-map restart and host loss. Record any separate physical or WAN follow-up as unrun while unavailable.",
++      "retain": "Bounded sent/received sequence and epoch windows, snapshots/resync and catch-up evidence, authoritative actor and closure state, teardown/absence records and per-run supported setup.",
++      "accept": "Sequence and state remain bounded, stale epoch/actor records never mutate fresh state, and current participants converge after allowed resync without preserving retired actor lifetimes. Host loss closes or returns through the supported path."
++    },
++    {
++      "id": "repeat_scale",
++      "source": "native_evidence",
++      "run": "On a pinned client, provider, configuration and hardware, repeat a declared warmup and measurement protocol at the chosen actor counts and budgets. Include stage restart and respawn stability, native motion and network correctness under pressure.",
++      "retain": "At least two independent per-tier raw runs, valid applied results and failure counters, frame-time percentiles, GPU latency, bandwidth/snapshot size, resource and teardown receipts, and fixture/threshold version.",
++      "accept": "Report measured correctness and scale against predeclared budgets across repeats, with explicit capacity and hardware limits. Preserve historical stress ladders as regression fixtures without promoting them to qualifying gameplay or performance proof."
++    }
++  ]
++}

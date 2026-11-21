@@ -1,0 +1,107 @@
+[
+  {
+    "name": "Grid requires a bot waypoint by changing only its native pad flag",
+    "tags": "[forge-level-doc][grid-navigation]",
+    "success": "true"
+  },
+  {
+    "name": "Moving a start preserves a bot waypoint authored at its old position",
+    "tags": "[forge-level-doc][grid-navigation]",
+    "success": "true"
+  },
+  {
+    "name": "A new spawn gets a pad of its own, the pad's bounds and the next id; other rows keep their bytes",
+    "tags": "[forge-level-doc]",
+    "success": "true"
+  },
+  {
+    "name": "Large finite spawn coordinates survive adding, moving and reopening native source",
+    "tags": "[forge-level-doc]",
+    "success": "true"
+  },
+  {
+    "name": "An id is not handed out twice, and a removed spawn leaves its pad",
+    "tags": "[forge-level-doc]",
+    "success": "true"
+  },
+  {
+    "name": "Moving a spawn off a template pad gives it a new pad and leaves the old one",
+    "tags": "[forge-level-doc]",
+    "success": "true"
+  },
+  {
+    "name": "Grid door triggers round-trip native volumes and run the level graph action",
+    "tags": "[forge-level-doc][graph][level][volume]",
+    "success": "true"
+  },
+  {
+    "name": "Grid edits native trigger anchor, size and target without replacing its identity",
+    "tags": "[forge-level-doc][graph][level][volume]",
+    "success": "true"
+  },
+  {
+    "name": "Grid Edit Placement routes its input and applies one native document edit",
+    "tags": "[grid][modding][pdxxx][scenario][static]",
+    "success": "true"
+  },
+  {
+    "name": "Lobby C projection preserves every field in the shared C++ player view",
+    "tags": "[T-NETWORKING-011][lobby][net][view]",
+    "success": "true"
+  },
+  {
+    "name": "Listen host is a visible lobby participant and row compaction preserves leader identity",
+    "tags": "[T-NETWORKING-011][lobby][net][roster]",
+    "success": "true"
+  },
+  {
+    "name": "Room UI authority follows accepted room ownership on host and remote clients",
+    "tags": "[T-NETWORKING-011][authority][lobby][net]",
+    "success": "true"
+  },
+  {
+    "name": "Lobby preparation never masquerades as live gameplay readiness",
+    "tags": "[T-NETWORKING-011][lobby][net][ready]",
+    "success": "true"
+  },
+  {
+    "name": "Room snapshots are independent and failed writes preserve accepted data",
+    "tags": "[T-NETWORKING-011][net][room][snapshots]",
+    "success": "true"
+  },
+  {
+    "name": "Room reset clears private access and accepted snapshots including the permanent lounge",
+    "tags": "[T-NETWORKING-011][net][room][snapshots]",
+    "success": "true"
+  },
+  {
+    "name": "Room leader reservation retains authority until expiry and then elects a present member",
+    "tags": "[T-NETWORKING-011][net][reconnect][room]",
+    "success": "true"
+  },
+  {
+    "name": "Grid movement carries a typed reference and leaves force rooms in the outer frame",
+    "tags": "[grid][move][net][numeric]",
+    "success": "true"
+  },
+  {
+    "name": "Grid movement preserves the record and typed reference on refusal",
+    "tags": "[grid][move][net][numeric]",
+    "success": "true"
+  },
+  {
+    "name": "Grid Fiesta reconnect proves live movement after committing the authenticated command",
+    "tags": "[grid][ingress][move][net]",
+    "success": "true"
+  },
+  {
+    "name": "Grid movement checks the host's local inventory for a typed selection",
+    "tags": "[grid][move][net]",
+    "success": "true"
+  },
+  {
+    "name": "Grid movement discards stale and legacy frames after consuming the complete record",
+    "tags": "[grid][move][net]",
+    "success": "true"
+  }
+]

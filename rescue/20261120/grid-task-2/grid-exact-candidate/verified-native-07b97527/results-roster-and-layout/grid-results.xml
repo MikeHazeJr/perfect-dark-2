@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Catch name="pd-tests.exe" filters="[netbuf][grid-match-result],[net][lobby][roster-wire],[net][lobby][roster-apply],[net][lobby][roster-auth-empty],Grid layout changes retain the same executable level graph,Grid layout builds detached collision through the native world grid,Grid world swap preserves the outgoing grid and its ray state,results for every player: a client shows its results screen before the Room,results for every player: the room shows who is still reviewing match stats,host autostart rematch: the lobby UI does not draw the Room over an open results screen">
+  <Group name="pd-tests.exe">
+    <TestCase name="Grid layout builds detached collision through the native world grid" tags="[grid-layout-apply][meshcollision][source]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_mesh_grid_cell.cpp" line="138">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid world swap preserves the outgoing grid and its ray state" tags="[grid-layout-apply][meshcollision][source]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_mesh_grid_cell.cpp" line="159">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid layout changes retain the same executable level graph" tags="[grid-layout-apply]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_level_graph_program.cpp" line="795">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="host autostart rematch: the lobby UI does not draw the Room over an open results screen" tags="[b1192][finding4][net][rematch]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_host_autostart_rematch_static.cpp" line="188">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="results for every player: a client shows its results screen before the Room" tags="[b1190][finding4][net][rematch]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_host_autostart_rematch_static.cpp" line="213">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="results for every player: the room shows who is still reviewing match stats" tags="[b1190][finding4][net][rematch]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_host_autostart_rematch_static.cpp" line="244">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Roster wire preserves sparse identities and public catalog IDs" tags="[lobby][net][roster-wire]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="38">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Roster rejects every truncated payload without partial destination mutation" tags="[lobby][net][roster-wire]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="60">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Roster rejects duplicate identities invalid bounds and hidden string suffixes" tags="[lobby][net][roster-wire]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="75">
+      <Section name="duplicate" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="78">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="count" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="79">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="client ID" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="80">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="unauthenticated" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="81">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="state" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="82">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="room" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="83">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="team" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="84">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="missing leader" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="85">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="name" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="86">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="empty name" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="87">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="body" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="88">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="hidden suffix" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="89">
+        <OverallResults successes="3" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Roster supports all 32 players and refuses insufficient output capacity atomically" tags="[lobby][net][roster-wire]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="106">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Remote roster updates presentation without fabricating gameplay clients" tags="[lobby][net][roster-apply]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="126">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Room presentation maps identity portraits and authority through the same filtered rows" tags="[lobby][net][roster-apply]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="143">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Authoritative roster excludes unauthenticated slots and tracks room moves" tags="[lobby][net][roster-apply]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="164">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Roster accepts initial authentication before public appearance settings arrive" tags="[lobby][net][roster-auth-empty]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="180">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Roster empty metadata uses canonical string sizes and preserves short output buffers" tags="[lobby][net][roster-auth-empty]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="206">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Roster carries the reviewing match stats flag and refuses unknown flag bits" tags="[b1190][lobby][net][roster-wire]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_net_lobby_roster.cpp" line="236">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid results preserve the exact played revision and score bytes" tags="[grid-match-result][netbuf]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="826">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid results refuse invalid writes without altering the packet" tags="[grid-match-result][netbuf]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="865">
+      <Section name="insufficient capacity" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="873">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="zero stage epoch" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="874">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="lounge room" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="875">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="unknown end reason" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="876">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="unterminated arena ID" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="877">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="noncanonical manifest digest" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="878">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="missing score digest" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="879">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid results refuse invalid reads without replacing an earlier result" tags="[grid-match-result][netbuf]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="887">
+      <Section name="every truncated prefix" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="914">
+        <OverallResults successes="1899" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="unsupported version" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="917">
+        <OverallResults successes="9" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="an embedded NUL in the declared arena ID" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="921">
+        <OverallResults successes="9" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="unknown end reason" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="926">
+        <OverallResults successes="9" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid scorecards decode signed scores in sparse host slot order" tags="[grid-match-result][netbuf]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="933">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid scorecards accept the wire count boundaries" tags="[grid-match-result][netbuf]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="973">
+      <OverallResult success="true"/>
+    </TestCase>
+    <TestCase name="Grid scorecards refuse invalid payloads without changing the previous card" tags="[grid-match-result][netbuf]" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="991">
+      <Section name="the count exceeds the participant limit" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="1002">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="the second host slot repeats the first" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="1003">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="the second host slot is descending" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="1004">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="the second host slot is outside the domain" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="1005">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="the last signed kill count is truncated" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="1006">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="trailing data remains after the last row" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="1007">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <Section name="the score hash belongs to other bytes" filename="C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/tests/test_netbuf.cpp" line="1008">
+        <OverallResults successes="0" failures="0" expectedFailures="0"/>
+      </Section>
+      <OverallResult success="true"/>
+    </TestCase>
+    <OverallResults successes="2493" failures="0" expectedFailures="0"/>
+    <OverallResultsCases successes="22" failures="0" expectedFailures="0"/>
+  </Group>
+  <OverallResults successes="2493" failures="0" expectedFailures="0"/>
+  <OverallResultsCases successes="22" failures="0" expectedFailures="0"/>
+</Catch>

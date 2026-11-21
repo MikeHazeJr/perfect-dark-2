@@ -1,0 +1,402 @@
+diff --git a/port/fast3d/swarm_gpu.cpp b/port/fast3d/swarm_gpu.cpp
+--- a/port/fast3d/swarm_gpu.cpp
++++ b/port/fast3d/swarm_gpu.cpp
+@@ -14,9 +14,10 @@
+  *    seek path.
+  *  - Compute shader is compiled lazily on first dispatch and cached for
+  *    the program lifetime.
+- *  - A single SSBO holds the boid state. After B-308 first slice
+- *    (c3807, 2026-05-15) the per-boid record is 96 bytes -- pos + vel +
+- *    surface_up (the legacy 48-byte block) plus 48 bytes of GPU-AI
++ *  - The host uploads an immutable input SSBO. Each invocation writes
++ *    its own record into a separate output SSBO. A record is 96 bytes
++ *    and contains position, velocity, and
++ *    surface_up (the first 48 bytes) plus 48 bytes of GPU-AI
+  *    fields (action class, anim key, fire request, target propnum,
+  *    range to target, jump request, and surface request). The legacy
+  *    block is filled and consumed in both
+@@ -39,7 +40,7 @@
+  * equivalent to swarm_test.c::cpu_seek_tick. Track 4 v0 (c3807,
+  * 2026-05-16) extends the kernel with classical Reynolds (1987) boids
+  * steering -- separation, alignment, cohesion -- accumulated naively
+- * over all peers in the same SSBO (O(N^2) inner loop) and blended with
++ * over all peers in the input SSBO (O(N^2) inner loop) and blended with
+  * the seek vector. Final blended steering is normalised + scaled to
+  * max_speed so the velocity magnitude bound the smoke test asserts on
+  * (max_unit_per_frame < 6.0, max_speed_cap=5.0) still holds. The
+@@ -218,6 +219,9 @@
+ #ifndef GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
+ #define GL_SHADER_IMAGE_ACCESS_BARRIER_BIT 0x00000020
+ #endif
++#ifndef GL_TEXTURE_UPDATE_BARRIER_BIT
++#define GL_TEXTURE_UPDATE_BARRIER_BIT     0x00000100
++#endif
+ #ifndef GL_TEXTURE_2D
+ #define GL_TEXTURE_2D                     0x0DE1
+ #endif
+@@ -348,6 +352,8 @@
+ 	int   _pad_m0;
+ };
+ 
++static_assert(sizeof(boid_record) == 96, "Boid must match the std430 shader record");
++
+ struct swarm_params {
+ 	float player_x, player_y, player_z, _pad_p;
+ 	int   count;
+@@ -368,7 +374,7 @@
+ 	/* Track 4 v0 (c3807, 2026-05-16): classical Reynolds boids steering
+ 	 * (separation / alignment / cohesion) blended with the seek-player
+ 	 * vector. Naive O(N^2) inner loop reads peer positions and velocities
+-	 * from the same SSBO. Two vec4-packed groups so std140/std430 padding
++	 * from the immutable input SSBO. Two vec4-packed groups so std140/std430 padding
+ 	 * is well-defined:
+ 	 *   group A (16 B): boid_sep_radius / boid_align_radius /
+ 	 *                   boid_coh_radius / _pad
+@@ -389,7 +395,8 @@
+ static int           s_Probed       = 0;
+ static int           s_Available    = 0;
+ static GLuint        s_Program      = 0;
+-static GLuint        s_BoidSsbo     = 0;
++static GLuint        s_BoidInputSsbo  = 0;
++static GLuint        s_BoidOutputSsbo = 0;
+ static GLuint        s_ParamsSsbo   = 0;
+ static boid_record   s_BoidScratch[SWARM_GPU_MAX];
+ static struct swarm_params s_Params;
+@@ -413,9 +420,8 @@
+  * their shape.
+  * Memory budget: 2 * 4096 * 5 * 16 B = 640 KB. Trivial.
+  *
+- * Compute writes BOTH the SSBO (existing CPU readback path) AND the
+- * texture every frame; bit-exact behaviour parity with pre-2a is
+- * preserved because the SSBO is the only thing the CPU side consumes.
++ * Compute mirrors each output record into the texture for extraction
++ * and network sync. Actor application uses the output SSBO readback.
+  * The texture mirror exists to feed future slices: 2b (kernel reads
+  * from texture instead of SSBO), 2c (extraction primitive), 2d (ENet
+  * sync). Sub-2a only adds the WRITE path and the ping-pong swap so
+@@ -425,7 +431,7 @@
+  * shipped (390ae5c7), the texture proved sufficient as a write-only
+  * side-channel: CPU consumers (extraction primitive, ENet broadcast)
+  * sample it via glGetTexImage; the kernel keeps reading state from the
+- * SSBO. Folding the read side into the kernel would have eliminated
++ * input SSBO. Folding the read side into the kernel would have eliminated
+  * one SSBO->texture redundancy but added a real texelFetch -> int
+  * round trip per bot per frame with no measurable win for the
+  * benchmark workload. The named follow-ups in the Track 2d sprint
+@@ -469,8 +475,8 @@
+  * ~80 ms/frame (12.5 ticks/sec, 6x slowdown vs 256).
+  *
+  * Solution: 2-deep PBO-style ring. Each frame N:
+- *   1. Dispatch compute (writes boid SSBO)
+- *   2. glCopyBufferSubData(BoidSsbo -> ring[write_idx]) -- queues a
++ *   1. Dispatch compute (writes the boid output SSBO)
++ *   2. glCopyBufferSubData(output SSBO -> ring[write_idx]) -- queues a
+  *      GPU-side memcpy, NO sync
+  *   3. glFenceSync after the copy -- marks "when this fence signals,
+  *      ring[write_idx] holds frame N's data"
+@@ -631,11 +637,11 @@
+     int   _pad_m0;
+ };
+ 
+-layout(std430, binding = 0) buffer Boids {
+-    Boid b[];
++layout(std430, binding = 0) readonly buffer BoidInput {
++    Boid input_boids[];
+ };
+ 
+-layout(std430, binding = 1) buffer Params {
++layout(std430, binding = 1) readonly buffer Params {
+     float player_x, player_y, player_z, _pp;
+     int   count;
+     float max_speed;
+@@ -656,6 +662,10 @@
+     int   state_tex_enable, _pad_s0, _pad_s1, _pad_s2;
+ } P;
+ 
++layout(std430, binding = 3) writeonly buffer BoidOutput {
++    Boid output_boids[];
++};
++
+ /* Track 2a (c3807, 2026-05-16): ping-pong state texture (write side).
+  * One bot occupies a 5-texel column at x = bot_index, y in [0, 5):
+  *   y=0 pos.xyz / _pad
+@@ -668,8 +678,7 @@
+  * Movement-intent fields remain SSBO/readback-only to keep the texture
+  * protocol at 5 rows.
+  *
+- * writeonly so the driver can skip read-tracking; image binding 2 is
+- * free (0 and 1 are the boid + params SSBOs already bound above).
++ * Image unit 2 remains reserved for the texture mirror.
+  */
+ layout(rgba32f, binding = 2) uniform writeonly image2D StateOut;
+ 
+@@ -677,7 +686,8 @@
+     uint i = gl_GlobalInvocationID.x;
+     if (i >= uint(P.count)) return;
+ 
+-    vec3 pos = vec3(b[i].px, b[i].py, b[i].pz);
++    Boid result = input_boids[i];
++    vec3 pos = vec3(result.px, result.py, result.pz);
+ 
+     /* Slice 6 GPU surface-loco parity: seek vector is now full 3D and
+      * is projected onto the surface plane defined by the per-bot
+@@ -686,7 +696,7 @@
+      * the prior XZ-only seek. For sloped floors, walls, and ceilings,
+      * the seek runs along the plane just like the CPU-side
+      * chrSurfaceLocoTick path does for CPU swarm bots. */
+-    vec3 surface_up = vec3(b[i].sux, b[i].suy, b[i].suz);
++    vec3 surface_up = vec3(result.sux, result.suy, result.suz);
+     /* Defensive normalize: CPU sampler returns a unit vector on
+      * success and (0,1,0) on failure, but we cheap-guard against
+      * pathological zero just in case. */
+@@ -710,22 +720,8 @@
+                    - dot(to_player_full, surface_up) * surface_up;
+     float d = length(to_player);
+     if (d > 1.0) {
+-        /* ---- Track 4 v0 (c3807, 2026-05-16) classical Reynolds boids ----
+-         * Three-rule accumulator over peers in the SSBO. Naive O(N^2):
+-         * every invocation reads every other invocation's pos+vel from
+-         * the SAME boid buffer this dispatch is writing to. std430
+-         * defines this as a write-after-read race for a given index j,
+-         * but the only writes per invocation are to b[i] (px/py/pz/vx/vy/vz
+-         * + AI block). Peers' fields read here (px/py/pz/vx/vy/vz) are
+-         * the START-of-frame snapshot the CPU just uploaded; the
+-         * compute kernel doesn't reissue between reads for different i,
+-         * so we get pre-step positions for everyone. Equivalent to a
+-         * double-buffer in effect at this dispatch frequency.
+-         *
+-         * Spatial-grid v1 (k-nearest broad phase) is the next slice; v0
+-         * just demonstrates that the steering math is wired and bots
+-         * separate / align / cohere visually.
+-         */
++        /* Reynolds steering reads the same pre-step positions and
++         * velocities for every invocation, independent of shader scheduling. */
+         vec3  sep_sum    = vec3(0.0);
+         int   sep_n      = 0;
+         vec3  align_sum  = vec3(0.0);
+@@ -733,11 +729,11 @@
+         vec3  coh_sum    = vec3(0.0);
+         int   coh_n      = 0;
+ 
+-        vec3  vel_current = vec3(b[i].vx, b[i].vy, b[i].vz);
++        vec3  vel_current = vec3(result.vx, result.vy, result.vz);
+ 
+         for (int j = 0; j < int(P.count); j++) {
+             if (j == int(i)) continue;
+-            vec3 p_j = vec3(b[j].px, b[j].py, b[j].pz);
++            vec3 p_j = vec3(input_boids[j].px, input_boids[j].py, input_boids[j].pz);
+             vec3 offset = pos - p_j;
+             float dist = length(offset);
+ 
+@@ -747,7 +743,7 @@
+                 sep_n++;
+             }
+             if (dist < P.boid_align_radius) {
+-                align_sum += vec3(b[j].vx, b[j].vy, b[j].vz);
++                align_sum += vec3(input_boids[j].vx, input_boids[j].vy, input_boids[j].vz);
+                 align_n++;
+             }
+             if (dist < P.boid_coh_radius) {
+@@ -818,13 +814,13 @@
+         }
+         vec3 vel = steer * speed;
+         pos += vel * P.dt * 60.0;
+-        b[i].vx = vel.x;
+-        b[i].vy = vel.y;
+-        b[i].vz = vel.z;
++        result.vx = vel.x;
++        result.vy = vel.y;
++        result.vz = vel.z;
+     }
+-    b[i].px = pos.x;
+-    b[i].py = pos.y;
+-    b[i].pz = pos.z;
++    result.px = pos.x;
++    result.py = pos.y;
++    result.pz = pos.z;
+ 
+     /* B-308 first slice (c3807, 2026-05-15) AI write-out.
+      *
+@@ -867,22 +863,18 @@
+         if (range_full >= 200.0 && range_full <= 550.0) {
+             jump = 1;
+         }
+-        b[i].action_class    = act;
+-        b[i].fire_request    = fire;
+-        b[i].target_propnum  = P.player_propnum;
+-        b[i].anim_key        = anim;
+-        b[i].range_to_target = range_full;
+-        b[i].jump_request    = jump;
+-        b[i].surface_request = surface;
+-        b[i].jump_kind       = 1;
++        result.action_class    = act;
++        result.fire_request    = fire;
++        result.target_propnum  = P.player_propnum;
++        result.anim_key        = anim;
++        result.range_to_target = range_full;
++        result.jump_request    = jump;
++        result.surface_request = surface;
++        result.jump_kind       = 1;
+     }
+ 
+     /* ---- Track 2a (c3807, 2026-05-16) state-texture mirror ----
+-     * Mirror the SSBO record into a 5-texel column in StateOut. The
+-     * texture writes are AFTER all SSBO writes so the texture and SSBO
+-     * agree on per-bot state at end-of-dispatch. Reading b[i] back here
+-     * is safe because std430 ordering within a single invocation is
+-     * sequential (no cross-invocation race on a given index).
++     * Mirror the same invocation-local result into the 5-texel column.
+      *
+      * The AI block (row 3) packs four ints into a single RGBA32F texel
+      * via intBitsToFloat. The bit pattern survives the texel round trip
+@@ -895,24 +887,23 @@
+      * write side with bit-exact SSBO parity (CPU consumer reads SSBO,
+      * texture is silent / observe-only).
+      */
+-    if (P._pad_s0 != 0) {
+-        b[i]._pad_m0 = P._pad_s0;
+-    }
++    result._pad_m0 = P._pad_s0;
++    output_boids[i] = result;
+     if (P.state_tex_enable != 0) {
+         int x = int(i);
+         imageStore(StateOut, ivec2(x, 0),
+-            vec4(b[i].px, b[i].py, b[i].pz, 0.0));
++            vec4(result.px, result.py, result.pz, 0.0));
+         imageStore(StateOut, ivec2(x, 1),
+-            vec4(b[i].vx, b[i].vy, b[i].vz, 0.0));
++            vec4(result.vx, result.vy, result.vz, 0.0));
+         imageStore(StateOut, ivec2(x, 2),
+-            vec4(b[i].sux, b[i].suy, b[i].suz, 0.0));
++            vec4(result.sux, result.suy, result.suz, 0.0));
+         imageStore(StateOut, ivec2(x, 3), vec4(
+-            intBitsToFloat(b[i].action_class),
+-            intBitsToFloat(b[i].fire_request),
+-            intBitsToFloat(b[i].target_propnum),
+-            intBitsToFloat(b[i].anim_key)));
++            intBitsToFloat(result.action_class),
++            intBitsToFloat(result.fire_request),
++            intBitsToFloat(result.target_propnum),
++            intBitsToFloat(result.anim_key)));
+         imageStore(StateOut, ivec2(x, 4),
+-            vec4(b[i].range_to_target, 0.0, 0.0, 0.0));
++            vec4(result.range_to_target, 0.0, 0.0, 0.0));
+     }
+ }
+ )GLSL";
+@@ -1049,12 +1040,29 @@
+ 		s_Program = compile_compute_shader(kSwarmCs);
+ 		if (s_Program == 0) return 0;
+ 	}
+-	if (s_BoidSsbo == 0) {
+-		glGenBuffers(1, &s_BoidSsbo);
+-		glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_BoidSsbo);
+-		glBufferData(GL_SHADER_STORAGE_BUFFER,
+-			sizeof(boid_record) * SWARM_GPU_MAX, NULL, GL_DYNAMIC_DRAW);
++	if (s_BoidInputSsbo == 0) {
++		GLuint buffers[2] = {};
++		glGenBuffers(2, buffers);
++		if (buffers[0] == 0 || buffers[1] == 0) {
++			glDeleteBuffers(2, buffers);
++			return 0;
++		}
++
++		constexpr GLint capacity = sizeof(boid_record) * SWARM_GPU_MAX;
++		for (GLuint buffer : buffers) {
++			glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer);
++			glBufferData(GL_SHADER_STORAGE_BUFFER, capacity, NULL, GL_DYNAMIC_DRAW);
++			GLint allocated = 0;
++			glGetBufferParameteriv(GL_SHADER_STORAGE_BUFFER, GL_BUFFER_SIZE, &allocated);
++			if (allocated != capacity) {
++				glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
++				glDeleteBuffers(2, buffers);
++				return 0;
++			}
++		}
+ 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
++		s_BoidInputSsbo = buffers[0];
++		s_BoidOutputSsbo = buffers[1];
+ 	}
+ 	if (s_ParamsSsbo == 0) {
+ 		glGenBuffers(1, &s_ParamsSsbo);
+@@ -1611,9 +1619,9 @@
+ 			}
+ 		}
+ 	}
+-	glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_BoidSsbo);
+-	glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,
+-		sizeof(boid_record) * count, s_BoidScratch);
++	const GLsizeiptr submitted_bytes = sizeof(boid_record) * count;
++	glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_BoidInputSsbo);
++	glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, submitted_bytes, s_BoidScratch);
+ 
+ 	/* Upload params */
+ 	s_Params.player_x      = player_pos ? player_pos->x : 0.0f;
+@@ -1719,8 +1727,9 @@
+ 
+ 	/* Dispatch */
+ 	glUseProgram(s_Program);
+-	s_glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, s_BoidSsbo);
++	s_glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, s_BoidInputSsbo);
+ 	s_glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, s_ParamsSsbo);
++	s_glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, s_BoidOutputSsbo);
+ 	/* Track 2a (c3807, 2026-05-16): bind the WRITE-side state texture as
+ 	 * image binding 2. The shader's layout(rgba32f, binding=2) gates on
+ 	 * P.state_tex_enable so a 0-bound image is harmless when armed=0
+@@ -1741,14 +1750,15 @@
+ 	}
+ 
+ 	GLuint groups = (GLuint)((count + SWARM_GPU_LOCAL_X - 1) / SWARM_GPU_LOCAL_X);
++	/* Order shader writes after consumers of earlier output, including
++	 * the previous ring copy before reusing the output SSBO. */
++	s_glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT
++		| (state_tex_write ? GL_SHADER_IMAGE_ACCESS_BARRIER_BIT : 0));
+ 	s_glDispatchCompute(groups, 1, 1);
+-	/* Track 2a (c3807, 2026-05-16): expand the post-dispatch barrier to
+-	 * cover image stores as well as SSBO writes. The barrier ensures
+-	 * subsequent CPU readback (glGetBufferSubData) and any image-sampling
+-	 * consumer (none today; slated for 2b) see the dispatch's writes.
+-	 * Bit cost is negligible vs the SSBO bit alone. */
+-	s_glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
+-		| (submitted.serial ? GL_BUFFER_UPDATE_BARRIER_BIT : 0));
++	/* The ring copy and blocking read use buffer commands. The texture
++	 * mirror is read by glGetTexImage. Both need their own visibility bit. */
++	s_glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT
++		| (state_tex_write ? GL_TEXTURE_UPDATE_BARRIER_BIT : 0));
+ 	if (submitted.serial && !swarmBaselineCheckGl(baseline, "gpu_dispatch")) return;
+ 	if (submitted.serial) {
+ 		swarmBaselineLogDispatch(submitted, count);
+@@ -1779,7 +1789,7 @@
+ 	 *      s_BoidScratch (= last frame's results). The fence has had a
+ 	 *      full frame to land, so glGetBufferSubData here does NOT
+ 	 *      stall -- the data is already on the CPU-visible side.
+-	 *   2. Copy this frame's BoidSsbo -> ring[write_idx] via
++	 *   2. Copy this frame's output SSBO -> ring[write_idx] via
+ 	 *      glCopyBufferSubData (GPU-side memcpy, no sync).
+ 	 *   3. Insert a fence after the copy; record count snapshot.
+ 	 *   4. Advance write_idx.
+@@ -1863,10 +1873,10 @@
+ 			s_glDeleteSync(s_ReadbackRingFence[write_idx]);
+ 			s_ReadbackRingFence[write_idx] = NULL;
+ 		}
+-		glBindBuffer(GL_COPY_READ_BUFFER, s_BoidSsbo);
++		glBindBuffer(GL_COPY_READ_BUFFER, s_BoidOutputSsbo);
+ 		glBindBuffer(GL_COPY_WRITE_BUFFER, s_ReadbackRingBuf[write_idx]);
+ 		s_glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER,
+-			0, 0, (GLsizeiptr)(sizeof(boid_record) * count));
++			0, 0, submitted_bytes);
+ 		glBindBuffer(GL_COPY_READ_BUFFER, 0);
+ 		glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+ 		s_ReadbackRingFence[write_idx] =
+@@ -1890,9 +1900,8 @@
+ 		 * is current-frame so chr identity is trivially consistent;
+ 		 * stamp s_ScratchChrnum from the live chrs so the downstream
+ 		 * identity check matches and the apply proceeds normally. */
+-		glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_BoidSsbo);
+-		glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0,
+-			sizeof(boid_record) * count, s_BoidScratch);
++		glBindBuffer(GL_SHADER_STORAGE_BUFFER, s_BoidOutputSsbo);
++		glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, submitted_bytes, s_BoidScratch);
+ 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+ 		for (s32 i = 0; i < count; i++) {
+ 			struct chrdata *c = chrs[i];

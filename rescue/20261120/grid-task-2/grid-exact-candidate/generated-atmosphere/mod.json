@@ -1,0 +1,15 @@
+{
+  "id": "grid_stage_import",
+  "name": "Grid Stage Import (level template)",
+  "version": "0.1.0",
+  "author": "PD2",
+  "description": "An original level made from a model. Open it in Forge to place starts, weapons and objects.",
+  "tags": [
+    "arena",
+    "pdarena",
+    "template"
+  ],
+  "contents": [
+    "arena"
+  ]
+}

@@ -1,0 +1,16 @@
+forge_level_io.h SHA256 FBDEF5D52D8BC1268725D7E3D90D4F47155EFDF713959867D01D4F98772319A2
+port/src/forge_level_io.c SHA256 CF24566BB617413063F0F2B3CF100793C79AB1C0D55427B0CBA0D02C96C00397
+In file included from C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-placement-copy\source\port\src\forge_level_io.c:69:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/smoke_harness.h:13:52: warning: '/*' within comment [-Wcomment]
+   13 |  * a JSON test definition (tools/smoke-verify/tests/*.json). It dispatches
+C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-placement-copy\source\port\src\forge_level_io.c: In function 'forgeLevelSessionAimProp':
+C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-placement-copy\source\port\src\forge_level_io.c:381:22: error: implicit declaration of function 'isfinite' [-Wimplicit-function-declaration]
+  381 |                 if (!isfinite(screen[0]) || !isfinite(screen[1]) || screen[0] < left
+      |                      ^~~~~~~~
+Exception: C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\verify-grid-placement-copy.ps1:27
+Line |
+  27 |  … DE -ne 0) { throw "Syntax check failed for $($unit.Name) (exit $LASTE …
+     |                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+     | Syntax check failed for port/src/forge_level_io.c (exit 1)
+
+

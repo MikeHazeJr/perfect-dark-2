@@ -1,0 +1,15 @@
+{
+  "buildQueue": "q_20261120025653231_e4497008",
+  "testQueue": "q_20261120030551043_27638c3e",
+  "binary": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\session-builds\\jenkins-noise-1117\\pd-tests.exe",
+  "sha256": "07B975274A2A2D12FD6E33E52C064D3A5C6D23C7A525892F51C2ABA1D783B7DB",
+  "status": 0,
+  "selector": "[grid-edit-room],[grid-edit-session],[grid-edit-snapshot],[grid-edit-playtest-view],[forge-level-doc][stagerules],[forge-level-doc][grid-variant-fallback],[forge-level-live],[imgui][widgets],A level gains a plain prop made from nothing*,Grid room extension carries a draft brightness change into one native room table,Grid room brightness preserves unsupported room sources and native overrides",
+  "caseCount": 72,
+  "passedCases": "72",
+  "failedCases": "0",
+  "passedAssertions": "40415",
+  "failedAssertions": "0",
+  "expectedFailures": "0",
+  "xmlSha256": "2062CEB54F110C0EA95EA353A9B592BCCDD394708678107EB6EB8E88CF8F93F5"
+}

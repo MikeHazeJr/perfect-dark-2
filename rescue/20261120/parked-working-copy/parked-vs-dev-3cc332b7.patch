@@ -1,0 +1,1920 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index cc101e148..0013e3fac 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1186,6 +1186,8 @@ set(SRC_TESTS
+   ${CMAKE_SOURCE_DIR}/tests/test_catalog_provider_static.cpp
+   ${CMAKE_SOURCE_DIR}/tests/test_catalog_metadata_lifecycle.cpp
+   ${CMAKE_SOURCE_DIR}/tests/test_asset_native_source_contract.cpp
++  ${CMAKE_SOURCE_DIR}/port/src/model_rodata_guard.c
++  ${CMAKE_SOURCE_DIR}/tests/test_model_rodata_guard.cpp
+   ${CMAKE_SOURCE_DIR}/tests/test_asset_runtime_adapters.cpp
+ 	${CMAKE_SOURCE_DIR}/tests/test_prop_graph_runtime.cpp
+   ${CMAKE_SOURCE_DIR}/tests/test_character_archive_utilization_static.cpp
+@@ -1334,6 +1336,16 @@ set(SRC_TESTS
+   ${CMAKE_SOURCE_DIR}/tests/test_maian_crystal_pistol.cpp
+   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_archive.c
+   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_runtime.c
++  ${CMAKE_SOURCE_DIR}/port/src/graph_persistent_actor.cpp
++  ${CMAKE_SOURCE_DIR}/tests/test_graph_persistent_actor.cpp
++  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_values.cpp
++  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_integer.cpp
++  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_effect4.cpp
++  ${CMAKE_SOURCE_DIR}/port/src/gameplay_graph_divshift.cpp
++  ${CMAKE_SOURCE_DIR}/tests/test_gameplay_graph_values.cpp
++  ${CMAKE_SOURCE_DIR}/tests/test_gun_load_target_storage.cpp
++  ${CMAKE_SOURCE_DIR}/tests/support/native_shooting_flow_oracle.c
++  ${CMAKE_SOURCE_DIR}/tests/support/native_hand_lifecycle_oracle.c
+   ${CMAKE_SOURCE_DIR}/port/src/projectile_rules.c
+   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2.cpp
+   ${CMAKE_SOURCE_DIR}/port/src/weapon_graph_v2_catalog.cpp
+diff --git a/UNRELEASED.md b/UNRELEASED.md
+index a239858df..43c20911f 100644
+--- a/UNRELEASED.md
++++ b/UNRELEASED.md
+@@ -80,6 +80,72 @@
+ 
+ - Fixed selection of Phoenix, Psychosis Gun and Dual Wield All Guns, and cleared Invincible on the next stage after turning cheats off. Locked cheat criteria are accessible with keyboard and controller. Unlock All saves for the active Agent while preserving earned records, with Retry on save failure.
+ 
++- Gun loading now rejects unsupported source providers instead of continuing into legacy model bytes; runtime validation remains deferred (N-0829).
++
++- Gun texture batches now use graph dispatch with the cursor fix and full-width resident-texture checks; gameplay validation remains deferred (N-0827).
++
++- Fixed the gun texture cursor so a three-entry loading batch does not revisit its last processed entry on the next tick; runtime validation remains deferred (N-0826).
++
++- Gun-model source checks and hand-source publication now use a graph component; legacy loading and full-conversion testing remain unresolved (N-0825).
++
++- Retained gun models now use graph-based identity checks and publication; remaining loader conversion and full-conversion testing stay open (N-0824).
++
++- Failed gun-model requests now use graph-based catalog-generation recovery; loader conversion and full-conversion testing remain open (N-0823).
++
++- Master-loader parent gates and stage dispatch now use the graph path; loader dependencies and full-conversion testing remain open (N-0822).
++
++- Master-loader model initialization, command storage and final loaded transition now dispatch a graph component; parent conversion and full-conversion testing remain open (N-0821).
++
++- Master-loader cartridge selection and pending-load gate now dispatch a graph component; final model setup and full-conversion testing remain open (N-0820).
++
++- Master-loader HANDS-stage source refresh and queue retries now dispatch a graph component; remaining stages and full-conversion testing stay open (N-0819).
++
++- Master-loader GUN-stage queue selection and completion now dispatch a graph component; remaining stages and full-conversion testing stay open (N-0818).
++
++- Corrected gun-loader queue target widths so 64-bit builds do not write pointer-sized values into 32-bit capacity fields; two regression cases await testing (N-0817).
++
++- Master-loader FLUX-to-HANDS cleanup now dispatches a graph component; remaining loader stages and full-conversion testing stay open (N-0814).
++
++- Master-loader source selection and refresh decisions now dispatch a graph component; remaining loader stages and full-conversion testing stay open (N-0813).
++
++- Master-loader admission and lock-timer logic now dispatch a graph component; the remaining loader body and full-conversion testing are still open (N-0812).
++
++- Weapon flux reset now dispatches a graph program preserving asset-handle clearing and casing cleanup; three authored cases await full-conversion testing (N-0811).
++
++- Load-all weapon recovery now dispatches a graph parent preserving retry and load-loop behavior; four authored cases await full-conversion testing (N-0810).
++
++- Gun-memory ownership transitions now dispatch a graph program, including diagnostic throttles and timer storage behavior; four authored cases await full-conversion testing (N-0809).
++
++- Gun memory release, pending weapon assignment and load ticking now dispatch graph programs; three authored cases await the full-conversion gameplay test gate (N-0808).
++
++- Equip requests and hand animation initialization now dispatch graph programs; source-reviewed with five authored cases pending the full-conversion gameplay test gate (N-0807).
++
++- Connected weapon cleanup, regional reload bookkeeping and ammo return through graph control; source reviewed, runtime validation pending.
++
++- Connected hand ammo configuration and ammo-display reset through graph control; corrected fixture field widths. Runtime validation pending.
++
++- Connected queued weapon switching, dual-wield reconciliation and disguise handling through graph control; source reviewed, runtime validation pending.
++
++- Moved per-hand weapon-switch reset into graph control while preserving captured ownership and audio callback order; runtime validation pending.
++
++- Connected weapon visibility commands, hand/gun part selection and ammo-driven visibility through graph control; runtime validation pending.
++
++- Reject invalid repeat spans in editable weapon animation source before runtime loading; source reviewed, runtime validation pending.
++
++- Connected animation setup, regional ticking, visibility and sound command handling through the graph driver; source reviewed, runtime validation pending.
++
++- Converted animation visibility/wait/repeat traversal to graph control, preserving regional formulas and rejecting non-progressing repeats; runtime validation pending.
++
++- Converted animation part lookup/update to graph control and replaced its fixed temporary array with growable storage; runtime validation pending.
++
++- Moved animation sound commands and output-counter updates into graph control; source reviewed, gameplay validation pending.
++
++- Moved change-gun phase transitions and equip sound selection into graph control; source reviewed, gameplay validation pending.
++
++- Source work in progress: route reload, weapon-function changes, arm pitch,
++  hand readiness, animation eligibility, frame evaluation, wait checks, recursive animation start, hand-state dispatch, idle, autoswitch selection, rocket cleanup and function selection through reusable graph operations.
++  Differential coverage is authored; compilation and gameplay parity pending.
++
+ - Networked objective modes now follow the host: King of the Hill hills and
+   hill teams, Pop a Cap victims, Hold the Briefcase, Hacker Central and Capture
+   the Case holders, uplink downloads and bases. Final scores and rankings are
+diff --git a/context/pillars/modding.md b/context/pillars/modding.md
+index 615e8c7fa..88a59b56f 100644
+--- a/context/pillars/modding.md
++++ b/context/pillars/modding.md
+@@ -916,6 +916,7 @@ requires `counts.ai_commands` to match `ai/ailists.json`, requires every command
+ row's `graph_node` to exist in `level.graph.json`, and requires the graph link.
+ The extractor-only regeneration path now skips window/UI/input startup and full
+ gameplay/window teardown, so safe archive regeneration does not require OpenGL.
++
+ Verification passed the native-source guard, checked-in all-family example
+ conformance, focused c3844 static tests, isolated all-target build, extractor-only
+ runtime run exit 0, strict Scenario conformance on session output and durable
+diff --git a/context/pillars/physics-collision.md b/context/pillars/physics-collision.md
+index 56d7b430c..c25c52c8a 100644
+--- a/context/pillars/physics-collision.md
++++ b/context/pillars/physics-collision.md
+@@ -109,6 +109,26 @@ Per [constraints.md](../constraints.md):
+ 
+ ## What is in flight
+ 
++**2026-11-18 movement qualification (T-ENGINE-006, V-010).** The candidate
++stores jump timers on each simulant and initializes them on allocation and
++accepted spawn. A committed landing starts the cooldown. The jump decision
++uses the current movement intent, character gravity, and a bounded swept
++path to sampled support. Player and opted-in simulant support lookups carry
++height, room, material, hazard flags, and lift identity from the selected
++surface. The existing player volume-only compatibility path remains under
++review for hazard and lift ownership.
++
++The first ordinary-client proofs use the Complex room 24 ledge and the
++Villa room 17 coffee table with one player and one NormalSim per fixture
++pair. They require a rise and descent, landing, at least 30 stable game
++ticks, walk-off, and lower-floor landing. Villa also checks contact with the
++specific live table. Source guard and fixture structure passed. The C: build
++and smoke preflights refused admission at 148.85 GiB free against requirements
++of 206 GiB and 204 GiB. Native compilation and gameplay are pending. The
++next movement proofs cover blockers, slopes, seams, lift and hazard support,
++restart and respawn, and remote jump. Swarm acceptance is tracked separately
++under T-BENCHMARKING-006.
++
+ - **c038 Jump surface collision fix -- IMPLEMENTED + BUILD/TEST VERIFIED 2026-05-18; pending playtest.** Replaced the incomplete single-center-ray Stage 2 with a generic multi-sample capsule sweep, then replaced the fragile render-owned prop/model substrate with collision-owned mesh data. Stage load now builds `g_WorldMesh` from rendered room triangles; movement-solid props attach local-space `prop->colmesh`; Forge pickups/weapon pads/pass-through/projectile-only objects are movement-pass-through. Dynamic prop collision meshes detach through `meshDetachAllStageProps()` before `MEMPOOL_STAGE` reset, not from stale props in `lvReset()`; the detach pass walks only `g_Vars.activeprops` and prop reset nulls `colmesh` for the pool. Bug ledger: B-335 + B-339 + B-343. Verification: queued isolated `jumpfix` client/tests/focused `[physics][jump]` PASS for the first solver; queued isolated `meshcol` client/updater PASS, tests target PASS, focused `[physics][jump]` PASS (64 assertions / 4 cases), server PASS for the mesh ownership fix; queued isolated `meshdn` client/updater PASS, tests target PASS, focused `[physics][jump]` PASS (85 assertions / 4 cases), server PASS for the detach-before-stage-reset fix; recursive session `smkmis` focused `[physics][jump]` PASS (92 assertions / 4 cases), client PASS, server PASS, `mission_intro_flow` PASS (18/18), and `auto_campaign_first_cycle` PASS (20/20) after reproducing/fixing the Defection -> Investigation stale-free-tail crash.
+ - **B-350 Airborne side-entry through overhead blockers -- BUILD/TEST VERIFIED 2026-05-19; pending CI Training playtest.** Follow-up to c038/B-339 after Mike's playtest showed top/bottom blocking improved but side-entry during a jump could still pass through overhead blockers. Root cause was movement order: horizontal movement applied first, then `bwalkUpdateVertical()` only swept `move=(0, verticalDelta, 0)`. `bondwalk.c` now runs an upward diagonal `capsuleSweep()` from `bondprevpos` to current X/Z plus `verticalDelta` before the vertical-only sweep, rolls X/Z back to the safe fraction on any hit, and clamps/kills upward movement on ceiling-class hits. `tests/test_jump_two_stage_design.cpp` now includes side-wall rendered-triangle fixture coverage. Verification: queued isolated `b350side` tests target PASS, focused `[physics][jump]` PASS (99 assertions / 4 cases), and all-target build PASS.
+ - **B-367 Airborne lateral wall/ceiling/corner clamp -- BUILD/TEST VERIFIED 2026-05-22; pending Mike playtest.** Follow-up after Mike reported the jumping player still clips into walls, ceilings, or corners. The remaining movement-order gap was horizontal movement committing through the legacy cylinder path before the vertical repair code ran, so apex/descent or same-frame wall/corner contact could enter rendered-only geometry. `bondwalk.c` now runs `bwalkClampAirborneLateralEntry()` immediately after horizontal movement and before speed correction when the player is airborne. The helper performs a horizontal collision-owned capsule mesh sweep from `bondprevpos`, rolls X/Z back to a safe fraction on wall/ceiling/corner hits, ignores floor-class hits, and leaves the existing upward diagonal B-350 sweep in place. Verification: focused `[physics][jump]` PASS (105 assertions / 4 cases) and isolated `jump367` all-target build PASS.
+diff --git a/dev-mods/crystal_pistol/mod.json b/dev-mods/crystal_pistol/mod.json
+index 4bc953124..96bff6b54 100644
+--- a/dev-mods/crystal_pistol/mod.json
++++ b/dev-mods/crystal_pistol/mod.json
+@@ -1,9 +1,9 @@
+ {
+   "id": "crystal_pistol",
+-  "name": "Maian Crystal Pistol (test)",
++  "name": "Maian Crystal Pistol",
+   "version": "0.2.0",
+   "author": "PD2",
+-  "description": "Test build of the Maian crystal pistol: a Tripo-generated, Blender-retopologised held model with a baked body texture and six crystals in sockets (five on the spine, one in the barrel). The crystals are the magazine: each shot fires one, it vanishes from its socket, and reload regrows them one at a time. Primary fire launches a crystal that sticks where it lands; three landed crystals near each other detonate. Secondary charges every loaded crystal and launches each from its own socket as a proximity mine.",
++  "description": "The Maian crystal pistol has a Tripo-generated, Blender-retopologised held model with a baked body texture and six crystals in sockets (five on the spine, one in the barrel). The crystals are the magazine: each shot fires one, it vanishes from its socket, and reload regrows them one at a time. Primary fire launches a crystal that sticks where it lands; three landed crystals near each other detonate. Secondary charges every loaded crystal and launches each from its own socket as a proximity mine.",
+   "contents": [
+     "weapon",
+     "texture"
+diff --git a/dev-mods/dev-mods.json b/dev-mods/dev-mods.json
+index 23db3aca7..d8c8e0bcd 100644
+--- a/dev-mods/dev-mods.json
++++ b/dev-mods/dev-mods.json
+@@ -1,6 +1,6 @@
+ {
+   "schema": "pd2-dev-mods-v1",
+-  "description": "Authored dev mods that are git-tracked here (so a clean build cannot erase them) and copied into <install>/mods on every build by devtools/build-headless.ps1. Each entry's source lives at dev-mods/<path>/. Per-mod 'dev' and 'release' flags control default inclusion; override at build time with -DevMods all|none|<comma-list>, or at release time with the release script's mod flags.",
++  "description": "Git-tracked mod sources in dev-mods/<path>/. The dev flag copies loose sources into <install>/mods on a normal build. The release flag packs a first-party .pdmod into mods/bundled. Build selection can be overridden with -DevMods all|none|<comma-list>.",
+   "mods": [
+     {
+       "id": "needler",
+@@ -13,7 +13,7 @@
+       "id": "crystal_pistol",
+       "path": "crystal_pistol",
+       "dev": false,
+-      "release": false,
++      "release": true,
+       "summary": "Maian crystal pistol test weapon: textured held model, six crystals that are its magazine (fired one at a time, regrow in their sockets), sticky crystal projectile. Include with -DevMods crystal_pistol."
+     },
+     {
+diff --git a/port/src/smoke_fixture_schema.c b/port/src/smoke_fixture_schema.c
+index 70bca0d58..a3bf045c8 100644
+--- a/port/src/smoke_fixture_schema.c
++++ b/port/src/smoke_fixture_schema.c
+@@ -326,6 +326,7 @@ int smokeFixtureEventTypeKnown(const char *type)
+ 		"controller_attach", "controller_button", "controller_axis", "controller_detach",
+ 		"kill_player", "kill_simulant", "use_door", "use_lift_door", "damage_glass",
+ 		"give_weapon", "touch_pickup", "kill_token_holder",
++		"movement_ledge", "movement_tabletop",
+ 	};
+ 
+ 	if (!type) {
+@@ -392,7 +393,8 @@ smoke_fixture_field_mask_t smokeFixtureEventAllowedFields(const char *type)
+ 			|| !strcmp(type, "give_weapon")) {
+ 		return common | SMOKE_FIXTURE_FIELD_PATH;
+ 	}
+-	if (!strcmp(type, "agent_activate") || !strcmp(type, "agent_delete")) {
++	if (!strcmp(type, "agent_activate") || !strcmp(type, "agent_delete")
++			|| !strcmp(type, "movement_ledge") || !strcmp(type, "movement_tabletop")) {
+ 		return common | SMOKE_FIXTURE_FIELD_NAME;
+ 	}
+ 	if (!strcmp(type, "key")) {
+diff --git a/port/src/smoke_harness.c b/port/src/smoke_harness.c
+index c45ada335..5b71a0941 100644
+--- a/port/src/smoke_harness.c
++++ b/port/src/smoke_harness.c
+@@ -179,6 +179,7 @@
+ #include "grid_match_runtime.h"
+ #include "fs.h"
+ #include "room.h"
++#include "game/bot.h"
+ #include "game/chraction.h"
+ #include "game/player.h"
+ #include "game/playermgr.h"
+@@ -187,6 +188,7 @@
+ #include "game/forgemode.h"
+ #include "forge_level_io.h"
+ #include "game/setuputils.h"
++#include "lib/meshcollision.h"
+ #include "scenario_source_runtime.h"
+ #include "projectile_events.h"
+ #include "constants.h"
+@@ -274,6 +276,7 @@ typedef enum {
+     SMOKE_EVENT_KILL_PLAYER,        /* T-MODDING-008: local player 0 dies (playerDie) */
+     SMOKE_EVENT_KILL_TOKEN_HOLDER,  /* B-1209: the simulant carrying the scenario token dies */
+     SMOKE_EVENT_KILL_SIMULANT,      /* T-MODDING-011: the first live simulant dies (chrDamageByMisc) */
++    SMOKE_EVENT_MOVEMENT_LEDGE,
+     SMOKE_EVENT_USE_DOOR,           /* T-MODDING-011: player 0 uses the nearest door (propdoorInteract) */
+     SMOKE_EVENT_USE_LIFT_DOOR,      /* T-MODDING-011: player 0 uses the nearest lift door */
+     SMOKE_EVENT_DAMAGE_GLASS,       /* T-MODDING-011: player 0's shot breaks the nearest glass (objDamage) */
+@@ -286,6 +289,59 @@ typedef enum {
+ 
+ #define SMOKE_MAX_SHOTPATH 256
+ 
++typedef enum {
++    SMOKE_LEDGE_PLACE_PLAYER,
++    SMOKE_LEDGE_PLACE_BOT,
++    SMOKE_LEDGE_WALK_OFF,
++    SMOKE_LEDGE_VERIFY
++} SmokeLedgeCommand;
++
++typedef enum {
++    SMOKE_SUPPORT_COMPLEX_LEDGE,
++    SMOKE_SUPPORT_VILLA_TABLETOP
++} SmokeSupportFixtureId;
++
++typedef struct {
++    const char *marker;
++    s32 stage;
++    RoomNum room;
++    f32 x;
++    f32 lane_half_width;
++    f32 start_z;
++    f32 lower_y;
++    f32 upper_y;
++    f32 edge_z;
++    f32 upper_min_z;
++    f32 upper_max_z;
++    f32 upper_goal_z;
++    f32 lower_goal_z;
++    f32 lower_return_max_z;
++    s32 table_command;
++    s32 table_pad;
++} SmokeSupportFixture;
++
++typedef struct {
++    const SmokeSupportFixture *fixture;
++    struct prop *actor_prop;
++    struct defaultobj *table;
++    struct prop *table_prop;
++    struct coord table_pos;
++    f32 table_rotation[3][3];
++    s32 actor_chrnum;
++    s32 bot_slot;
++    u32 epoch;
++    s32 last_frame;
++    s32 land_frame;
++    s32 support_samples;
++    s32 took_off;
++    s32 descended;
++    s32 landed;
++    s32 stayed;
++    s32 walk_off;
++    s32 dropped;
++    s32 lower_landed;
++} SmokeLedge;
++
+ typedef struct {
+     s32            at_ms;
+     SmokeEventType type;
+@@ -301,6 +357,8 @@ typedef struct {
+     s32            controller_slot;    /* expected player slot for the virtual device */
+     s32            client_id;         /* stable target for network events */
+     s32            hand;              /* held-weapon event: HAND_RIGHT/LEFT */
++    SmokeLedgeCommand ledge_command;
++    SmokeSupportFixtureId ledge_fixture;
+     s32            release_at_ms;     /* for tap: scheduled release time */
+     s32            released;          /* tap: 0 = press pending, 1 = release pending, 2 = done */
+     smoke_readiness_condition_t readiness_condition;
+@@ -353,6 +411,7 @@ typedef struct {
+     u32          retired_network_prop_syncid;
+     u32          retired_network_parent_syncid;
+     s32          retired_network_client_id;
++    SmokeLedge   ledge;
+     s32          events_fired;
+     s32          exited;             /* prevent re-entrant exit */
+ } SmokeState;
+@@ -1250,6 +1309,24 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
+ 		ev->type = SMOKE_EVENT_KILL_SIMULANT;
+ 		return 1;
+ 	}
++	if (!strcmp(type_str, "movement_ledge") || !strcmp(type_str, "movement_tabletop")) {
++		if (!strcmp(name_str, "place_player")) {
++			ev->ledge_command = SMOKE_LEDGE_PLACE_PLAYER;
++		} else if (!strcmp(name_str, "place_simulant")) {
++			ev->ledge_command = SMOKE_LEDGE_PLACE_BOT;
++		} else if (!strcmp(name_str, "walk_off")) {
++			ev->ledge_command = SMOKE_LEDGE_WALK_OFF;
++		} else if (!strcmp(name_str, "verify")) {
++			ev->ledge_command = SMOKE_LEDGE_VERIFY;
++		} else {
++			sysLogPrintf(LOG_ERROR, "SMOKE: unknown %s command '%s'", type_str, name_str);
++			return 0;
++		}
++		ev->type = SMOKE_EVENT_MOVEMENT_LEDGE;
++		ev->ledge_fixture = !strcmp(type_str, "movement_tabletop")
++			? SMOKE_SUPPORT_VILLA_TABLETOP : SMOKE_SUPPORT_COMPLEX_LEDGE;
++		return 1;
++	}
+ 	if (!strcmp(type_str, "use_door")) {
+ 		ev->type = SMOKE_EVENT_USE_DOOR;
+ 		return 1;
+@@ -2552,12 +2629,9 @@ static smoke_readiness_facts_t smokeCaptureReadinessFacts(void)
+         && !(facts.menu_binding_capture = pdguiMainMenuBindingCaptureListening());
+     facts.grid_consent_preparing = netLocalClientPreparingGridTransfer();
+     facts.grid_consent_pending = facts.grid_consent_preparing && netDistribClientConsentPending();
+-    if (facts.grid_consent_pending) {
+-        pdgui_menu_view_readiness_t consent_view;
+-        facts.grid_consent_accept_focused = pdguiMenuViewReadiness("##distrib_prompt",
+-            !facts.menu_focus_lost, &consent_view) && consent_view.play_focused
+-            && !pdguiTextKeyboardOwnsMenuInput();
+-    }
++    facts.grid_consent_accept_focused = facts.grid_consent_pending
++        && !pdguiTextKeyboardOwnsMenuInput()
++        && pdguiMenuModalOwnsInput("##distrib_prompt", "Receive for Match", !facts.menu_focus_lost);
+     const s32 lobbyConsentPending = facts.network_active
+         && netDistribClientConsentPending() && !pdguiTextKeyboardOwnsMenuInput();
+     facts.lobby_content_consent_input = lobbyConsentPending
+@@ -2604,6 +2678,13 @@ static void smokeLogReadinessWait(s32 level, const char *status,
+         sysLogPrintf(level, "SMOKE.WAIT.LOBBY: boot=%d net=%d client_lobby=%d",
+             facts->boot_complete, facts->network_active, facts->local_client_in_lobby);
+     }
++    if (ev->readiness_condition >= SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY &&
++        ev->readiness_condition <= SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY) {
++        sysLogPrintf(level, "SMOKE.WAIT.LOBBY_UI: preparing=%d consent_input=%d room_session_input=%d countdown=%d countdown_input=%d",
++            facts->local_client_preparing, facts->lobby_content_consent_input,
++            facts->lobby_catalog_room_session_input, facts->lobby_countdown_active,
++            facts->lobby_countdown_input);
++    }
+     if (ev->readiness_condition == SMOKE_READINESS_GRID_CONSENT_READY) {
+         sysLogPrintf(level, "SMOKE.WAIT.GRIDCONSENT: %s preparing=%d pending=%d accept_focused=%d input_top=%d keyboard_ready=%d",
+             status, facts->grid_consent_preparing, facts->grid_consent_pending,
+@@ -2614,13 +2695,6 @@ static void smokeLogReadinessWait(s32 level, const char *status,
+         sysLogPrintf(level, "SMOKE.WAIT.FORGE: freefly=%d level_file_open=%d",
+             facts->forge_freefly, facts->forge_level_file_open);
+     }
+-    if (ev->readiness_condition >= SMOKE_READINESS_LOBBY_CATALOG_CONSENT_READY &&
+-        ev->readiness_condition <= SMOKE_READINESS_LOBBY_CATALOG_ROOM_SESSION_READY) {
+-        sysLogPrintf(level, "SMOKE.WAIT.LOBBY_UI: preparing=%d consent_input=%d room_session_input=%d countdown=%d countdown_input=%d",
+-            facts->local_client_preparing, facts->lobby_content_consent_input,
+-            facts->lobby_catalog_room_session_input, facts->lobby_countdown_active,
+-            facts->lobby_countdown_input);
+-    }
+     sysLogPrintf(level,
+ 		"SMOKE.WAIT: %s condition=%s at_ms=%d timeout_ms=%u waited_ms=%u real_elapsed_ms=%u stable_ms=%u stable_elapsed_ms=%u assist_action=%d assist_condition=%s assist_hold_ms=%u facts=boot:%d/title:%d/title_initial:%d/title_idle:%d/title_stage_idle:%d/net:%d/listen:%d/reconnect:%d/client_game:%d/stage:%d/ready:%d/mp:%d/player:%d/spawn:%d/tick:%d/layer_cut:%d/layer_game:%d/cut:%d/cut_progress:%d/cut_frame:%d/cut_auth:%d/normal:%d/update:%d/control:%d/unpaused:%d/alive:%d/walk:%d/bike:%d/hoverbike:%d/vehicle_layer_top:%d/end:%d/end_menu:%d/menu_input:%d/agent_select:%d/agent_select_pool:%d/agent_create:%d/agent_create_pool:%d/menu_top:%d/menu_key_ready:%d/agent_select_imgui:%d/agent_create_imgui:%d"
+         " focus_lost=%d focus_settle_ms=%u key_suppressed=%d binding_capture=%d agent_select_imgui_reject=0x%x agent_create_imgui_reject=0x%x",
+@@ -3216,6 +3290,288 @@ static s32 smokeTickReadinessWait(SmokeEvent *ev, u32 now,
+     return 0;
+ }
+ 
++#define SMOKE_LEDGE_STAY_TICKS 30
++
++/* Both stock approaches face +Z. Complex uses fixed room collision. Villa
++ * uses the live coffee table from setup_0492 at pad_0428 in the native level. */
++static const SmokeSupportFixture s_SmokeSupportFixtures[] = {
++    [SMOKE_SUPPORT_COMPLEX_LEDGE] = {
++        .marker = "SMOKE.LEDGE", .stage = STAGE_MP_COMPLEX, .room = 24,
++        .x = -1392.0f, .lane_half_width = 30.0f, .start_z = -700.0f,
++        .lower_y = 512.0f, .upper_y = 551.0f, .edge_z = -656.0f,
++        .upper_min_z = -628.0f, .upper_max_z = -500.0f,
++        .upper_goal_z = -560.0f, .lower_goal_z = -745.0f,
++        .lower_return_max_z = -685.0f, .table_command = -1,
++    },
++    [SMOKE_SUPPORT_VILLA_TABLETOP] = {
++        .marker = "SMOKE.TABLETOP", .stage = STAGE_VILLA, .room = 17,
++        .x = -4065.0f, .lane_half_width = 22.0f, .start_z = 2250.0f,
++        .lower_y = -300.0f, .upper_y = -240.0f, .edge_z = 2306.0f,
++        .upper_min_z = 2326.0f, .upper_max_z = 2370.0f,
++        .upper_goal_z = 2348.0f, .lower_goal_z = 2235.0f,
++        .lower_return_max_z = 2270.0f, .table_command = 492, .table_pad = 428,
++    },
++};
++
++static s32 smokeLedgeFail(const char *reason)
++{
++    const SmokeLedge *ledge = &s_State.ledge;
++
++    sysLogPrintf(LOG_ERROR,
++        "%s: result=fail reason=%s chrnum=%d takeoff=%d descended=%d landed=%d stayed=%d walk_off=%d dropped=%d lower_landed=%d",
++        ledge->fixture->marker, reason, ledge->actor_chrnum, ledge->took_off, ledge->descended,
++        ledge->landed, ledge->stayed, ledge->walk_off, ledge->dropped,
++        ledge->lower_landed);
++    smokeHarnessExit(1, "movement_ledge_failed");
++    return 0;
++}
++
++static s32 smokeLedgeStageActive(const SmokeSupportFixture *fixture)
++{
++    return g_NetMode == NETMODE_NONE && g_StageNum == fixture->stage
++        && g_Vars.stagenum == fixture->stage && g_Vars.normmplayerisrunning
++        && s_State.ready_stage_generation != 0
++        && s_State.ready_stage_num == fixture->stage;
++}
++
++static struct chrdata *smokeLedgeActor(s32 bot_slot)
++{
++    struct player *player = g_Vars.players[0];
++    struct chrdata *chr;
++
++    if (bot_slot >= 0) {
++        if (bot_slot >= g_BotCount || bot_slot >= MAX_BOTS) return NULL;
++        chr = g_MpBotChrPtrs[bot_slot];
++        if (!chr || !chr->aibot || chrIsDead(chr)) return NULL;
++    } else {
++        if (!player || !player->prop || player->isdead) return NULL;
++        chr = player->prop->chr;
++        if (!chr || chr->prop != player->prop) return NULL;
++    }
++    return chr->prop && chr->prop->chr == chr ? chr : NULL;
++}
++
++static s32 smokeLedgeTableStable(const SmokeLedge *ledge)
++{
++    struct prop *prop = ledge->table_prop;
++    const struct coord *pos = &prop->pos;
++    const struct coord *initial = &ledge->table_pos;
++
++    return ledge->table->prop == prop && prop->obj == ledge->table
++        && meshPropIsMovementSolid(prop) && meshGetFromProp(prop)
++        && prop->rooms[0] == ledge->fixture->room
++        && fabsf(pos->x - initial->x) <= 0.5f
++        && fabsf(pos->y - initial->y) <= 0.5f
++        && fabsf(pos->z - initial->z) <= 0.5f
++        && memcmp(ledge->table_rotation, ledge->table->realrot,
++            sizeof(ledge->table_rotation)) == 0;
++}
++
++static s32 smokeLedgeTableContact(const SmokeLedge *ledge, const struct coord *pos,
++        f32 feet, struct prop *actor)
++{
++    const RoomNum rooms[] = { ledge->fixture->room, -1 };
++    const struct coord from = { pos->x, feet + 6.0f, pos->z };
++    const struct coord to = { pos->x, feet - 6.0f, pos->z };
++    struct coord normal;
++    f32 fraction = 1.0f;
++    struct prop *hit = NULL;
++
++    return meshRayCastDynamicProps(&from, &to, rooms, actor, &fraction,
++            &normal, &hit)
++        && hit == ledge->table_prop && fabsf(normal.y) > 0.7f
++        && fabsf(6.0f - 12.0f * fraction) <= 3.0f;
++}
++
++static s32 smokeLedgeBindTable(SmokeLedge *ledge, struct prop *actor)
++{
++    const SmokeSupportFixture *fixture = ledge->fixture;
++    struct defaultobj *obj = (struct defaultobj *)setupGetCmdByIndex(fixture->table_command);
++    if (!obj || obj->type != OBJTYPE_BASIC || obj->modelnum != MODEL_CV_COFFEE_TABLE
++            || obj->pad != fixture->table_pad || !obj->prop || obj->prop->obj != obj
++            || obj->prop->rooms[0] != fixture->room) {
++        return smokeLedgeFail("authored_table_missing");
++    }
++
++    ledge->table = obj;
++    ledge->table_prop = obj->prop;
++    ledge->table_pos = obj->prop->pos;
++    memcpy(ledge->table_rotation, obj->realrot, sizeof(ledge->table_rotation));
++    if (!smokeLedgeTableStable(ledge)) return smokeLedgeFail("table_collision_unavailable");
++
++    const struct coord target = { fixture->x, fixture->upper_y, fixture->upper_goal_z };
++    if (!smokeLedgeTableContact(ledge, &target, fixture->upper_y, actor)) {
++        return smokeLedgeFail("authored_tabletop_contact_missing");
++    }
++    sysLogPrintf(LOG_NOTE, "%s: phase=table_bound command=%d model=%s pad=%d room=%d collision=dynamic_mesh",
++        fixture->marker, fixture->table_command, "base:model_cv_coffee_table",
++        fixture->table_pad, fixture->room);
++    return 1;
++}
++
++static s32 smokeLedgeObserve(void)
++{
++    SmokeLedge *ledge = &s_State.ledge;
++
++    if (!ledge->actor_prop) return 1;
++    const SmokeSupportFixture *fixture = ledge->fixture;
++    if (!smokeLedgeStageActive(fixture) || s_State.ready_stage_generation != ledge->epoch) {
++        return smokeLedgeFail("stage_changed");
++    }
++
++    const s32 frame = g_Vars.lvframe60;
++    if (frame == ledge->last_frame) return 1;
++    if (frame < ledge->last_frame) return smokeLedgeFail("simulation_reset");
++    ledge->last_frame = frame;
++
++    struct chrdata *chr = smokeLedgeActor(ledge->bot_slot);
++    if (!chr || chr->prop != ledge->actor_prop || chr->chrnum != ledge->actor_chrnum) {
++        return smokeLedgeFail("actor_changed");
++    }
++    if (ledge->table && !smokeLedgeTableStable(ledge)) return smokeLedgeFail("table_changed");
++
++    const struct player *player = ledge->bot_slot < 0 ? g_Vars.players[0] : NULL;
++    const f32 feet = player ? player->vv_manground : chr->manground;
++    const f32 ground = player ? player->vv_ground : chr->ground;
++    const f32 velocity = player ? player->bdeltapos.y : chr->fallspeed.y;
++    const RoomNum floorroom = player ? player->floorroom : chr->floorroom;
++    const struct coord *pos = &chr->prop->pos;
++    if (!__builtin_isfinite(feet) || !__builtin_isfinite(ground) || !__builtin_isfinite(velocity)
++            || !__builtin_isfinite(pos->x) || !__builtin_isfinite(pos->z)) {
++        return smokeLedgeFail("nonfinite_movement");
++    }
++    const s32 in_lane = fabsf(pos->x - fixture->x) < fixture->lane_half_width;
++    const s32 settled = in_lane && floorroom == fixture->room
++        && fabsf(feet - ground) <= 2.0f && fabsf(velocity) <= 0.25f;
++    const s32 on_ledge = settled && fabsf(feet - fixture->upper_y) <= 2.0f
++        && pos->z >= fixture->upper_min_z && pos->z <= fixture->upper_max_z
++        && (!ledge->table || smokeLedgeTableContact(ledge, pos, feet, chr->prop));
++
++    if (!ledge->took_off && in_lane && pos->z < fixture->edge_z
++            && feet > fixture->lower_y + 4.0f && velocity > 0.25f) {
++        ledge->took_off = 1;
++        sysLogPrintf(LOG_NOTE,
++            "%s: phase=takeoff chrnum=%d frame=%d feet=%.2f velocity=%.2f z=%.2f",
++            fixture->marker, chr->chrnum, frame, feet, velocity, pos->z);
++    }
++    if (ledge->took_off && feet > fixture->upper_y + 2.0f && velocity < -0.25f) {
++        ledge->descended = 1;
++    }
++    if (!ledge->walk_off) {
++        if (!on_ledge && ledge->landed) return smokeLedgeFail("lost_ledge_before_walk_off");
++        if (!on_ledge || !ledge->descended) return 1;
++        if (!ledge->landed) {
++            ledge->landed = 1;
++            ledge->land_frame = frame;
++            sysLogPrintf(LOG_NOTE,
++                "%s: phase=land chrnum=%d frame=%d room=%d feet=%.2f ground=%.2f z=%.2f support=%s",
++                fixture->marker, chr->chrnum, frame, floorroom, feet, ground, pos->z,
++                ledge->table ? "table" : "room");
++        }
++        ledge->support_samples++;
++        if (!ledge->stayed && ledge->support_samples >= 8
++                && frame - ledge->land_frame >= SMOKE_LEDGE_STAY_TICKS) {
++            ledge->stayed = 1;
++            sysLogPrintf(LOG_NOTE,
++                "%s: phase=stay chrnum=%d ticks=%d samples=%d room=%d feet=%.2f support=%s",
++                fixture->marker, chr->chrnum, frame - ledge->land_frame,
++                ledge->support_samples, floorroom, feet, ledge->table ? "table" : "room");
++        }
++        return 1;
++    }
++
++    if (!ledge->dropped && in_lane && pos->z < fixture->edge_z
++            && velocity < -0.25f && feet < fixture->upper_y - 2.0f) {
++        ledge->dropped = 1;
++        sysLogPrintf(LOG_NOTE,
++            "%s: phase=drop chrnum=%d frame=%d feet=%.2f velocity=%.2f z=%.2f",
++            fixture->marker, chr->chrnum, frame, feet, velocity, pos->z);
++    }
++    if (!ledge->lower_landed && ledge->dropped && settled && pos->z <= fixture->lower_return_max_z
++            && fabsf(feet - fixture->lower_y) <= 2.0f) {
++        ledge->lower_landed = 1;
++        sysLogPrintf(LOG_NOTE,
++            "%s: phase=lower_land chrnum=%d frame=%d room=%d feet=%.2f ground=%.2f z=%.2f",
++            fixture->marker, chr->chrnum, frame, floorroom, feet, ground, pos->z);
++    }
++    return 1;
++}
++
++static s32 smokeLedgeApply(SmokeSupportFixtureId fixture_id, SmokeLedgeCommand command)
++{
++    SmokeLedge *ledge = &s_State.ledge;
++    const SmokeSupportFixture *fixture = &s_SmokeSupportFixtures[fixture_id];
++    RoomNum rooms[] = { fixture->room, -1 };
++
++    if (ledge->fixture && ledge->fixture != fixture) return smokeLedgeFail("fixture_changed");
++    ledge->fixture = fixture;
++    if (!smokeLedgeStageActive(fixture)) return smokeLedgeFail("wrong_stage");
++    if (command == SMOKE_LEDGE_PLACE_PLAYER || command == SMOKE_LEDGE_PLACE_BOT) {
++        const s32 bot_slot = command == SMOKE_LEDGE_PLACE_BOT ? 0 : -1;
++        if (ledge->actor_prop) return smokeLedgeFail("duplicate_placement");
++        if (bot_slot >= 0 && (g_BotCount != 1 || !(g_MpSetup.options & MPOPTION_BOTJUMP))) {
++            return smokeLedgeFail("simulant_setup");
++        }
++        struct chrdata *chr = smokeLedgeActor(bot_slot);
++        if (!chr) return smokeLedgeFail("actor_missing");
++        if (fixture->table_command >= 0 && !smokeLedgeBindTable(ledge, chr->prop)) return 0;
++
++        struct coord start = { fixture->x, fixture->lower_y + 4.0f, fixture->start_z };
++        const s32 previous_player = g_Vars.currentplayernum;
++        if (bot_slot < 0) setCurrentPlayerNum(0);
++        const s32 placed = chrMoveToPos(chr, &start, rooms, 0.0f, true);
++        if (bot_slot < 0) setCurrentPlayerNum(previous_player);
++        if (!placed || chr->prop->rooms[0] != fixture->room
++                || fabsf(chr->prop->pos.x - start.x) > 1.0f
++                || fabsf(chr->prop->pos.z - start.z) > 1.0f
++                || fabsf(chr->ground - fixture->lower_y) > 2.0f) {
++            sysLogPrintf(LOG_ERROR,
++                "%s: start placed=%d room=%d ground=%.2f x=%.2f z=%.2f",
++                fixture->marker, placed, chr->prop->rooms[0], chr->ground,
++                chr->prop->pos.x, chr->prop->pos.z);
++            return smokeLedgeFail("wrong_start_support");
++        }
++        ledge->actor_prop = chr->prop;
++        ledge->actor_chrnum = chr->chrnum;
++        ledge->bot_slot = bot_slot;
++        ledge->epoch = s_State.ready_stage_generation;
++        ledge->last_frame = g_Vars.lvframe60;
++        sysLogPrintf(LOG_NOTE,
++            "%s: phase=place actor=%s chrnum=%d room=%d feet=%.2f x=%.2f z=%.2f",
++            fixture->marker, bot_slot < 0 ? "player" : "simulant", chr->chrnum,
++            fixture->room, chr->ground, chr->prop->pos.x, chr->prop->pos.z);
++        if (bot_slot >= 0) {
++            struct coord upper = { fixture->x, fixture->upper_y, fixture->upper_goal_z };
++            botApplyHold(chr, &upper, rooms, 0.0f);
++        }
++        return 1;
++    }
++
++    if (!ledge->actor_prop) return smokeLedgeFail("placement_missing");
++    if (command == SMOKE_LEDGE_WALK_OFF) {
++        if (ledge->walk_off) return smokeLedgeFail("duplicate_walk_off");
++        if (!ledge->took_off) return smokeLedgeFail("takeoff_missing");
++        if (!ledge->landed) return smokeLedgeFail("ledge_landing_missing");
++        if (!ledge->stayed) return smokeLedgeFail("sustained_support_missing");
++        if (ledge->bot_slot >= 0) {
++            struct chrdata *chr = smokeLedgeActor(ledge->bot_slot);
++            struct coord lower = { fixture->x, fixture->lower_y, fixture->lower_goal_z };
++            if (!chr || chr->prop != ledge->actor_prop || chr->chrnum != ledge->actor_chrnum) {
++                return smokeLedgeFail("actor_changed");
++            }
++            botApplyHold(chr, &lower, rooms, M_BADPI);
++        }
++        ledge->walk_off = 1;
++        return 1;
++    }
++
++    if (!ledge->walk_off || !ledge->dropped) return smokeLedgeFail("departure_missing");
++    if (!ledge->lower_landed) return smokeLedgeFail("lower_landing_missing");
++    sysLogPrintf(LOG_NOTE, "%s: result=pass actor=%s chrnum=%d",
++        fixture->marker, ledge->bot_slot < 0 ? "player" : "simulant", ledge->actor_chrnum);
++    return 1;
++}
++
+ void smokeHarnessTick(void)
+ {
+     if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
+@@ -3236,6 +3592,7 @@ void smokeHarnessTick(void)
+     if (nativeWritePolicyRefused()) smokeHarnessExit(2, "native_write_policy_refused");
+     smokeObserveStageReadyEpoch();
+     if (!smokeGridPortalObserve()) return;
++    if (!smokeLedgeObserve()) return;
+     u32 script_elapsed_ms = real_elapsed_ms >= s_State.timeline_pause_ms
+         ? real_elapsed_ms - s_State.timeline_pause_ms : 0;
+     s32 elapsed = (s32)script_elapsed_ms;
+@@ -3318,6 +3675,9 @@ void smokeHarnessTick(void)
+                 return;
+             }
+             break;
++        case SMOKE_EVENT_MOVEMENT_LEDGE:
++            if (!smokeLedgeApply(ev->ledge_fixture, ev->ledge_command)) return;
++            break;
+         case SMOKE_EVENT_KEY_PRESS:
+             sysLogPrintf(LOG_NOTE, "SMOKE: press scancode=%d at_ms=%d", ev->scancode, ev->at_ms);
+             smokePushKey(ev->scancode, 1);
+diff --git a/src/game/bondwalk.c b/src/game/bondwalk.c
+index cfe0ee294..cb9779031 100644
+--- a/src/game/bondwalk.c
++++ b/src/game/bondwalk.c
+@@ -1212,6 +1212,28 @@ void bwalkUpdateVertical(void)
+ 		ground = -30000;
+ 	}
+ 
++#if PC_CAPSULE_ENABLED
++	/* A rendered tabletop or lift can win over the tile beneath it. Publish
++	 * the same contact's material, room, hazard flags and lift owner. */
++	if ((g_Vars.currentplayer->vv_manground > ground + 2.0f
++			|| g_Vars.currentplayer->floorroom < 0)
++			&& g_Vars.bondcollisions && g_Vars.currentplayer->bdeltapos.y <= 4.0f) {
++		const struct capsulesupport support = capsuleFindSupportForProp(g_Vars.currentplayer->prop,
++				&testpos, radius, rooms, g_Vars.currentplayer->vv_manground + 20.0f);
++		const f32 support_y = support.y + g_Vars.currentplayer->bondonground;
++		if (support_y <= g_Vars.currentplayer->vv_manground + 20.0f
++				&& (support_y > ground + 1.0f || g_Vars.currentplayer->floorroom < 0)) {
++			ground = support_y;
++			g_Vars.currentplayer->floorcol = support.colour;
++			g_Vars.currentplayer->floortype = support.material;
++			g_Vars.currentplayer->floorflags = support.flags;
++			g_Vars.currentplayer->floorroom = support.room;
++			lift = support.lift;
++			newinlift = lift != NULL;
++		}
++	}
++#endif
++
+ 	/* B-49: Prop surface floor detection (non-capsule).
+ 	 *
+ 	 * cdFindGroundInfoAtCyl only finds TILE geometry with FLOOR1/FLOOR2 flags.
+@@ -1248,36 +1270,6 @@ void bwalkUpdateVertical(void)
+ 		}
+ 	}
+ 
+-#if PC_CAPSULE_ENABLED
+-	/* PC: Capsule-based prop and rendered surface detection. Secondary fallback after
+-	 * cdFindGroundInfoAtCyl. Most prop surfaces are now found by the primary
+-	 * ground detection (auto-generated floor tiles from model bounding boxes).
+-	 * This probe catches edge cases where the capsule system or rendered
+-	 * triangle skin detects surfaces that the tile system misses.
+-	 *
+-	 * Only skip during strong upward movement (jump ascent) — during descent
+-	 * and when grounded, the probe should always run. */
+-	if (g_Vars.currentplayer->vv_manground > ground + 2.0f && g_Vars.bondcollisions
+-			&& g_Vars.currentplayer->bdeltapos.y <= 4.0f) {
+-		struct coord floorpos;
+-
+-		floorpos.x = g_Vars.currentplayer->prop->pos.x;
+-		floorpos.y = g_Vars.currentplayer->prop->pos.y;
+-		floorpos.z = g_Vars.currentplayer->prop->pos.z;
+-
+-		f32 capsuleGround = capsuleFindFloorForProp(g_Vars.currentplayer->prop, &floorpos, radius,
+-				ymin - g_Vars.currentplayer->prop->pos.y,
+-				ymax - g_Vars.currentplayer->prop->pos.y,
+-				g_Vars.currentplayer->prop->rooms,
+-				CDTYPE_ALL, NULL, NULL);
+-
+-		if (capsuleGround > ground + 1.0f
+-				&& capsuleGround <= g_Vars.currentplayer->vv_manground + 20.0f) {
+-			ground = capsuleGround;
+-		}
+-	}
+-#endif /* PC_CAPSULE_ENABLED */
+-
+ #if PIRACYCHECKS
+ 	if (g_Vars.currentplayer->inlift && newinlift == false) {
+ 		// Exiting a lift
+diff --git a/src/game/bot.c b/src/game/bot.c
+index 58ec7b5a7..3b088d754 100644
+--- a/src/game/bot.c
++++ b/src/game/bot.c
+@@ -10,6 +10,7 @@
+ #include "grid_match_runtime.h"
+ #include "smoke_harness.h"
+ #include "game/chraction.h"
++#include "game/game_096360.h"
+ #include "game/debug.h"
+ #include "game/chr.h"
+ #include "game/prop.h"
+@@ -143,12 +144,18 @@ enum bot_spawn_result {
+ static s32 s_BotSpawnWaveNextUncommitted;
+ static bool s_BotSpawnFailsafeDone;
+ static bool s_BotSpawnFailsafeRetryPending;
++static u32 s_BotJumpBudgetSampleMs;
++static u32 s_BotJumpBudgetIntervalMs = 60;
++
++static void botJumpTickEval(struct chrdata *chr);
+ 
+ void botSpawnWaveReset(void)
+ {
+ 	s_BotSpawnWaveNextUncommitted = 0;
+ 	s_BotSpawnFailsafeDone = false;
+ 	s_BotSpawnFailsafeRetryPending = false;
++	s_BotJumpBudgetSampleMs = 0;
++	s_BotJumpBudgetIntervalMs = 60;
+ 	s_BotRepeatPassLogged = false;
+ 	s_BotGoalLogLines = 0;
+ 	memset(s_BotGoalLastProp, 0, sizeof(s_BotGoalLastProp));
+@@ -350,6 +357,9 @@ void botReset(struct chrdata *chr, u8 respawning)
+ 		chr->hidden &= ~CHRHFLAG_CLOAKED;
+ 		chr->myaction = MA_AIBOTMAINLOOP;
+ 		chr->shotbondsum = 0;
++		chr->fallspeed.y = 0.0f;
++		aibot->jumplastevalms = 0;
++		aibot->jumpcooldownuntil60 = 0;
+ 
+ 		if (respawning) {
+ 			chr->numclosearghs = 0;
+@@ -2174,6 +2184,9 @@ s32 botTick(struct prop *prop)
+ 		}
+ 
+ 		botApplyMovement(chr);
++		if (updateable && g_Vars.lvframe60 >= 145 && !chrIsDead(chr) && botShouldTickAI(chr)) {
++			botJumpTickEval(chr);
++		}
+ 
+ 		result = chrTick(prop);
+ 
+@@ -3728,9 +3741,9 @@ s32 botGetNumOpponentsInHill(struct chrdata *chr)
+  * bot count rises and remains frame-rate independent across clients.
+  *
+  * Difficulty tiers (per Mike Q2 2026-05-17):
+- *   MEAT/EASY/NORMAL: obstacle-jump only (blocked forward + clear above)
+- *   HARD/PERFECT/DARK: + reach target Y when target_y > my_y + threshold
+- *                      + crouch-jump boost (+1.5) for just-out-of-reach
++ *   MEAT/EASY/NORMAL: obstacle jump with a swept path and landing support
++ *   HARD/PERFECT/DARK: also reach an elevated opponent or try a crouch boost
++ *                      when the standard arc cannot land there
+  *
+  * Telemetry: BOT.JUMP: chrnum=N reason=X target_y=Y dy=N fires under
+  * the BOTAI log channel (both dev + release with channel enabled).
+@@ -3741,14 +3754,13 @@ s32 botGetNumOpponentsInHill(struct chrdata *chr)
+ 
+ #define BOT_JUMP_BUDGET_PER_SEC      200u   /* total decisions/sec across all bots */
+ #define BOT_JUMP_COOLDOWN_TICKS60     30    /* ~0.5 sec post-landing before re-eval */
++#define BOT_JUMP_AWAITING_LANDING    (-1)
+ #define BOT_JUMP_FORWARD_PROBE_UNITS  60.0f /* forward distance to probe for obstacle */
+-#define BOT_JUMP_STEP_UP_UNITS        30.0f /* obstacle height threshold */
+ #define BOT_JUMP_REACH_UP_UNITS       40.0f /* target-Y above this triggers HARD+ reach */
+-#define BOT_JUMP_CROUCH_UPPER_UNITS   60.0f /* crouch-jump unlocks for 30-60 unit zone */
++#define BOT_JUMP_IMPULSE              8.2f
+ #define BOT_JUMP_CROUCH_BOOST         1.5f  /* matches player crouch-jump from bondmove.c */
+-
+-static u32 s_BotJumpLastEvalMs[MAX_MPCHRS]   = {0};
+-static s32 s_BotJumpCooldownFrame[MAX_MPCHRS] = {0};
++#define BOT_JUMP_ARC_STEP_TICKS60     6.0f
++#define BOT_JUMP_ARC_MAX_TICKS60      80.0f
+ 
+ /* "BOTJUMP.<reason>" tags the telemetry line so the smoke harness can
+  * regex on a specific reason. Keep short: OBST=obstacle, REACH=target-y. */
+@@ -3765,147 +3777,163 @@ static const char *botJumpReasonName(s32 reason)
+ static bool botJumpIsGrounded(struct chrdata *chr)
+ {
+ 	if (!chr || !chr->prop) return false;
+-	if (chr->fallspeed.y != 0.0f) return false;
++	if (chr->onladder || chr->fallspeed.y != 0.0f) return false;
+ 	const f32 groundgap = chr->manground - chr->ground;
+-	return groundgap < 3.0f;
+-}
+-
+-/* Index a bot in the global mpchr table. For normal MP/mission bots
+- * the chrnum maps directly to a slot in [0, MAX_MPCHRS); swarm bench
+- * bots have chrnums >= 5000 (testscenarios.c) which fell out of the
+- * range and made botJumpDecide silently bail. Fold large chrnums via
+- * modulo so swarm bots share cooldown slots harmlessly (cooldown
+- * collisions just mean some bots wait a frame longer than ideal). */
+-static s32 botJumpChrIndex(struct chrdata *chr)
+-{
+-	if (!chr) return -1;
+-	const s32 idx = chr->chrnum;
+-	if (idx < 0) return -1;
+-	if (idx >= MAX_MPCHRS) return idx % MAX_MPCHRS;
+-	return idx;
++	return chr->ground > -30000.0f && groundgap > -3.0f && groundgap < 3.0f;
+ }
+ 
+-static bool botJumpProbeObstacle(struct chrdata *chr, f32 *out_dy)
++static bool botJumpProbeFlight(const struct capsulecast *body, f32 ground,
++		f32 vx, f32 vz, f32 run_ticks, f32 clear_ticks, f32 impulse,
++		const struct chrdata *target, f32 *out_dy)
+ {
+-	if (!chr || !chr->prop) return false;
++	struct capsulecast arc = *body;
++	struct chrdata *chr = body->selfprop->chr;
++	f32 height = 0.0f;
++	f32 moved_ticks = 0.0f;
++
++	for (f32 tick = 0.0f; tick < BOT_JUMP_ARC_MAX_TICKS60; tick += BOT_JUMP_ARC_STEP_TICKS60) {
++		const f32 travel_ticks = MIN(BOT_JUMP_ARC_STEP_TICKS60, MAX(0.0f, run_ticks - moved_ticks));
++		f32 step_y = 0.0f;
++		func0f0965e4(&step_y, &impulse, BOT_JUMP_ARC_STEP_TICKS60);
++		arc.move = (struct coord){vx * travel_ticks, step_y, vz * travel_ticks};
++
++		struct coord end = {
++			arc.start.x + arc.move.x,
++			arc.start.y + arc.move.y,
++			arc.start.z + arc.move.z,
++		};
++		RoomNum endrooms[8];
++		func0f065e74(&arc.start, arc.rooms, &end, endrooms);
++		chr0f021fa8(chr, &end, endrooms);
++
++		bool landing = false;
++		f32 floor = -30000.0f;
++		if (step_y < 0.0f) {
++			/* Sample ahead horizontally at the current height, before sweeping
++			 * down to the selected support. The cast still has to reach it. */
++			struct coord probe = end;
++			probe.y = arc.start.y;
++			const struct capsulesupport support = capsuleFindSupportForProp(body->selfprop,
++					&probe, arc.radius, endrooms, ground + height + 0.5f);
++			floor = support.y;
++			landing = floor > -30000.0f && floor >= ground + height + step_y;
++			if (landing) {
++				if ((support.flags & GEOFLAG_DIE) || floor > ground + height + 0.5f || floor < ground - 8.0f) {
++					return false;
++				}
++				if (target) {
++					const f32 dx = end.x - target->prop->pos.x;
++					const f32 dz = end.z - target->prop->pos.z;
++					if (fabsf(floor - target->manground) > 12.0f || dx * dx + dz * dz > 100.0f * 100.0f) {
++						return false;
++					}
++				}
++				arc.move.y = floor - ground - height;
++			}
++		}
+ 
+-	f32 radius;
+-	f32 ymax;
+-	f32 ymin;
+-	chrGetBbox(chr->prop, &radius, &ymax, &ymin);
++		if (capsuleSweep(&arc) < 1.0f) {
++			/* Near a lip, the real horizontal move can be blocked for a few
++			 * ticks while the independent vertical move climbs above it. */
++			if (landing || arc.move.y <= 0.0f || travel_ticks == 0.0f) return false;
++			arc.move.x = arc.move.z = 0.0f;
++			if (capsuleSweep(&arc) < 1.0f) return false;
++			end.x = arc.start.x;
++			end.z = arc.start.z;
++			func0f065e74(&arc.start, arc.rooms, &end, endrooms);
++			chr0f021fa8(chr, &end, endrooms);
++		} else {
++			moved_ticks += travel_ticks;
++		}
++		if (landing) {
++			if (moved_ticks <= clear_ticks) return false;
++			*out_dy = floor - ground;
++			return true;
++		}
++		height += step_y;
++		arc.start = end;
++		roomsCopy(endrooms, arc.rooms);
++	}
+ 
+-	const f32 angle = chrGetInverseTheta(chr);
+-	const f32 fx = sinf(angle);
+-	const f32 fz = cosf(angle);
++	return false;
++}
+ 
+-	struct capsulecast low;
++/* Evaluate jump conditions for one bot, return decision in *out_reason
++ * (0 = no jump, 1 = obstacle, 2 = target-Y reach, 3 = tactical reserved)
++ * and out_dy (delta Y the jump aims to clear).
++ *
++ * Use the live movement input and the same gravity and swept volume as
++ * movement. A target's height can select a candidate, but only a reachable
++ * descending contact can authorize a jump. */
++static bool botJumpDecide(struct chrdata *chr, s32 *out_reason, f32 *out_dy,
++		f32 *out_impulse)
++{
++	const struct aibot *aibot = chr->aibot;
++	const s32 difficulty = aibot->config->difficulty;
++	const bool advanced = difficulty >= BOTDIFF_HARD && difficulty <= BOTDIFF_DARK;
++	const f32 angle = chrGetRotY(chr);
++	const f32 speed = botCalculateMaxSpeed(chr);
++	const f32 forward = aibot->speedmultforwards * speed;
++	const f32 strafe = aibot->speedmultsideways * speed;
++	const f32 vx = strafe * cosf(angle) + forward * sinf(angle);
++	const f32 vz = forward * cosf(angle) - strafe * sinf(angle);
++	const f32 speed_sq = vx * vx + vz * vz;
++	if (speed_sq < 0.01f) return false;
++
++	f32 run_ticks = BOT_JUMP_ARC_MAX_TICKS60;
++	if (chr->actiontype == ACT_GOPOS && chr->act_gopos.waypoints[chr->act_gopos.curindex] == NULL) {
++		const f32 dx = chr->act_gopos.endpos.x - chr->prop->pos.x;
++		const f32 dz = chr->act_gopos.endpos.z - chr->prop->pos.z;
++		const f32 goal_ticks = (dx * vx + dz * vz) / speed_sq;
++		run_ticks = MIN(run_ticks, goal_ticks);
++	}
++	if (run_ticks <= 0.0f) return false;
++
++	struct capsulecast low = {0};
++	f32 min_y, max_y;
++	chrGetBbox(chr->prop, &low.radius, &max_y, &min_y);
+ 	low.start = chr->prop->pos;
+-	low.radius = radius;
+-	low.ymin_offset = ymin - chr->prop->pos.y;
+-	low.ymax_offset = ymax - chr->prop->pos.y;
+-	low.move.x = fx * BOT_JUMP_FORWARD_PROBE_UNITS;
+-	low.move.y = 0.0f;
+-	low.move.z = fz * BOT_JUMP_FORWARD_PROBE_UNITS;
++	low.ymin_offset = min_y - low.start.y;
++	low.ymax_offset = max_y - low.start.y;
++	const f32 probe_limit = BOT_JUMP_FORWARD_PROBE_UNITS / sqrtf(speed_sq);
++	const f32 probe_ticks = MIN(run_ticks, probe_limit);
++	low.move.x = vx * probe_ticks;
++	low.move.z = vz * probe_ticks;
+ 	roomsCopy(chr->prop->rooms, low.rooms);
+ 	low.cdtypes = CDTYPE_ALL;
+ 	low.selfprop = chr->prop;
+ 
+-	if (capsuleSweep(&low) >= 1.0f) {
+-		return false;
+-	}
+-
+-	struct capsulecast raised = low;
+-	raised.start.y += BOT_JUMP_STEP_UP_UNITS;
+-	if (capsuleSweep(&raised) < 1.0f) {
+-		return false;
++	const f32 clear_fraction = capsuleSweep(&low);
++	const bool obstacle = clear_fraction < 1.0f;
++	struct chrdata *target = NULL;
++	if (!obstacle && advanced && aibot->attackpropnum >= 0) {
++		target = botLiveChrFromPropnum(aibot->attackpropnum);
++		const f32 threshold = difficulty == BOTDIFF_HARD ? BOT_JUMP_REACH_UP_UNITS : BOT_JUMP_REACH_UP_UNITS - 10.0f;
++		if (target && target->manground - chr->manground < threshold) {
++			target = NULL;
++		}
+ 	}
++	if (!obstacle && !target) return false;
+ 
+-	struct coord landing = raised.start;
+-	landing.x += raised.move.x;
+-	landing.z += raised.move.z;
+-	RoomNum landingrooms[8];
+-	func0f065e74(&chr->prop->pos, chr->prop->rooms, &landing, landingrooms);
+-	chr0f021fa8(chr, &landing, landingrooms);
+-
+-	struct prop *floorprop = NULL;
+-	u16 floorflags = 0;
+-	f32 floor = capsuleFindFloorForProp(chr->prop, &landing, radius,
+-		ymin - chr->prop->pos.y, ymax - chr->prop->pos.y,
+-		landingrooms, CDTYPE_ALL, &floorprop, &floorflags);
+-
+-	if (floor < -100000.0f) {
+-		return false;
+-	}
+-	if (floor < chr->manground - 8.0f) {
+-		return false;
+-	}
+-	if (floor > chr->manground + BOT_JUMP_CROUCH_UPPER_UNITS) {
+-		return false;
++	const f32 clear_ticks = obstacle ? probe_ticks * clear_fraction + 1.0f : 0.0f;
++	f32 impulse = BOT_JUMP_IMPULSE;
++	if (!botJumpProbeFlight(&low, chr->manground, vx, vz, run_ticks, clear_ticks, impulse, target, out_dy)) {
++		impulse += BOT_JUMP_CROUCH_BOOST;
++		if (!advanced || !botJumpProbeFlight(&low, chr->manground, vx, vz, run_ticks, clear_ticks, impulse, target, out_dy)) {
++			return false;
++		}
+ 	}
+-
+-	*out_dy = floor - chr->manground;
++	*out_reason = obstacle ? 1 : 2;
++	*out_impulse = impulse;
+ 	return true;
+ }
+ 
+-/* Evaluate jump conditions for one bot, return decision in *out_reason
+- * (0 = no jump, 1 = obstacle, 2 = target-Y reach, 3 = tactical reserved)
+- * and out_dy (delta Y the jump aims to clear).
+- *
+- * v1 trigger (Mike directive 2026-05-17, all difficulties): the bot's
+- * attack target is on a higher platform. Difficulty differs by reach
+- * threshold -- easier bots need a larger Y delta before they decide to
+- * jump (i.e. they don't try fancy small-step navigation), HARD+ bots
+- * react to smaller deltas. Obstacle-jump uses the same capsule solver as
+- * player vertical motion: low forward sweep blocked, raised sweep clear,
+- * and a landing floor exists. */
+-static bool botJumpDecide(struct chrdata *chr, s32 *out_reason, f32 *out_dy)
++void botJumpOnLand(struct chrdata *chr)
+ {
+-	if (!chr || !chr->aibot || !chr->prop) return false;
+-	if (!botJumpIsGrounded(chr)) return false;
+-	const s32 idx = botJumpChrIndex(chr);
+-	if (idx < 0) return false;
+-	if (s_BotJumpCooldownFrame[idx] > g_Vars.lvframe60) return false;
+-
+-	const s32 difficulty = chr->aibot->config->difficulty;
+-	/* Per-difficulty reach threshold. Easier bots need a more pronounced
+-	 * height difference; harder bots react earlier. Values in chr units
+-	 * (~50 units = a hop, ~100 units = chest-high platform). */
+-	f32 reach_threshold;
+-	switch (difficulty) {
+-	case BOTDIFF_MEAT:
+-	case BOTDIFF_EASY:    reach_threshold = 90.0f;  break;
+-	case BOTDIFF_NORMAL:  reach_threshold = 60.0f;  break;
+-	case BOTDIFF_HARD:    reach_threshold = BOT_JUMP_REACH_UP_UNITS;       break;
+-	case BOTDIFF_PERFECT:
+-	case BOTDIFF_DARK:    reach_threshold = BOT_JUMP_REACH_UP_UNITS - 10.0f; break;
+-	default:              reach_threshold = 60.0f;  break;
+-	}
+-
+-	if (botJumpProbeObstacle(chr, out_dy)) {
+-		*out_reason = 1;
+-		return true;
+-	}
+-
+-	if (chr->aibot->attackpropnum >= 0) {
+-		struct chrdata *targetchr = botLiveChrFromPropnum(chr->aibot->attackpropnum);
+-		if (targetchr) {
+-			const f32 dy = targetchr->manground - chr->manground;
+-			/* Sanity gate (Mike 2026-05-17): swarm bench bots have
+-			 * chr->manground set to a -1e30 sentinel until the chr
+-			 * tick reads ground; dy = target_y - sentinel yields ~1e30
+-			 * and triggers a permanent jump-spam. Reject dy beyond a
+-			 * sane upper bound (BOT_JUMP_CROUCH_UPPER * 2 ~ a generous
+-			 * vertical reach in any real arena). */
+-			const f32 dy_upper_sane = BOT_JUMP_CROUCH_UPPER_UNITS * 2.0f;
+-			if (dy >= reach_threshold && dy <= dy_upper_sane) {
+-				*out_reason = 2;
+-				*out_dy = dy;
+-				return true;
+-			}
+-		}
++	struct aibot *aibot = chr->aibot;
++	if (aibot && aibot->jumpcooldownuntil60 == BOT_JUMP_AWAITING_LANDING) {
++		aibot->jumpcooldownuntil60 = g_Vars.lvframe60 + BOT_JUMP_COOLDOWN_TICKS60;
+ 	}
+-
+-	return false;
+ }
+ 
+ /* Budgeted scheduler. Each bot gets evaluated at most
+@@ -3914,57 +3942,43 @@ static bool botJumpDecide(struct chrdata *chr, s32 *out_reason, f32 *out_dy)
+  * wall clock, so this is independent of client render FPS). */
+ static void botJumpTickEval(struct chrdata *chr)
+ {
+-	if (!chr || !chr->aibot) return;
+-	if ((g_MpSetup.options & MPOPTION_BOTJUMP) == 0) return;
+-
+-	const s32 idx = botJumpChrIndex(chr);
+-	if (idx < 0) return;
+-
+-	/* Count active bots once per tick so the budget scales. */
+-	static u32 s_LastBudgetCalcMs = 0;
+-	static u32 s_BudgetIntervalMs = 60; /* ~16 evals/sec per bot at 4 active */
+-	/* Approximate "wall-clock ms" via the 60Hz frame counter -- avoids
+-	 * adding an SDL.h dependency to src/game/bot.c. Each frame is
+-	 * ~16.67 ms; the budget math is robust to frame-rate drift because
+-	 * the engine pins lvupdate60 to wall-clock progress. */
+-	const u32 now_ms = (u32)g_Vars.lvframe60 * 17u;
+-	if ((now_ms - s_LastBudgetCalcMs) >= 250u) {
+-		s_LastBudgetCalcMs = now_ms;
++	struct aibot *aibot = chr->aibot;
++	const s32 frame = g_Vars.lvframe60;
++	if ((g_MpSetup.options & MPOPTION_BOTJUMP) == 0 || !botJumpIsGrounded(chr)
++			|| aibot->jumpcooldownuntil60 == BOT_JUMP_AWAITING_LANDING
++			|| aibot->jumpcooldownuntil60 > frame) return;
++
++	/* Recount the live roster periodically using the stage's 60 Hz clock. */
++	const u32 now_ms = (u32)frame * 17u;
++	if ((now_ms - s_BotJumpBudgetSampleMs) >= 250u) {
++		s_BotJumpBudgetSampleMs = now_ms;
+ 		s32 active = 0;
+ 		for (s32 mi = 0; mi < MAX_MPCHRS; mi++) {
+ 			struct chrdata *mc = g_MpAllChrPtrs[mi];
+ 			if (mc && mc->aibot && !chrIsDead(mc)) active++;
+ 		}
+ 		if (active < 1) active = 1;
+-		s_BudgetIntervalMs = (1000u * (u32)active) / BOT_JUMP_BUDGET_PER_SEC;
+-		if (s_BudgetIntervalMs < 16u) s_BudgetIntervalMs = 16u; /* >= one frame */
++		s_BotJumpBudgetIntervalMs = (1000u * (u32)active) / BOT_JUMP_BUDGET_PER_SEC;
++		if (s_BotJumpBudgetIntervalMs < 16u) s_BotJumpBudgetIntervalMs = 16u;
+ 	}
+ 
+-	if ((now_ms - s_BotJumpLastEvalMs[idx]) < s_BudgetIntervalMs) return;
+-	s_BotJumpLastEvalMs[idx] = now_ms;
++	if ((now_ms - aibot->jumplastevalms) < s_BotJumpBudgetIntervalMs) return;
++	aibot->jumplastevalms = now_ms;
+ 
+ 	s32 reason = 0;
+ 	f32 dy = 0.0f;
+-	if (!botJumpDecide(chr, &reason, &dy)) return;
+-
+-	/* Apply jump. Mirror player path's bondwalk.c:907 -- write the
+-	 * impulse onto the vertical-velocity field. Crouch-jump boost is
+-	 * HARD+ only and applies only when dy is in the just-barely zone
+-	 * (matches player crouch-jump intent: cap apex by a small lift). */
+-	f32 impulse = 8.2f;
+-	const bool advanced = (chr->aibot->config->difficulty >= BOTDIFF_HARD);
+-	if (advanced && dy >= BOT_JUMP_STEP_UP_UNITS && dy <= BOT_JUMP_CROUCH_UPPER_UNITS) {
+-		impulse += BOT_JUMP_CROUCH_BOOST;
+-	}
++	f32 impulse = 0.0f;
++	if (!botJumpDecide(chr, &reason, &dy, &impulse)) return;
++
++	const f32 landing_y = chr->manground + dy;
+ 	chr->fallspeed.y = impulse;
+-	chr->manground += 1.0f; /* nudge above ground so the airborne branch fires */
+-	s_BotJumpCooldownFrame[idx] = g_Vars.lvframe60 + BOT_JUMP_COOLDOWN_TICKS60;
++	aibot->jumpcooldownuntil60 = BOT_JUMP_AWAITING_LANDING;
+ 
+ 	sysLogPrintf(LOG_NOTE,
+ 		"BOT.JUMP: chrnum=%d reason=%s target_y=%.1f dy=%.1f diff=%d boost=%.1f",
+ 		(int)chr->chrnum, botJumpReasonName(reason),
+-		chr->manground + dy, dy, (int)chr->aibot->config->difficulty,
+-		impulse - 8.2f);
++		landing_y, dy, (int)aibot->config->difficulty,
++		impulse - BOT_JUMP_IMPULSE);
+ }
+ 
+ /**
+@@ -4007,10 +4021,6 @@ void botTickUnpaused(struct chrdata *chr)
+ 			aibot->randomfrac = RANDOMFRAC();
+ 		}
+ 
+-		/* Mike directive 2026-05-17: evaluate bot jump opportunity each
+-		 * AI tick. Gated on MPOPTION_BOTJUMP + wall-clock budget. */
+-		botJumpTickEval(chr);
+-
+ 		// Consider reloading
+ 		for (i = 0; i != 2; i++) {
+ 			// Reload if timer has reached 0
+diff --git a/src/game/botmgr.c b/src/game/botmgr.c
+index 4a52833f7..73a69582b 100644
+--- a/src/game/botmgr.c
++++ b/src/game/botmgr.c
+@@ -229,6 +229,8 @@ void botmgrAllocateBot(s32 chrnum, s32 aibotnum)
+ 					}
+ 
+ 					aibot->aibotnum = aibotnum;
++					aibot->jumplastevalms = 0;
++					aibot->jumpcooldownuntil60 = 0;
+ 					aibot->flags = 0;
+ 					aibot->gotoprop = NULL;
+ 					aibot->timeuntilreload60[0] = 0;
+diff --git a/src/game/chr.c b/src/game/chr.c
+index 19c72036e..af6636f7b 100644
+--- a/src/game/chr.c
++++ b/src/game/chr.c
+@@ -27,6 +27,7 @@
+ #include "game/camera.h"
+ #include "game/player.h"
+ #include "game/surface_loco.h"
++#include "swarm_audit_pose.h"
+ #include "game/mtxf2lbulk.h"
+ #include "game/playermgr.h"
+ #include "game/rng2.h"
+@@ -543,6 +544,90 @@ void chrCalculatePushPos(struct chrdata *chr, struct coord *dstpos, RoomNum *dst
+ 	}
+ }
+ 
++#if PC_CAPSULE_ENABLED
++static bool chrUsesSimulantSupport(const struct chrdata *chr)
++{
++	return g_Vars.normmplayerisrunning && (g_MpSetup.options & MPOPTION_BOTJUMP)
++			&& chr->aibot && chr->aibot->aibotnum >= 0 && !botIsPuppetTick();
++}
++
++static f32 chrSweepVertical(struct chrdata *chr, const struct coord *pos,
++		RoomNum *rooms, f32 delta, f32 radius, f32 ymin, f32 ymax)
++{
++	struct capsulecast sweep;
++	sweep.start = *pos;
++	sweep.radius = radius;
++	sweep.ymin_offset = ymin - chr->prop->pos.y;
++	sweep.ymax_offset = ymax - chr->prop->pos.y;
++	sweep.move.x = 0.0f;
++	sweep.move.y = delta;
++	sweep.move.z = 0.0f;
++	roomsCopy(rooms, sweep.rooms);
++	sweep.cdtypes = CDTYPE_ALL;
++	sweep.selfprop = chr->prop;
++	return capsuleSweep(&sweep);
++}
++
++static bool chrStepSimulantAirborne(struct chrdata *chr, const struct coord *pos,
++		RoomNum *rooms, f32 delta, f32 speed)
++{
++	const f32 tosupport = chr->ground - chr->manground;
++	const bool reaches_support = delta < 0.0f && tosupport <= 0.5f
++			&& delta <= tosupport && chr->ground > -30000.0f;
++	if (reaches_support) {
++		delta = tosupport;
++	}
++
++	f32 radius;
++	f32 ymax;
++	f32 ymin;
++	chrGetBbox(chr->prop, &radius, &ymax, &ymin);
++	const f32 safe = chrSweepVertical(chr, pos, rooms, delta, radius, ymin, ymax);
++	chr->manground += delta * safe;
++	chr->fallspeed.y = safe < 1.0f && delta > 0.0f && speed > 0.0f ? 0.0f : speed;
++
++	/* Only the independently sampled ground can complete a landing. A
++	 * side wall or ceiling can shorten the sweep without becoming support. */
++	return reaches_support && safe >= 1.0f;
++}
++#endif
++
++static f32 chrFindMovementGround(struct chrdata *chr, struct coord *pos, RoomNum *rooms,
++		u16 *flags, bool *inlift, struct prop **lift)
++{
++#if PC_CAPSULE_ENABLED
++	if (chrUsesSimulantSupport(chr)) {
++		const bool airborne = chr->fallspeed.y != 0.0f || chr->manground > chr->ground;
++		const f32 support_top = chr->manground + (airborne ? 0.5f : 20.0f);
++		const struct capsulesupport support = capsuleFindSupportForProp(chr->prop, pos,
++				chr->radius, rooms, support_top);
++		chr->floorcol = support.colour;
++		chr->floortype = support.material;
++		chr->floorroom = support.room;
++		*flags = support.flags;
++		*lift = support.lift;
++		*inlift = support.lift != NULL;
++		return support.y > -30000.0f ? support.y : -100001.0f;
++	}
++#endif
++
++	f32 ground = cdFindGroundInfoAtCyl(pos, chr->radius, rooms, &chr->floorcol,
++			&chr->floortype, flags, &chr->floorroom, inlift, lift);
++#if PC_CAPSULE_ENABLED
++	f32 radius;
++	f32 ymax;
++	f32 ymin;
++	struct prop *prop = chr->prop;
++	chrGetBbox(prop, &radius, &ymax, &ymin);
++	const f32 rendered = capsuleFindRenderedFloor(prop, pos, radius,
++			ymin - prop->pos.y, rooms, 240.0f, NULL);
++	if (rendered > ground + 1.0f && rendered <= ymin + 20.0f) {
++		ground = rendered;
++	}
++#endif
++	return ground;
++}
++
+ #if VERSION >= VERSION_NTSC_1_0
+ bool chr0f01f264(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 arg3, bool arg4)
+ #else
+@@ -566,18 +651,8 @@ bool chr0f01f264(struct chrdata *chr, struct coord *pos, RoomNum *rooms, f32 arg
+ 	chrSetPerimEnabled(chr, false);
+ #if PC_CAPSULE_ENABLED
+ 	if (arg3 != 0.0f) {
+-		struct capsulecast sweep;
+-		sweep.start = *pos;
+-		sweep.radius = radius;
+-		sweep.ymax_offset = ymax - chr->prop->pos.y;
+-		sweep.ymin_offset = ymin - chr->prop->pos.y;
+-		sweep.move.x = 0.0f;
+-		sweep.move.y = arg3;
+-		sweep.move.z = 0.0f;
+-		roomsCopy(rooms, sweep.rooms);
+-		sweep.cdtypes = CDTYPE_ALL;
+-		sweep.selfprop = chr->prop;
+-		result = capsuleSweep(&sweep) < 1.0f ? CDRESULT_COLLISION : CDRESULT_NOCOLLISION;
++		result = chrSweepVertical(chr, pos, rooms, arg3, radius, ymin, ymax) < 1.0f
++				? CDRESULT_COLLISION : CDRESULT_NOCOLLISION;
+ 	} else
+ #endif
+ 	result = cdTestVolume(&newpos, radius, newrooms, CDTYPE_ALL, CHECKVERTICAL_YES,
+@@ -636,24 +711,7 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
+ 			func0f065e74(&prop->pos, prop->rooms, arg2, spfc);
+ 		}
+ 
+-		ground = cdFindGroundInfoAtCyl(arg2, chr->radius, spfc, &chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
+-
+-#if PC_CAPSULE_ENABLED
+-		{
+-			f32 bboxradius;
+-			f32 bboxymax;
+-			f32 bboxymin;
+-			struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
+-			chrGetBbox(prop, &bboxradius, &bboxymax, &bboxymin);
+-			f32 rendered_ground = capsuleFindRenderedFloor(prop, arg2,
+-				bboxradius, bboxymin - prop->pos.y, spfc, 240.0f,
+-				&rendered_normal);
+-			if (rendered_ground > ground + 1.0f
+-					&& rendered_ground <= bboxymin + 20.0f) {
+-				ground = rendered_ground;
+-			}
+-		}
+-#endif
++		ground = chrFindMovementGround(chr, arg2, spfc, &floorflags, &inlift, &lift);
+ 
+ 		if (ground < -1000000) {
+ 			ground = 0.0f;
+@@ -922,25 +980,7 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
+ 						sp94 = spfc;
+ 					}
+ 
+-					ground = cdFindGroundInfoAtCyl(sp98, chr->radius, sp94,
+-							&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
+-
+-#if PC_CAPSULE_ENABLED
+-					{
+-						f32 bboxradius;
+-						f32 bboxymax;
+-						f32 bboxymin;
+-						struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
+-						chrGetBbox(prop, &bboxradius, &bboxymax, &bboxymin);
+-						f32 rendered_ground = capsuleFindRenderedFloor(prop,
+-							sp98, bboxradius, bboxymin - prop->pos.y, sp94,
+-							240.0f, &rendered_normal);
+-						if (rendered_ground > ground + 1.0f
+-								&& rendered_ground <= bboxymin + 20.0f) {
+-							ground = rendered_ground;
+-						}
+-					}
+-#endif
++					ground = chrFindMovementGround(chr, sp98, sp94, &floorflags, &inlift, &lift);
+ 
+ #if VERSION >= VERSION_NTSC_1_0
+ 					if (chr->aibot
+@@ -962,24 +1002,7 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
+ 
+ 						lvupdate60freal = 0.0f;
+ 
+-						ground = cdFindGroundInfoAtCyl(arg2, chr->radius, spfc,
+-								&chr->floorcol, &chr->floortype, &floorflags, &chr->floorroom, &inlift, &lift);
+-#if PC_CAPSULE_ENABLED
+-						{
+-							f32 bboxradius;
+-							f32 bboxymax;
+-							f32 bboxymin;
+-							struct coord rendered_normal = {0.0f, 0.0f, 0.0f};
+-							chrGetBbox(prop, &bboxradius, &bboxymax, &bboxymin);
+-							f32 rendered_ground = capsuleFindRenderedFloor(prop,
+-								arg2, bboxradius, bboxymin - prop->pos.y,
+-								spfc, 240.0f, &rendered_normal);
+-							if (rendered_ground > ground + 1.0f
+-									&& rendered_ground <= bboxymin + 20.0f) {
+-								ground = rendered_ground;
+-							}
+-						}
+-#endif
++						ground = chrFindMovementGround(chr, arg2, spfc, &floorflags, &inlift, &lift);
+ 					}
+ #endif
+ 
+@@ -1026,20 +1049,32 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
+ 
+ 						func0f0965e4(&yincrement, &sp68, VAR(lvupdate60freal));
+ 
++						bool landed;
++#if PC_CAPSULE_ENABLED
++						if (chrUsesSimulantSupport(chr)) {
++							landed = chrStepSimulantAirborne(chr, arg2, spfc, yincrement, sp68);
++						} else
++#endif
++						{
+ #if VERSION >= VERSION_NTSC_1_0
+-						if (chr0f01f264(chr, arg2, spfc, yincrement, false))
++							if (chr0f01f264(chr, arg2, spfc, yincrement, false))
+ #else
+-						if (chr0f01f264(chr, arg2, spfc, yincrement))
++							if (chr0f01f264(chr, arg2, spfc, yincrement))
+ #endif
+-						{
+-							chr->manground += yincrement;
+-							chr->fallspeed.y = sp68;
++							{
++								chr->manground += yincrement;
++								chr->fallspeed.y = sp68;
++							}
++							landed = chr->manground <= chr->ground;
+ 						}
+ 
+-						if (chr->manground <= chr->ground) {
++						if (landed) {
+ 							chr->manground = chr->ground;
+ 							chr->sumground = chr->ground * (PAL ? 8.4175090789795f : 9.999998f);
+ 							chr->fallspeed.y = 0.0f;
++							if (!botIsPuppetTick()) {
++								botJumpOnLand(chr);
++							}
+ 
+ 							if (floorflags & GEOFLAG_DIE) {
+ 								die = true;
+@@ -3234,6 +3269,7 @@ s32 chrTick(struct prop *prop)
+ 			anim = model->anim;
+ 
+ 			modelSetMatricesWithAnim(&sp210, model);
++			swarmAuditObservePose(chr, "chrTick", (const f32 *)sp210.unk00);
+ 
+ 			if (restore) {
+ 				anim->frac = prevfrac;
+@@ -4297,6 +4333,7 @@ Gfx *chrRender(struct prop *prop, Gfx *gdl, bool xlupass)
+ 			}
+ 
+ 			modelSetMatricesWithAnim(&renderdata, model);
++			swarmAuditObservePose(chr, "chrRenderFallback", (const f32 *)renderdata.unk00);
+ 		}
+ 
+ 		// Render the chr's model
+diff --git a/src/game/propobj.c b/src/game/propobj.c
+index f422ec194..68f2d5f3f 100644
+--- a/src/game/propobj.c
++++ b/src/game/propobj.c
+@@ -1471,6 +1471,9 @@ void projectileApplyGraphRuntime(struct defaultobj *obj,
+ 	}
+ 
+ 	projectile = obj->projectile;
++	/* B-1261: graph records carry the held function's FUNCFLAG_* bits.
++	 * Spawn paths map function flags into projectile state. The latches
++	 * below apply explicit projectile behavior from the graph. */
+ 	/* B-1263: this object was launched from this archive. Its events and its
+ 	 * fuse rule go to that archive's program (projectile_events.h). */
+ 	projectileEventBind(obj, runtime->asset_id);
+diff --git a/src/include/game/bot.h b/src/include/game/bot.h
+index ad8795051..4c56a6a19 100644
+--- a/src/include/game/bot.h
++++ b/src/include/game/bot.h
+@@ -52,6 +52,7 @@ void botScheduleReload(struct chrdata *chr, s32 handnum);
+ struct prop *botFindPickup(struct chrdata *chr, s32 criteria);
+ s32 botGetNumOpponentsInHill(struct chrdata *chr);
+ void botTickUnpaused(struct chrdata *chr);
++void botJumpOnLand(struct chrdata *chr);
+ s32 botIsObjCollectable(struct defaultobj *obj);
+ s32 botGetWeaponNum(struct chrdata *chr);
+ u8 botGetTargetsWeaponNum(struct chrdata *chr);
+diff --git a/src/include/lib/capsule.h b/src/include/lib/capsule.h
+index 226424edd..1e18fc906 100644
+--- a/src/include/lib/capsule.h
++++ b/src/include/lib/capsule.h
+@@ -131,6 +131,19 @@ f32 capsuleFindFloorForProp(struct prop *selfprop, struct coord *pos,
+                      RoomNum *rooms, u32 cdtypes,
+                      struct prop **out_prop, u16 *out_flags);
+ 
++struct capsulesupport {
++	f32 y;
++	struct prop *lift;
++	RoomNum room;
++	u16 flags;
++	u16 colour;
++	u8 material;
++};
++
++/* Select one floor and publish its height, material, hazard and lift together. */
++struct capsulesupport capsuleFindSupportForProp(struct prop *selfprop,
++		const struct coord *pos, f32 radius, RoomNum *rooms, f32 support_top);
++
+ /**
+  * Stage 2 collision-owned mesh ray cast (c038/B-339).
+  *
+diff --git a/src/include/lib/meshcollision.h b/src/include/lib/meshcollision.h
+index 0f42586df..82e724473 100644
+--- a/src/include/lib/meshcollision.h
++++ b/src/include/lib/meshcollision.h
+@@ -200,6 +200,18 @@ bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
+                              f32 *io_best_frac, struct coord *out_normal,
+                              struct prop **out_prop);
+ 
++struct meshfloorcontact {
++	struct prop *prop;
++	RoomNum room;
++	u16 flags;
++	u16 colour;
++	u8 material;
++};
++
++/* Closest floor on a vertical descending ray, with its triangle's metadata. */
++f32 meshRayCastFloor(const struct coord *from, const struct coord *to,
++		const RoomNum *rooms, struct prop *selfprop, struct meshfloorcontact *out);
++
+ /* ---- API: per-prop dynamic mesh ---- */
+ 
+ /* Attach a collision mesh to a prop (for dynamic objects).
+diff --git a/src/include/types.h b/src/include/types.h
+index 45eedb7b7..e6e23297d 100644
+--- a/src/include/types.h
++++ b/src/include/types.h
+@@ -841,8 +841,8 @@ struct aibot {
+ 	/*0x2cc*/ s32 random2ttl60;
+ 	/*0x2d0*/ u32 random2;
+ 	/*0x2d4*/ f32 randomfrac;
+-	/*0x2d8*/ u32 unk2d8; // unused
+-	/*0x2dc*/ u32 unk2dc; // unused
++	/*0x2d8*/ u32 jumplastevalms;
++	/*0x2dc*/ s32 jumpcooldownuntil60;
+ };
+ 
+ struct geo {
+@@ -2405,11 +2405,8 @@ struct gunctrl {
+ 	u32 loadcataloggeneration; /* Catalog generation captured for this request. */
+ 	struct modeldef *loadretainedmodel; /* Exact stage-pinned source, independent of current catalog rows. */
+ 	/*0x15b4*/ struct modeldef **loadtomodeldef;
+-	/* Queue targets use the real object types. They used to be uintptr_t*, so on
+-	 * 64-bit every read and write through loadmemremaining covered 8 bytes of a
+-	 * 4-byte counter and took masterloadstate, gunloadstate and loadfilenum with it. */
+ 	/*0x15b8*/ u8 **loadmemptr;
+-	/*0x15bc*/ u32 *loadmemremaining; /* memloadremaining, or handmemloadremaining through its unsigned alias */
++	/*0x15bc*/ u32 *loadmemremaining; /* Capacity fields are 32-bit, including the signed hand counter. */
+ 	/*0x15c0*/ struct texpool texpool;
+ 	/*0x15d0*/ u32 nexttexturetoload;
+ 	/*0x15d4*/ struct fileinfo fileinfo; /* Queued model payload sizes, independent of g_FileInfo[]. */
+diff --git a/src/lib/capsule.c b/src/lib/capsule.c
+index 112c10e70..a275b47c8 100644
+--- a/src/lib/capsule.c
++++ b/src/lib/capsule.c
+@@ -413,7 +413,9 @@ f32 capsuleStage2RayCast(const struct coord *from, const struct coord *to,
+ 		return 1.0f;
+ 	}
+ 
+-	f32 best_frac = meshRayCastWorld(from, to, rooms, out_normal);
++	f32 best_frac = g_WorldMesh.cells
++		? meshRayCastWorldMasked(from, to, 0, out_normal, NULL)
++		: meshRayCastWorld(from, to, rooms, out_normal);
+ 
+ 	if (best_frac < 1.0f) {
+ 		CAPSULE_LOG("stage2 raycast hit frac=%.3f from=(%.1f,%.1f,%.1f) to=(%.1f,%.1f,%.1f)",
+@@ -535,6 +537,52 @@ f32 capsuleStage2FloorProbe(const struct coord *pos, const RoomNum *rooms,
+ 	return hit_y;
+ }
+ 
++struct capsulesupport capsuleFindSupportForProp(struct prop *selfprop,
++		const struct coord *pos, f32 radius, RoomNum *rooms, f32 support_top)
++{
++	struct capsulesupport support = {.room = -1};
++	struct coord tilepos = *pos;
++	tilepos.y = MIN(tilepos.y, support_top);
++	s32 inlift = false;
++	support.y = cdFindGroundInfoAtCyl(&tilepos, radius, rooms, &support.colour,
++			&support.material, &support.flags, &support.room, &inlift, &support.lift);
++	if (support.room >= 0 && support.y >= support_top - 1.0f) {
++		return support;
++	}
++	/* The legacy mesh fallback has no contact identity and may extrapolate
++	 * a plane above this query. Keep only a real tile as the first candidate. */
++	if (support.room < 0) {
++		support = (struct capsulesupport){.y = -30000.0f, .room = -1, .colour = 0x0fff};
++	}
++
++	const f32 skin = radius * 0.85f;
++	const f32 offsets[5][2] = {{0, 0}, {skin, 0}, {-skin, 0}, {0, skin}, {0, -skin}};
++	f32 nearest = 1.0f;
++	struct meshfloorcontact contact = {.room = -1};
++	for (s32 i = 0; i < ARRAYCOUNT(offsets); i++) {
++		struct coord from = {pos->x + offsets[i][0], support_top, pos->z + offsets[i][1]};
++		struct coord end = {from.x, support_top - CAPSULE_FLOOR_PROBE, from.z};
++		struct meshfloorcontact hit;
++		const f32 fraction = meshRayCastFloor(&from, &end, rooms, selfprop, &hit);
++		if (fraction < nearest) {
++			nearest = fraction;
++			contact = hit;
++		}
++	}
++	if (nearest < 1.0f) {
++		const f32 y = support_top - CAPSULE_FLOOR_PROBE * nearest;
++		if (y > support.y + 1.0f) {
++			support.y = y;
++			support.room = contact.room;
++			support.flags = contact.flags;
++			support.colour = contact.colour;
++			support.material = contact.material;
++			support.lift = contact.flags & GEOFLAG_LIFTFLOOR ? contact.prop : NULL;
++		}
++	}
++	return support;
++}
++
+ f32 capsuleFindFloorForProp(struct prop *selfprop, struct coord *pos,
+                      f32 radius, f32 ymin_off, f32 ymax_off,
+                      RoomNum *rooms, u32 cdtypes,
+diff --git a/src/lib/collision.c b/src/lib/collision.c
+index b586c2739..1522e0b56 100644
+--- a/src/lib/collision.c
++++ b/src/lib/collision.c
+@@ -2267,6 +2267,8 @@ f32 cdFindGroundInfoAtCyl(struct coord *pos, f32 radius, RoomNum *rooms, u16 *fl
+ 			*floorflags = geo->flags;
+ 		} else if (ground > -30000.0f) {
+ 			*floorflags = GEOFLAG_FLOOR1;
++		} else {
++			*floorflags = 0;
+ 		}
+ 	}
+ 
+diff --git a/src/lib/meshcollision.c b/src/lib/meshcollision.c
+index 3e1b9bff1..c62bdd83c 100644
+--- a/src/lib/meshcollision.c
++++ b/src/lib/meshcollision.c
+@@ -1360,9 +1360,17 @@ void meshAttachModelToProp(struct prop *prop, struct model *model)
+ 	prop->colmesh = mesh;
+ }
+ 
++static void meshReadFloorContact(const struct meshtri *tri, struct meshfloorcontact *out)
++{
++	out->room = tri->roomnum > 0 ? tri->roomnum : -1;
++	out->flags = tri->flags;
++	out->colour = tri->roomnum > 0 || tri->floorcol != 0 ? tri->floorcol : 0x0fff;
++	out->material = (u8)tri->floortype;
++}
++
+ static bool meshRayCastMesh(const struct coord *from, const struct coord *to,
+ 		const struct colmesh *mesh, const Mtxf *transform,
+-		f32 *io_best_frac, struct coord *out_normal)
++		f32 *io_best_frac, struct coord *out_normal, struct meshfloorcontact *out_floor)
+ {
+ 	if (!from || !to || !mesh || mesh->numtris <= 0 || !io_best_frac) {
+ 		return false;
+@@ -1381,11 +1389,14 @@ static bool meshRayCastMesh(const struct coord *from, const struct coord *to,
+ 		f32 frac;
+ 		struct coord normal;
+ 		if (meshRayVsTriangle(from, to, &tri, &frac, &normal)
+-				&& frac < *io_best_frac) {
++				&& frac < *io_best_frac && (!out_floor || fabsf(normal.y) >= 0.35f)) {
+ 			*io_best_frac = frac;
+ 			if (out_normal) {
+ 				*out_normal = normal;
+ 			}
++			if (out_floor) {
++				meshReadFloorContact(&tri, out_floor);
++			}
+ 			hit = true;
+ 		}
+ 	}
+@@ -1408,7 +1419,7 @@ f32 meshRayCastWorld(const struct coord *from, const struct coord *to,
+ 	worldmesh.numtris = g_WorldMesh.numtris;
+ 
+ 	f32 best_frac = 1.0f;
+-	meshRayCastMesh(from, to, &worldmesh, NULL, &best_frac, out_normal);
++	meshRayCastMesh(from, to, &worldmesh, NULL, &best_frac, out_normal, NULL);
+ 	return best_frac;
+ }
+ 
+@@ -1452,9 +1463,9 @@ bool meshWorldHasShotFlags(void)
+ 	return g_WorldMesh.ready && s_WorldMeshHasShotFlags;
+ }
+ 
+-bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
++static bool meshRayCastDynamicPropsInternal(const struct coord *from, const struct coord *to,
+ 		const RoomNum *rooms, struct prop *selfprop, f32 *io_best_frac,
+-		struct coord *out_normal, struct prop **out_prop)
++		struct coord *out_normal, struct prop **out_prop, struct meshfloorcontact *out_floor)
+ {
+ 	if (!from || !to || !rooms || !io_best_frac) {
+ 		return false;
+@@ -1476,7 +1487,7 @@ bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
+ 		}
+ 
+ 		if (meshRayCastMesh(from, to, prop->colmesh, &transform,
+-				io_best_frac, out_normal)) {
++				io_best_frac, out_normal, out_floor)) {
+ 			if (out_prop) {
+ 				*out_prop = prop;
+ 			}
+@@ -1487,6 +1498,44 @@ bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
+ 	return hit;
+ }
+ 
++bool meshRayCastDynamicProps(const struct coord *from, const struct coord *to,
++		const RoomNum *rooms, struct prop *selfprop, f32 *io_best_frac,
++		struct coord *out_normal, struct prop **out_prop)
++{
++	return meshRayCastDynamicPropsInternal(from, to, rooms, selfprop, io_best_frac,
++			out_normal, out_prop, NULL);
++}
++
++f32 meshRayCastFloor(const struct coord *from, const struct coord *to,
++		const RoomNum *rooms, struct prop *selfprop, struct meshfloorcontact *out)
++{
++	*out = (struct meshfloorcontact){.room = -1, .colour = 0x0fff};
++	f32 fraction = 1.0f;
++	if (g_WorldMesh.ready && g_WorldMesh.cells) {
++		/* A vertical ray only visits its starting XZ cell. Test the normal
++		 * before picking a winner so a steeper face cannot hide a floor. */
++		const s32 x = meshGridCell(from->x, g_WorldMesh.originx, g_WorldMesh.cellsx);
++		const s32 z = meshGridCell(from->z, g_WorldMesh.originz, g_WorldMesh.cellsz);
++		const struct meshgridcell *cell = &g_WorldMesh.cells[z * g_WorldMesh.cellsx + x];
++		for (s32 i = 0; i < cell->count; i++) {
++			const struct meshtri *tri = &g_WorldMesh.tris[cell->triindices[i]];
++			f32 hit;
++			if (fabsf(tri->normal.y) >= 0.35f
++					&& meshRayVsTriangle(from, to, tri, &hit, NULL) && hit < fraction) {
++				fraction = hit;
++				meshReadFloorContact(tri, out);
++			}
++		}
++	}
++	if (meshRayCastDynamicPropsInternal(from, to, rooms, selfprop, &fraction, NULL, &out->prop, out)) {
++		out->room = out->prop->rooms[0];
++		if (out->prop->obj->type == OBJTYPE_LIFT) {
++			out->flags |= GEOFLAG_LIFTFLOOR;
++		}
++	}
++	return fraction;
++}
++
+ /* ======================================================================== */
+ /* Mesh-based floor and ceiling queries                                      */
+ /* ======================================================================== */
+diff --git a/tests/test_custom_projectile_log_static.cpp b/tests/test_custom_projectile_log_static.cpp
+index fc1dc89ca..9186f8ff7 100644
+--- a/tests/test_custom_projectile_log_static.cpp
++++ b/tests/test_custom_projectile_log_static.cpp
+@@ -30,6 +30,24 @@ size_t countOf(const std::string &text, const std::string &needle)
+ 
+ } // namespace
+ 
++TEST_CASE("projectile state keeps the weapon function flag domain separate",
++	"[weapon][graph][projectile][static][b1261]")
++{
++	const std::string source = readSource("src/game/propobj.c");
++	const size_t apply = source.find("void projectileApplyGraphRuntime(struct defaultobj *obj,");
++	REQUIRE(apply != std::string::npos);
++	const size_t end = source.find("\n}\n", apply);
++	REQUIRE(end != std::string::npos);
++	const std::string body = source.substr(apply, end - apply);
++	CHECK(body.find("runtime->flags") == std::string::npos);
++	CHECK(body.find("projectile->flags |= PROJECTILEFLAG_HOMING;") != std::string::npos);
++
++	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
++	CHECK(extractor.find("u32 flags = f ? f->flags : 0;") != std::string::npos);
++	const std::string gun = readSource("src/game/bondgun.c");
++	CHECK(gun.find("u32 funcflags = graph ? graph->flags : func->flags;") != std::string::npos);
++}
++
+ // B-1261: a projectile record's `flags` are its weapon function's FUNCFLAG_*
+ // bits; applying the record never copies them into PROJECTILEFLAG_*.
+ TEST_CASE("a projectile record's function flags never become projectile flags",
+diff --git a/tests/test_jump_two_stage_design.cpp b/tests/test_jump_two_stage_design.cpp
+index b48badc1d..d33a18098 100644
+--- a/tests/test_jump_two_stage_design.cpp
++++ b/tests/test_jump_two_stage_design.cpp
+@@ -188,6 +188,7 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
+     requireContains(capsule, "CAPSULE_RENDERED_SAMPLE_YS");
+     requireContains(capsule, "CAPSULE_RENDERED_SAMPLE_SKINS");
+     requireContains(capsule, "meshRayCastWorld");
++    requireContains(capsule, "meshRayCastWorldMasked(from, to, 0, out_normal, NULL)");
+     requireContains(capsule, "meshRayCastDynamicProps");
+     requireContains(capsule, "capsuleFindRoomsForPos");
+     requireContains(capsule, "stage2 vertical probe");
+@@ -231,10 +232,11 @@ TEST_CASE("jump capsule implementation is multi-sample and generic",
+     requireContains(bondwalk, "geomtype == CAPSULE_HIT_FLOOR");
+     requireContains(bondwalk, "JUMP_LATERAL_SWEEP");
+     requireContains(bondwalk, "JUMP_SIDE_SWEEP");
+-    requireContains(bondwalk, "capsuleFindFloorForProp(g_Vars.currentplayer->prop");
++    requireContains(bondwalk, "capsuleFindSupportForProp(g_Vars.currentplayer->prop");
+     requireContains(bondwalk, "capsuleFindCeilingForProp(g_Vars.currentplayer->prop");
+     requireContains(chr, "sweep.selfprop = chr->prop");
+     requireContains(chr, "capsuleFindRenderedFloor(prop");
++    requireContains(chr, "capsuleFindSupportForProp(chr->prop");
+     requireContains(propobj, "objModelMatrixIndexIsValid");
+     requireContains(propobj, "mtxindex < model->definition->nummatrices");
+     requireContains(propobj, "continue;");
+@@ -316,19 +318,47 @@ TEST_CASE("jump capsule rendered-triangle fixture catches unflagged floor, ceili
+         radius, ymin, ymax, sideWallTri, CAPSULE_HIT_WALL));
+ }
+ 
+-TEST_CASE("bot jump obstacle trigger is solver-gated and option-gated",
++TEST_CASE("simulant jumps require a swept arc to safe support",
+           "[physics][jump][bot][static]")
+ {
+     const std::string bot = readTextFile("src/game/bot.c");
++    const std::string chr = readTextFile("src/game/chr.c");
+ 
+     REQUIRE_FALSE(bot.empty());
++    REQUIRE_FALSE(chr.empty());
+ 
+     requireContains(bot, "MPOPTION_BOTJUMP");
+-    requireContains(bot, "botJumpProbeObstacle");
+-    requireContains(bot, "capsuleSweep(&low) >= 1.0f");
+-    requireContains(bot, "capsuleSweep(&raised) < 1.0f");
+-    requireContains(bot, "capsuleFindFloorForProp(chr->prop");
+-    requireContains(bot, "floor < -100000.0f");
+-    requireContains(bot, "return false");
+-    requireContains(bot, "*out_reason = 1");
++    requireContains(bot, "const f32 clear_fraction = capsuleSweep(&low);");
++    requireContains(bot, "moved_ticks <= clear_ticks");
++    requireContains(bot, "botJumpProbeFlight");
++    requireContains(bot, "func0f0965e4(&step_y, &impulse,");
++    requireContains(bot, "capsuleFindSupportForProp(body->selfprop");
++    requireContains(bot, "landing = floor > -30000.0f");
++    requireContains(bot, "support.flags & GEOFLAG_DIE");
++    requireContains(bot, "capsuleSweep(&arc) < 1.0f");
++    requireContains(chr, "chrStepSimulantAirborne");
++    requireContains(chr, "chr->manground += delta * safe;");
++    requireContains(chr, "return reaches_support && safe >= 1.0f;");
++}
++
++TEST_CASE("simulant jump cooldown follows the actor through landing and resets on placement",
++          "[physics][jump][bot][static]")
++{
++    const std::string bot = readTextFile("src/game/bot.c");
++    const std::string botmgr = readTextFile("src/game/botmgr.c");
++    const std::string chr = readTextFile("src/game/chr.c");
++
++    REQUIRE_FALSE(bot.empty());
++    REQUIRE_FALSE(botmgr.empty());
++    REQUIRE_FALSE(chr.empty());
++
++    requireNotContains(bot, "botJumpChrIndex");
++    requireNotContains(bot, "s_BotJumpCooldownFrame");
++    requireContains(bot, "aibot->jumpcooldownuntil60 = BOT_JUMP_AWAITING_LANDING;");
++    requireContains(chr, "botJumpOnLand(chr);");
++    requireContains(bot, "aibot->jumpcooldownuntil60 = g_Vars.lvframe60 + BOT_JUMP_COOLDOWN_TICKS60;");
++    requireContains(bot, "aibot->jumplastevalms = 0;");
++    requireContains(bot, "aibot->jumpcooldownuntil60 = 0;");
++    requireContains(botmgr, "aibot->jumplastevalms = 0;");
++    requireContains(botmgr, "aibot->jumpcooldownuntil60 = 0;");
+ }
+diff --git a/tests/test_weapon_graph_v2_catalog.cpp b/tests/test_weapon_graph_v2_catalog.cpp
+index c16bc2d9f..0703b0eeb 100644
+--- a/tests/test_weapon_graph_v2_catalog.cpp
++++ b/tests/test_weapon_graph_v2_catalog.cpp
+@@ -310,11 +310,19 @@ TEST_CASE("owner address reuse and stale source retirement cannot affect a newer
+         &ops, host.get(), destroyOwnedHost, error, sizeof(error));
+     REQUIRE(instance); host.release();
+     auto source_generation = wgV2CatalogEntryGeneration(entry.get());
++    wgV2Press(instance, 1, generation2, source_generation);
++    wgV2NativeIdle(instance, 1, 1, generation2, source_generation);
++    REQUIRE(wgV2Busy(instance));
++    const auto ticket = wgV2ActiveTicket(instance, "shot");
++    REQUIRE(ticket);
++    REQUIRE(wgV2Wake(instance, ticket, 1, generation1, source_generation) == WG_V2_IGNORED);
++    REQUIRE(wgV2Wake(instance, ticket, 1, generation2, source_generation + 1) == WG_V2_IGNORED);
++    REQUIRE(wgV2Busy(instance)); REQUIRE(wgV2ActiveTicket(instance, "shot") == ticket);
+     wgV2OwnersRetireOwner(owners.get(), &owner, generation1, "stale owner event");
+     wgV2OwnersRetireSource(owners.get(), "mod:single", source_generation + 1);
+     REQUIRE(wgV2OwnersFind(owners.get(), &owner, generation2, 1, source_generation, nullptr) == instance);
+     REQUIRE(destroyed == 0);
+     wgV2OwnersRetireHand(owners.get(), &owner, generation2, 1, "equip replacement");
+     REQUIRE(destroyed == 1);
+-    REQUIRE(cancelled == 0); REQUIRE(cleaned == 0); // Never started a native job.
++    REQUIRE(cancelled == 1); REQUIRE(cleaned == 1);
+ }

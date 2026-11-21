@@ -1,0 +1,15 @@
+{
+  "buildQueue": "q_20261120025653231_e4497008",
+  "testQueue": "q_20261120031324502_1fdf0dd7",
+  "binary": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\session-builds\\jenkins-noise-1117\\pd-tests.exe",
+  "sha256": "07B975274A2A2D12FD6E33E52C064D3A5C6D23C7A525892F51C2ABA1D783B7DB",
+  "status": 0,
+  "selector": "[net][room][reconnect],[net][room][snapshots],[net][lobby][T-NETWORKING-011],[net][move][grid][numeric],[net][move][grid][ingress],Grid movement checks the host's local inventory for a typed selection,Grid movement discards stale and legacy frames after consuming the complete record,Grid requires a bot waypoint by changing only its native pad flag,Moving a start preserves a bot waypoint authored at its old position,A new spawn gets a pad of its own*,Large finite spawn coordinates survive adding*,An id is not handed out twice*,Moving a spawn off a template pad gives it a new pad and leaves the old one,Grid door triggers round-trip native volumes and run the level graph action,Grid edits native trigger anchor*,Grid Edit Placement routes its input and applies one native document edit",
+  "caseCount": 21,
+  "passedCases": "21",
+  "failedCases": "0",
+  "passedAssertions": "1210",
+  "failedAssertions": "0",
+  "expectedFailures": "0",
+  "xmlSha256": "706C619AC15C4A250F0EA6287EA8B355DCF644CC558E040D8EC237868DAD4B07"
+}

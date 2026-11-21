@@ -1,0 +1,5 @@
+LEVEL FROM MODEL: built grid_stage_import.pdarena (23350 bytes): 4 textured parts, 90 collision triangles (14 floors), 8 starts, room box [-1250.000000, -50.000000, -1250.000000] to [1250.000000, 550.000000, 1250.000000]; sha256 193a8da3e6831712ad8ca08039c532d929f34edc3829973faa716a4cf058a879
+arena 193a8da3e6831712ad8ca08039c532d929f34edc3829973faa716a4cf058a879 (23350 bytes)
+embedded_scenario 83ea35a53dc575c0f1fd47e5f4d271a21c30d91a1f5693d7ca8d6a1552bf40f4 (23902 bytes)
+stage_rules 86fe8dd125a2e23547e049c438cf70c3e66c1adf452c0cf7dd6adbb65103f165 (159 bytes)
+Reopened native stage bytes and exact IDs. Parsed 23 fixture assertion patterns.

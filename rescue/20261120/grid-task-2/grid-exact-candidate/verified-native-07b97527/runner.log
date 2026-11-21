@@ -1,0 +1,10 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+
+  Perfect Dark PC Port - Targeted Tests
+  Session:  jenkins-noise-1117
+  BuildDir: C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike\.claude\session-builds\jenkins-noise-1117
+  Selector: [grid-edit-room],[grid-edit-session],[grid-edit-snapshot],[grid-edit-playtest-view],[forge-level-doc][stagerules],[forge-level-doc][grid-variant-fallback],[forge-level-live],[imgui][widgets],A level gains a plain prop made from nothing*,Grid room extension carries a draft brightness change into one native room table,Grid room brightness preserves unsupported room sources and native overrides
+
+
+  Session build cleanup:
+    .\devtools\build-session.ps1 -Remove -Session jenkins-noise-1117

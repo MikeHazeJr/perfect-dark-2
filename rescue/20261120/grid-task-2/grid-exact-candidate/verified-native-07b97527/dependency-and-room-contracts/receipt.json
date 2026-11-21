@@ -1,0 +1,15 @@
+{
+  "buildQueue": "q_20261120025653231_e4497008",
+  "testQueue": "q_20261120030857430_bca9b7bb",
+  "binary": "C:\\Users\\mikeh\\Perfect-Dark-2\\perfect_dark-mike\\.claude\\session-builds\\jenkins-noise-1117\\pd-tests.exe",
+  "sha256": "07B975274A2A2D12FD6E33E52C064D3A5C6D23C7A525892F51C2ABA1D783B7DB",
+  "status": 0,
+  "selector": "[net][grid][distribution],[net][grid-edit][wire],[net][lifecycle][grid-edit][static],Grid closes an eligible weapon archive when only its placed model was selected,Grid exact source edges compose with native model textures in one closure,Grid source member read rejects expansion beyond its supplied bound,Grid sharing admits only canonical native owner types and suffixes,Grid locates the first typed owner of a canonical descriptor,Grid refuses malformed package locators without publishing a prefix,Grid match consent waits for the focused receive action and authenticated offer,Grid Room offers only exact required packages after proposal approval and guest consent,Grid offers round trip exact owner identity and reject a partial or changed payload,Grid readiness carries the exact offer identity,Grid Continue retires the world and exact leases before Room resync,Grid Room score review uses the committed scorecard after stage retirement,Grid guest retains the played arena from its installed or leased stage cache,Grid live resume admits a Room member and rebinds only after an exact creator grant,Match packets exclude connected room guests outside the committed roster,reconnect connect data preserves fresh protocol and stable slot hint,reconnect connect data rejects malformed hints without output mutation,only timeout disconnects retain reconnect authority,server disconnect intent survives sender-local ENet reason loss,reconnect player-state planner separates snapshots from live events,reconnect world snapshots publish durable lifecycle state,Grid reconnect records a preserved remote peer's position,menu graph: main menu view changes go through subview pool helper,menu graph: main menu subviews have dedicated pool identities,menu graph: weapon and arena picker surfaces alphabetize catalog entries,F13: port/fast3d/pdgui_menu_mainmenu.cpp has no direct*,stage.json atmosphere has independent validated settings,a stage.json the reader cannot use is refused whole",
+  "caseCount": 47,
+  "passedCases": "47",
+  "failedCases": "0",
+  "passedAssertions": "11597",
+  "failedAssertions": "0",
+  "expectedFailures": "0",
+  "xmlSha256": "4C2D6281D0BB7378465B68DDF6500A9870E1F575CF27757F36733F6AEAEDFD34"
+}

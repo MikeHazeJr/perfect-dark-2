@@ -1,0 +1,31 @@
+{
+  "native_gameplay_verified": false,
+  "native_qualification": "unverified",
+  "origin": "synthetic",
+  "remaining_native_evidence": [
+    "Independently bind both raw game logs, exact binaries, public sources, managed installs, and runner receipts.",
+    "Verify the guest committed projection was read from real engine actor and pose state.",
+    "Review ordinary gameplay, fixture delivery schedule and connection closeout.",
+    "Host loss, physical-peer/WAN behavior and measured scale are separate native gates."
+  ],
+  "summary": {
+    "actor_and_pose_commits": 9,
+    "attachments": [
+      1,
+      2
+    ],
+    "epochs": [
+      10,
+      11
+    ],
+    "host_correlated_gameplay_inputs": 2,
+    "observed_valid_publication_gaps": 1,
+    "rejection_kinds": [
+      "duplicate",
+      "stale_attachment",
+      "stale_epoch",
+      "stale_sequence"
+    ]
+  },
+  "verdict": "contract_pass"
+}

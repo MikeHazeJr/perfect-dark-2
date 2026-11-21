@@ -1,0 +1,186 @@
+{
+  "scenario_name": "forge_grid_installed_crystal_pistol_pickup_smoke",
+  "description": "Operator-assisted managed loopback draft. Both isolated peers must start with the verified Crystal Pistol v0.2.0 package in the private install template. The host authors an original arena with a fixed pistol pickup. The guest consents to the arena only. Both spawn with Cyclone, collect the pistol by walking over it, fire it, and return through Results to the same Room. Finish the additional evidence checks in the accompanying README before accepting the run.",
+  "tags": ["forge", "network", "pdweapon", "operator-assisted", "match-lifecycle"],
+  "paths_of_interest": [
+    "port/src/forge_level_io.c",
+    "port/src/net/netmsg.c",
+    "port/src/net/netdistrib.c",
+    "src/game/propobj.c",
+    "src/game/bondgun.c",
+    "src/game/bondgun_mod.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 590,
+  "install_state": "clean",
+  "separate_process_installs": true,
+  "fixtures": [
+    {
+      "src": "dev-mods/grid_two_rooms/grid_two_rooms.pdarena",
+      "dst": "grid/templates/grid_two_rooms.pdarena"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/crystal_pistol_enabled.json",
+      "dst": "mods-enabled.json"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/needler_source_pd.ini",
+      "dst": "pd.ini"
+    }
+  ],
+  "processes": [
+    {
+      "name": "host",
+      "log_file": "pd-host.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--debug-level-tool-new", "original",
+        "--debug-level-tool-name", "Grid_Installed_Crystal_Pickup",
+        "--debug-grid-room-size", "2100,2700,1800,600,500,390",
+        "--debug-forge-level", "mod:arena_grid_installed_crystal_pickup",
+        "--debug-forge-level-name", "Grid_Installed_Crystal_Pickup",
+        "--debug-forge-level-weapon", "mod_crystal_pistol:crystal_pistol",
+        "--debug-forge-level-pin", "--debug-forge-level-share",
+        "--host", "--listen-bind", "27638",
+        "--launch-mp-room", "mod:arena_grid_installed_crystal_pickup", "base:combat", "0",
+        "--debug-spawn-weapon", "base:cyclone",
+        "--host-autostart", "--match-timelimit-sec", "150"
+      ],
+      "wait_for": "NET: created server on port 27638",
+      "wait_timeout_seconds": 220,
+      "assertions": {
+        "required_lines": [
+          "modmgr: loading mod 'crystal_pistol' from archive '.*installed.*crystal_pistol\\.pdmod'",
+          "LEVELTOOL\\.ORIGINAL\\.SEED: template=mod_grid_two_rooms:arena_grid_two_rooms seed_catalogued=0",
+          "FORGE\\.LEVEL\\.EDIT: setup_[0-9]+ now gives mod_crystal_pistol:crystal_pistol ",
+          "FORGE\\.LEVEL\\.SAVE\\.OK: template=mod:arena_grid_installed_crystal_pickup catalog=mod:arena_grid_installed_crystal_pickup",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=2 netmode=1",
+          "NET: CLC_LOBBY_RESYNC from client=1, replaying room state room=1$",
+          "LOBBY\\.REVIEW: client=1 reviewing=0 reason=continue"
+        ],
+        "required_sequences": [
+          {
+            "name": "host-pins-and-serves-the-original-arena",
+            "patterns": [
+              "FORGE\\.REVISION\\.PIN: arena=mod:arena_grid_installed_crystal_pickup sha256=[0-9a-f]{64}",
+              "FORGE\\.REVISION\\.SHARE: granted arena=mod:arena_grid_installed_crystal_pickup sha256=[0-9a-f]{64}",
+              "NET\\.GRID\\.OFFER: host prepared arena=mod:arena_grid_installed_crystal_pickup",
+              "NET\\.GRID\\.OFFER: host recorded ready client=1 generation=[1-9][0-9]*",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_installed_crystal_pickup epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "GRID\\.SPAWN\\.ACTIVE: id=base:cyclone mode=0 weaponnum=11$",
+              "BONDGUN\\.SOURCE: loaded catalog model source .* id=mod_crystal_pistol:crystal_pistol_model path=.*installed.*crystal_pistol\\.pdmod::crystal_pistol\\.pdweapon::dependencies/assets/models/crystal_pistol\\.pdmesh::model\\.obj",
+              "BONDGUN\\.CHARGE: released weapon=[1-9][0-9]* player=[0-9]+ count=6 launched=6 dead=0 sockets=6",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_installed_crystal_pickup revision=[0-9a-f]{64} scores=[0-9a-f]{64} rows=2$",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "SMOKE: result=scripted_exit scenario=forge_grid_installed_crystal_pistol_pickup_smoke"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "guest",
+      "log_file": "pd-client.log",
+      "boot_args": [
+        "--portable",
+        "--no-update-check", "--no-sound", "--skip-intro",
+        "--connect-host", "127.0.0.1:27638"
+      ],
+      "assertions": {
+        "required_lines": [
+          "modmgr: loading mod 'crystal_pistol' from archive '.*installed.*crystal_pistol\\.pdmod'",
+          "NET: SVC_AUTH from server, our ID is 1",
+          "MATCH\\.RESULT: scenario=0 teams=0 chrs=2 netmode=2"
+        ],
+        "required_sequences": [
+          {
+            "name": "guest-consents-to-the-arena-only-and-returns-to-its-room",
+            "patterns": [
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1$",
+              "DISTRIB\\.GRID: temporary arena awaits consent id=mod:arena_grid_installed_crystal_pickup bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.TRANSFER: guest approved arena=mod:arena_grid_installed_crystal_pickup packages=1$",
+              "NET\\.GRID\\.TRANSFER: admitted exact temporary arena=mod:arena_grid_installed_crystal_pickup bytes=[1-9][0-9]*",
+              "NET\\.GRID\\.TRANSFER: guest ready arena=mod:arena_grid_installed_crystal_pickup generation=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "MATCH: client stage start received",
+              "GRID\\.MATCH\\.STAGE: active arena=mod:arena_grid_installed_crystal_pickup epoch=[1-9][0-9]* digest=[0-9a-f]{64}",
+              "GRID\\.SPAWN\\.ACTIVE: id=base:cyclone mode=0 weaponnum=11$",
+              "BONDGUN\\.SOURCE: loaded catalog model source .* id=mod_crystal_pistol:crystal_pistol_model path=.*installed.*crystal_pistol\\.pdmod::crystal_pistol\\.pdweapon::dependencies/assets/models/crystal_pistol\\.pdmesh::model\\.obj",
+              "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_installed_crystal_pickup revision=[0-9a-f]{64} scores=[0-9a-f]{64} rows=2$",
+              "GAMELOOP\\.MP: endscreen EXIT_TO_ROOM",
+              "GRID\\.MATCH\\.LEASE: retired temporary arena=mod:arena_grid_installed_crystal_pickup$",
+              "NET: CLC_LOBBY_RESYNC sent to server",
+              "NET: SVC_ROOM_ASSIGN: assigned to room 1$",
+              "NET: SVC_ROOM_SETTINGS: .* stage='mod:arena_grid_installed_crystal_pickup'",
+              "SMOKE: result=scripted_exit scenario=forge_grid_installed_crystal_pistol_pickup_smoke"
+            ]
+          }
+        ],
+        "required_counts": [
+          {
+            "pattern": "DISTRIB\\.GRID: receiving package=1/1 id=mod:arena_grid_installed_crystal_pickup verified=0 total=[1-9][0-9]*",
+            "min": 1,
+            "max": 1
+          }
+        ]
+      }
+    }
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "network_stage_live",
+      "timeout_ms": 310000,
+      "stable_ms": 1500,
+      "comment": "The operator accepts only the arena on the actual guest countdown."
+    },
+    {
+      "at_ms": 1000,
+      "type": "wait_until",
+      "condition": "endscreen_visible",
+      "timeout_ms": 170000,
+      "stable_ms": 1000,
+      "comment": "Both operators collect the fixed pickup through actual movement and use Crystal Pistol before the time limit."
+    },
+    {
+      "at_ms": 30000,
+      "type": "exit",
+      "comment": "Use Continue normally and capture both returned Room screens before clean exit."
+    }
+  ],
+  "assertions": {
+    "required_lines": ["MATCH: stage end reason=timelimit"],
+    "required_counts": [
+      {
+        "pattern": "GRID\\.SPAWN\\.ACTIVE: id=base:cyclone mode=0 weaponnum=11$",
+        "min": 2,
+        "max": 2
+      },
+      {
+        "pattern": "NET\\.GRID\\.RESULT: room=1 generation=[1-9][0-9]* epoch=[1-9][0-9]* reason=1 arena=mod:arena_grid_installed_crystal_pickup revision=[0-9a-f]{64} scores=[0-9a-f]{64} rows=2$",
+        "min": 2,
+        "max": 2
+      }
+    ],
+    "forbidden_patterns": [
+      "DISTRIB\\.GRID: receiving package=[1-9][0-9]*/[1-9][0-9]* id=(?!mod:arena_grid_installed_crystal_pickup )",
+      "NET\\.GRID\\.TRANSFER: admitted exact temporary (weapon|texture)",
+      "GRID\\.SPAWN\\.ACTIVE: id=mod_crystal_pistol:",
+      "FORGE\\.WEAPON\\.SHARE: granted",
+      "NET\\.GRID\\.OFFER: (host|guest) refused",
+      "NET\\.GRID\\.TRANSFER: (declined|refused|aborted)",
+      "NET\\.GRID\\.RESULT: rejected",
+      "GRID\\.MATCH\\.STAGE: activation refused",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout"
+    ]
+  }
+}

@@ -1,0 +1,13 @@
+test_an_event_node_without_an_execution_edge_is_not_a_handler (__main__.LevelGraphRules.test_an_event_node_without_an_execution_edge_is_not_a_handler) ... ok
+test_example_level_wires_every_rule (__main__.LevelGraphRules.test_example_level_wires_every_rule) ... ok
+test_level_without_lift_and_glass_wiring (__main__.LevelGraphRules.test_level_without_lift_and_glass_wiring) ... ok
+test_pickup_and_door_rules_stay_required (__main__.LevelGraphRules.test_pickup_and_door_rules_stay_required) ... ok
+test_the_formats (__main__.LevelGraphRules.test_the_formats) ... ok
+test_stored_levels_pass (__main__.StoredLevels.test_stored_levels_pass) ... ok
+test_the_kind_an_arena_may_name (__main__.StoredLevels.test_the_kind_an_arena_may_name) ... ok
+test_the_rules_follow_the_kind_the_arena_names (__main__.StoredLevels.test_the_rules_follow_the_kind_the_arena_names) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 2.106s
+
+OK

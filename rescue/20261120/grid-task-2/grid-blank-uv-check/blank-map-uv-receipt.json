@@ -1,0 +1,53 @@
+{
+  "arena": "D:\\PD2-wt\\shared-base-10\\data\\ntsc-final\\arenas\\base_arena_test_dest.pdarena",
+  "arena_id": "base:arena_test_dest",
+  "arena_sha256": "c0b100bbaebe26df00fb70591590f29b48ed0860da95806042405fd5695e0618",
+  "scenario_member": "dependencies/assets/scenarios/base_scenario_test_dest.pdscenario",
+  "scenario_id": "base:scenario_test_dest",
+  "scenario_sha256": "83c924c386dbc7d8f63b787030914c80361cd6575c1df442d67b83f907dc3010",
+  "scene_member": "scene.glb",
+  "scene_sha256": "34c4755195c67b30069a517b9656bc1d3824082dcf754630a8987c7e80d270f0",
+  "floor": {
+    "mesh": 0,
+    "primitive": 0,
+    "material": "mat_001_tex_013e_c2",
+    "image": "tex_013e",
+    "vertices": 96,
+    "triangles": 32,
+    "world_x": [
+      -5000.0,
+      5000.0
+    ],
+    "world_y": [
+      0.0,
+      0.0
+    ],
+    "world_z": [
+      -5000.0,
+      5000.0
+    ],
+    "material_texcoord": 0,
+    "wrap_s": "clamp_to_edge",
+    "wrap_t": "clamp_to_edge",
+    "uv0": [
+      [
+        0.0,
+        1.0
+      ],
+      [
+        0.0,
+        1.0
+      ]
+    ],
+    "uv1": [
+      [
+        0.0,
+        9.9990234375
+      ],
+      [
+        0.0009765625,
+        10.0
+      ]
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+test_body_scale_mismatch (__main__.PairedEvidenceTests.test_body_scale_mismatch) ... ok
+test_changed_source_bytes (__main__.PairedEvidenceTests.test_changed_source_bytes) ... ok
+test_fixture_schedule_and_no_cycle (__main__.PairedEvidenceTests.test_fixture_schedule_and_no_cycle) ... ok
+test_gl_failure (__main__.PairedEvidenceTests.test_gl_failure) ... ok
+test_invalid_pose (__main__.PairedEvidenceTests.test_invalid_pose) ... ok
+test_missing_application (__main__.PairedEvidenceTests.test_missing_application) ... ok
+test_missing_capture (__main__.PairedEvidenceTests.test_missing_capture) ... ok
+test_missing_dispatch (__main__.PairedEvidenceTests.test_missing_dispatch) ... ok
+test_positive_pair_and_visual_gate (__main__.PairedEvidenceTests.test_positive_pair_and_visual_gate) ... ok
+test_reused_actor (__main__.PairedEvidenceTests.test_reused_actor) ... ok
+test_stale_generation (__main__.PairedEvidenceTests.test_stale_generation) ... ok
+test_unmoved_actor_batch (__main__.PairedEvidenceTests.test_unmoved_actor_batch) ... ok
+test_wrong_room (__main__.PairedEvidenceTests.test_wrong_room) ... ok
+test_wrong_shader_marker (__main__.PairedEvidenceTests.test_wrong_shader_marker) ... ok
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.313s
+
+OK

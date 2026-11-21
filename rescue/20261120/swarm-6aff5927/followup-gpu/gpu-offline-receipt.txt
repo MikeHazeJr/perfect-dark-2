@@ -1,0 +1,16 @@
+test_new_source_meets_all_structural_contracts (__main__.SnapshotSourceChecks.test_new_source_meets_all_structural_contracts) ... ok
+test_original_source_has_no_snapshot_separation (__main__.SnapshotSourceChecks.test_original_source_has_no_snapshot_separation) ... ok
+test_patch_reconstructs_draft_from_frozen_preimage (__main__.SnapshotSourceChecks.test_patch_reconstructs_draft_from_frozen_preimage) ... ok
+test_reject_buffer_barrier_only_in_diagnostics (__main__.SnapshotSourceChecks.test_reject_buffer_barrier_only_in_diagnostics) ... ok
+test_reject_host_binding_alias (__main__.SnapshotSourceChecks.test_reject_host_binding_alias) ... ok
+test_reject_marker_that_can_survive_normal_dispatch (__main__.SnapshotSourceChecks.test_reject_marker_that_can_survive_normal_dispatch) ... ok
+test_reject_ring_copy_from_input (__main__.SnapshotSourceChecks.test_reject_ring_copy_from_input) ... ok
+test_reject_shader_writes_to_peer_input (__main__.SnapshotSourceChecks.test_reject_shader_writes_to_peer_input) ... ok
+test_reject_texture_barrier_for_wrong_consumer (__main__.SnapshotSourceChecks.test_reject_texture_barrier_for_wrong_consumer) ... ok
+test_reject_transfer_with_wrong_batch_size (__main__.SnapshotSourceChecks.test_reject_transfer_with_wrong_batch_size) ... ok
+test_texture_receive_and_transmit_functions_match_frozen_source (__main__.SnapshotSourceChecks.test_texture_receive_and_transmit_functions_match_frozen_source) ... ok
+
+----------------------------------------------------------------------
+Ran 11 tests in 0.031s
+
+OK

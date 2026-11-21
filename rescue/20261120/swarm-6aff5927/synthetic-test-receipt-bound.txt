@@ -1,0 +1,25 @@
+test_body_scale_mismatch (__main__.PairedEvidenceTests.test_body_scale_mismatch) ... ok
+test_changed_source_bytes (__main__.PairedEvidenceTests.test_changed_source_bytes) ... ok
+test_fixture_schedule_and_no_cycle (__main__.PairedEvidenceTests.test_fixture_schedule_and_no_cycle) ... ok
+test_gl_failure (__main__.PairedEvidenceTests.test_gl_failure) ... ok
+test_invalid_pose (__main__.PairedEvidenceTests.test_invalid_pose) ... ok
+test_late_gpu_commit (__main__.PairedEvidenceTests.test_late_gpu_commit) ... ok
+test_missing_application (__main__.PairedEvidenceTests.test_missing_application) ... ok
+test_missing_capture (__main__.PairedEvidenceTests.test_missing_capture) ... ok
+test_missing_dispatch (__main__.PairedEvidenceTests.test_missing_dispatch) ... ok
+test_missing_late_population (__main__.PairedEvidenceTests.test_missing_late_population) ... ok
+test_positive_pair_and_visual_gate (__main__.PairedEvidenceTests.test_positive_pair_and_visual_gate) ... ok
+test_reused_actor (__main__.PairedEvidenceTests.test_reused_actor) ... ok
+test_stale_generation (__main__.PairedEvidenceTests.test_stale_generation) ... ok
+test_submitted_pos_only_mode (__main__.PairedEvidenceTests.test_submitted_pos_only_mode) ... ok
+test_unmoved_actor_batch (__main__.PairedEvidenceTests.test_unmoved_actor_batch) ... ok
+test_unverified_native_actor_closeout (__main__.PairedEvidenceTests.test_unverified_native_actor_closeout) ... ok
+test_wrong_room (__main__.PairedEvidenceTests.test_wrong_room) ... ok
+test_wrong_shader_marker (__main__.PairedEvidenceTests.test_wrong_shader_marker) ... ok
+test_wrong_stage_epoch (__main__.PairedEvidenceTests.test_wrong_stage_epoch) ... ok
+test_wrong_submitted_position (__main__.PairedEvidenceTests.test_wrong_submitted_position) ... ok
+
+----------------------------------------------------------------------
+Ran 20 tests in 0.526s
+
+OK

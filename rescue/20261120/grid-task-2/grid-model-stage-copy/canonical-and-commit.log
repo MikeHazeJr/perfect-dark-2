@@ -1,0 +1,4 @@
+asset-native-source guard ok
+[dev 71eb950f1] Modding - T-MODDING-021: Preserve atmosphere in Grid model imports
+ 2 files changed, 106 insertions(+), 3 deletions(-)
+Verified local commit 71eb950f14b4ffef1846b263315b00a7fd6df37c, exact two claimed files, predecessor 2f75be449 and browser hashes intact.

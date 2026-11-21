@@ -1,0 +1,88 @@
+{
+  "verdict": "contract_pass",
+  "origin": "synthetic",
+  "native_qualification": "unverified",
+  "native_gameplay_verified": false,
+  "trace_summary": {
+    "stage_epoch": 17,
+    "tunnels_open_crossed": {
+      "north": 1,
+      "center": 1,
+      "east": 1
+    },
+    "tunnels_closed_blocked": {
+      "north": 1,
+      "center": 1,
+      "east": 1
+    },
+    "waves_finished": 2,
+    "raider_player_kills": 4,
+    "airborne_landings": [
+      "drop",
+      "jump"
+    ],
+    "validated_attack_hits": 2,
+    "giant_actor": [
+      "giant",
+      1
+    ]
+  },
+  "cases": [
+    {
+      "id": "paired_baseline",
+      "verdict": "requires_native_evidence"
+    },
+    {
+      "id": "gpu_snapshot",
+      "verdict": "requires_native_evidence"
+    },
+    {
+      "id": "authored_round_trip",
+      "verdict": "requires_native_evidence"
+    },
+    {
+      "id": "three_tunnels",
+      "verdict": "contract_pass"
+    },
+    {
+      "id": "bounded_waves",
+      "verdict": "contract_pass"
+    },
+    {
+      "id": "bounded_attacks",
+      "verdict": "contract_pass"
+    },
+    {
+      "id": "native_collision",
+      "verdict": "requires_native_evidence"
+    },
+    {
+      "id": "native_pose",
+      "verdict": "requires_native_evidence"
+    },
+    {
+      "id": "giant_finale",
+      "verdict": "contract_pass"
+    },
+    {
+      "id": "native_encounter",
+      "verdict": "requires_native_evidence"
+    },
+    {
+      "id": "stock",
+      "verdict": "requires_native_evidence"
+    },
+    {
+      "id": "listen_authority",
+      "verdict": "requires_native_evidence"
+    },
+    {
+      "id": "network_lifecycle",
+      "verdict": "requires_native_evidence"
+    },
+    {
+      "id": "repeat_scale",
+      "verdict": "requires_native_evidence"
+    }
+  ]
+}

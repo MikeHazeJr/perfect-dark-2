@@ -1,0 +1,10 @@
+forge_level_io.h SHA256 FBDEF5D52D8BC1268725D7E3D90D4F47155EFDF713959867D01D4F98772319A2
+port/src/forge_level_io.c SHA256 583B7532727CCFCE41F423E9A741276773614877F83D582F228402A97FBB809A
+In file included from C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-save-stage-copy\source\port\src\forge_level_io.c:69:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/smoke_harness.h:13:52: warning: '/*' within comment [-Wcomment]
+   13 |  * a JSON test definition (tools/smoke-verify/tests/*.json). It dispatches
+port/fast3d/pdgui_forge_editor.cpp SHA256 D4C19D9D224F54A3479CBD7521A6A4E7DAB8589935A76DFE4BBE1DE548C438A7
+In file included from C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-save-stage-copy\source\port\fast3d\pdgui_forge_editor.cpp:38:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_glyphs.h:9:51: warning: '/*' within comment [-Wcomment]
+    9 |  * The header is C-compatible; game code (src/game/*.c) can call the
+Both translation units passed syntax checks for grid-save-stage-copy.

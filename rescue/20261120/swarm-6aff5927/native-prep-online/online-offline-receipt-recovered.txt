@@ -1,0 +1,36 @@
+test_body_reference_is_immutable_within_actor_generation (__main__.OnlineWitnessTests.test_body_reference_is_immutable_within_actor_generation) ... ok
+test_candidate_cannot_reuse_one_native_log (__main__.OnlineWitnessTests.test_candidate_cannot_reuse_one_native_log) ... ok
+test_candidate_must_bind_exact_matching_public_source (__main__.OnlineWitnessTests.test_candidate_must_bind_exact_matching_public_source) ... ok
+test_candidate_requires_independent_process_receipts (__main__.OnlineWitnessTests.test_candidate_requires_independent_process_receipts) ... ok
+test_cli_replays_valid_input_and_rejects_unbound_native_request (__main__.OnlineWitnessTests.test_cli_replays_valid_input_and_rejects_unbound_native_request) ... ok
+test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) ... ok
+test_commit_requires_a_matching_staged_snapshot (__main__.OnlineWitnessTests.test_commit_requires_a_matching_staged_snapshot) ... ok
+test_giant_cannot_precede_encounter_finale (__main__.OnlineWitnessTests.test_giant_cannot_precede_encounter_finale) ... ok
+test_guest_cannot_publish_a_different_tunnel_state (__main__.OnlineWitnessTests.test_guest_cannot_publish_a_different_tunnel_state) ... ok
+test_guest_cannot_publish_authoritative_state (__main__.OnlineWitnessTests.test_guest_cannot_publish_authoritative_state) ... ok
+test_guest_sequence_gap_must_be_bounded (__main__.OnlineWitnessTests.test_guest_sequence_gap_must_be_bounded) ... ok
+test_guest_stage_ready_is_required (__main__.OnlineWitnessTests.test_guest_stage_ready_is_required) ... ok
+test_host_snapshot_requires_peer_rematching_after_rejoin (__main__.OnlineWitnessTests.test_host_snapshot_requires_peer_rematching_after_rejoin) ... ok
+test_listen_authority_required (__main__.OnlineWitnessTests.test_listen_authority_required) ... ok
+test_missing_reordered_control_cannot_qualify (__main__.OnlineWitnessTests.test_missing_reordered_control_cannot_qualify) ... ok
+test_native_candidate_shape_never_claims_native_qualification (__main__.OnlineWitnessTests.test_native_candidate_shape_never_claims_native_qualification) ... ok
+test_ordinary_death_cannot_be_replaced_by_a_synthetic_action (__main__.OnlineWitnessTests.test_ordinary_death_cannot_be_replaced_by_a_synthetic_action) ... ok
+test_parser_rejects_duplicate_keys_and_deep_input (__main__.OnlineWitnessTests.test_parser_rejects_duplicate_keys_and_deep_input) ... ok
+test_partially_publishing_staged_or_aborted_world_is_rejected (__main__.OnlineWitnessTests.test_partially_publishing_staged_or_aborted_world_is_rejected) ... ok
+test_rejected_duplicate_must_leave_visible_state_unchanged (__main__.OnlineWitnessTests.test_rejected_duplicate_must_leave_visible_state_unchanged) ... ok
+test_rejection_requires_a_valid_host_publication (__main__.OnlineWitnessTests.test_rejection_requires_a_valid_host_publication) ... ok
+test_rejoin_cannot_commit_an_update_as_its_first_baseline (__main__.OnlineWitnessTests.test_rejoin_cannot_commit_an_update_as_its_first_baseline) ... ok
+test_rejoin_must_show_host_correlated_input (__main__.OnlineWitnessTests.test_rejoin_must_show_host_correlated_input) ... ok
+test_replay_rejects_nonmonotonic_host_snapshot_sequence (__main__.OnlineWitnessTests.test_replay_rejects_nonmonotonic_host_snapshot_sequence) ... ok
+test_retire_must_observe_no_leftover_actors (__main__.OnlineWitnessTests.test_retire_must_observe_no_leftover_actors) ... ok
+test_retired_swarm_generation_cannot_reappear (__main__.OnlineWitnessTests.test_retired_swarm_generation_cannot_reappear) ... ok
+test_reused_guest_life_generation_cannot_become_alive_after_rejoin (__main__.OnlineWitnessTests.test_reused_guest_life_generation_cannot_become_alive_after_rejoin) ... ok
+test_same_map_restart_rejects_old_epoch_reuse (__main__.OnlineWitnessTests.test_same_map_restart_rejects_old_epoch_reuse) ... ok
+test_synthetic_controls_show_scope_and_distinct_lifecycles (__main__.OnlineWitnessTests.test_synthetic_controls_show_scope_and_distinct_lifecycles) ... ok
+test_synthetic_rejected_by_native_candidate_route (__main__.OnlineWitnessTests.test_synthetic_rejected_by_native_candidate_route) ... ok
+test_valid_old_epoch_is_distinct_from_duplicate (__main__.OnlineWitnessTests.test_valid_old_epoch_is_distinct_from_duplicate) ... ok
+
+----------------------------------------------------------------------
+Ran 31 tests in 0.058s
+
+OK

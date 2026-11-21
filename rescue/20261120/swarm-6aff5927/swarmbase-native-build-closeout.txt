@@ -1,0 +1,6 @@
+Workload queue q_20261119224124167_646b476c
+Build wrapper exit 1
+Client SHA-256 absent
+Before HEAD 71eb950f14b4ffef1846b263315b00a7fd6df37c
+After HEAD 71eb950f14b4ffef1846b263315b00a7fd6df37c
+Changed visible source input paths 0

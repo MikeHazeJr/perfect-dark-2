@@ -1,0 +1,10 @@
+Modding - T-MODDING-021: Preserve authored UVs in Grid model imports
+
+Read the base-color material's selected UV set for each visible primitive
+and carry it into the generated scene. Collision-only geometry keeps its
+existing path. Refuse a missing explicitly selected alternate UV set.
+
+Verify saved archive reopen, both repeat axes, other materials and native
+geometry. Workbench N-1094 records the focused tests and source guard.
+
+Refs: T-MODDING-021

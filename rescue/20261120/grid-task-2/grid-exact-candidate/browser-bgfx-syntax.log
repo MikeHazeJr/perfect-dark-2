@@ -1,0 +1,20 @@
+C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-exact-candidate\browser-backend\after\port\fast3d\pdgui_menu_mainmenu.cpp:18:44: warning: '/*' within comment [-Wcomment]
+   18 |  * Auto-discovered by GLOB_RECURSE for port/*.cpp in CMakeLists.txt.
+In file included from C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-exact-candidate\browser-backend\after\port\fast3d\pdgui_menu_mainmenu.cpp:50:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_glyphs.h:9:51: warning: '/*' within comment [-Wcomment]
+    9 |  * The header is C-compatible; game code (src/game/*.c) can call the
+In file included from C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-exact-candidate\browser-backend\after\port\fast3d\pdgui_menu_mainmenu.cpp:51:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme_loader.h:40:60: warning: '/*' within comment [-Wcomment]
+   40 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+In file included from C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-exact-candidate\browser-backend\after\port\fast3d\pdgui_menu_mainmenu.cpp:52:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme.h:17:60: warning: '/*' within comment [-Wcomment]
+   17 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_theme.h:56:60: warning: '/*' within comment [-Wcomment]
+   56 |  *  cached theme texture.  Returns 1 on success with *out_w/*out_h set,
+In file included from C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-exact-candidate\browser-backend\after\port\fast3d\pdgui_menu_mainmenu.cpp:55:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_menu_theme_editor.h:15:60: warning: '/*' within comment [-Wcomment]
+   15 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+In file included from C:\Users\mikeh\Documents\Codex\2026-11-19\task-2\grid-exact-candidate\browser-backend\after\port\fast3d\pdgui_menu_mainmenu.cpp:65:
+C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/port/include/pdgui_layout.h:67:60: warning: '/*' within comment [-Wcomment]
+   67 |  * Auto-discovered by CMakeLists.txt file(GLOB_RECURSE port/*.cpp).
+Compiled source SHA256 2AC42869D010058A9B96640034741C89C954116E0EC48306D0F42F1482E4A268

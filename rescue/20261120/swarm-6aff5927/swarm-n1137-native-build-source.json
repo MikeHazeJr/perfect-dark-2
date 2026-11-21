@@ -1,0 +1,32 @@
+{
+  "base_12": {
+    "arena_sha256": "651dc5413fa6acbaddb9426c088c8261e140a1a2e91cf65cb47aee8021faf638",
+    "root": "D:\\PD2-wt\\shared-base-12",
+    "scenario_sha256": "4ec31051d29d87c54cc6d4546cff0813ccbd4063b81d6c574bfbd4e1450251f1"
+  },
+  "build_queue_id": "q_20261120030911032_c24a1e14",
+  "build_type": "RelWithDebInfo",
+  "client_sha256": "e947f55f0fb4ec7cc06ca7ab0321b2d5ea7ee24924c8605aa87010fe337efdea",
+  "compile_dirty_input_count": 89,
+  "compile_log_lines": {
+    "port/fast3d/swarm_gpu.cpp": 2655,
+    "port/src/swarm_test.c": 2070
+  },
+  "compile_log_sha256": "9bbea9aa3ea16ba26116fe84aa53445f0b17e7b4ddca2f15052304c941936dec",
+  "compile_source_final_sha256": "96b52d036f8d94b9b1ed0dac868d5fd946d1fe8304251308558887d89b85229c",
+  "compile_source_observed_sha256": "86dd9929cec0c9464e2bea615db3e9028fd374bcda8b21ab48afe0f083a10118",
+  "dev_build": true,
+  "fixture_renderer": "classic_opengl_default",
+  "frozen_patch_sha256": "3f25a29dfb89c4710b5d57ad3d492f9af9f31bd6efa8df0f774312b4ef3b9a43",
+  "frozen_paths_sha256": {
+    "port/fast3d/swarm_gpu.cpp": "7ebc741e1102d82cad9e4a1d0e85b222a00b14ce0d02e175342fba5052213d6b",
+    "port/include/swarm_gpu.h": "a5a78b395747ddc889b08bd468f1229cb90030df1acaa1955a34dccd3525c82e",
+    "port/src/swarm_test.c": "ef0f0022bea291b1c4dda201fe33eb5d5b5f8c86d1f45b2aa2a3f4b9a722e2d3",
+    "tools/smoke-verify/tests/skedar_swarm_baseline_cpu.json": "698a5ff9e3f1a177ba9a2c6c87c2ea1efac0020076ed4a2820c39cabdaa1f85c",
+    "tools/smoke-verify/tests/skedar_swarm_baseline_gpu.json": "b6d8b4b289b0e7e01ac08174ee7ce4102336d4b20ad0f0623ce8c4997db7df54",
+    "tools/smoke-verify/verify_skedar_swarm_pair.py": "3f99868e2db930cd2833c1df698bca4373f778c692f4243802684b7870854fd2"
+  },
+  "native_gameplay_verified": false,
+  "schema": 1,
+  "source_commit": "1b29c009e5f9de558cbae2aab844fcd64e622761"
+}

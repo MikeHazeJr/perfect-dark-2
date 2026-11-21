@@ -1,0 +1,624 @@
+test_body_reference_is_immutable_within_actor_generation (__main__.OnlineWitnessTests.test_body_reference_is_immutable_within_actor_generation) ... ERROR
+test_candidate_cannot_reuse_one_native_log (__main__.OnlineWitnessTests.test_candidate_cannot_reuse_one_native_log) ... ERROR
+test_candidate_must_bind_exact_matching_public_source (__main__.OnlineWitnessTests.test_candidate_must_bind_exact_matching_public_source) ... ERROR
+test_candidate_requires_independent_process_receipts (__main__.OnlineWitnessTests.test_candidate_requires_independent_process_receipts) ... ERROR
+test_cli_replays_valid_input_and_rejects_unbound_native_request (__main__.OnlineWitnessTests.test_cli_replays_valid_input_and_rejects_unbound_native_request) ... ERROR
+test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) ... 
+  test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='room') ... ERROR
+  test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='body') ... ERROR
+  test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='rotation_q') ... ERROR
+  test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='position_q') ... ERROR
+  test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='support_q') ... ERROR
+  test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='frame_q') ... ERROR
+  test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='scale_q') ... ERROR
+  test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='generation') ... ERROR
+  test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='animation') ... ERROR
+test_commit_requires_a_matching_staged_snapshot (__main__.OnlineWitnessTests.test_commit_requires_a_matching_staged_snapshot) ... ERROR
+test_giant_cannot_precede_encounter_finale (__main__.OnlineWitnessTests.test_giant_cannot_precede_encounter_finale) ... ERROR
+test_guest_cannot_publish_a_different_tunnel_state (__main__.OnlineWitnessTests.test_guest_cannot_publish_a_different_tunnel_state) ... ERROR
+test_guest_cannot_publish_authoritative_state (__main__.OnlineWitnessTests.test_guest_cannot_publish_authoritative_state) ... ERROR
+test_guest_sequence_gap_must_be_bounded (__main__.OnlineWitnessTests.test_guest_sequence_gap_must_be_bounded) ... ERROR
+test_guest_stage_ready_is_required (__main__.OnlineWitnessTests.test_guest_stage_ready_is_required) ... ERROR
+test_host_snapshot_requires_peer_rematching_after_rejoin (__main__.OnlineWitnessTests.test_host_snapshot_requires_peer_rematching_after_rejoin) ... ERROR
+test_listen_authority_required (__main__.OnlineWitnessTests.test_listen_authority_required) ... ERROR
+test_missing_reordered_control_cannot_qualify (__main__.OnlineWitnessTests.test_missing_reordered_control_cannot_qualify) ... ERROR
+test_native_candidate_shape_never_claims_native_qualification (__main__.OnlineWitnessTests.test_native_candidate_shape_never_claims_native_qualification) ... ERROR
+test_ordinary_death_cannot_be_replaced_by_a_synthetic_action (__main__.OnlineWitnessTests.test_ordinary_death_cannot_be_replaced_by_a_synthetic_action) ... ERROR
+test_parser_rejects_duplicate_keys_and_deep_input (__main__.OnlineWitnessTests.test_parser_rejects_duplicate_keys_and_deep_input) ... ok
+test_partially_publishing_staged_or_aborted_world_is_rejected (__main__.OnlineWitnessTests.test_partially_publishing_staged_or_aborted_world_is_rejected) ... 
+  test_partially_publishing_staged_or_aborted_world_is_rejected (__main__.OnlineWitnessTests.test_partially_publishing_staged_or_aborted_world_is_rejected) (kind='snapshot_staged') ... ERROR
+  test_partially_publishing_staged_or_aborted_world_is_rejected (__main__.OnlineWitnessTests.test_partially_publishing_staged_or_aborted_world_is_rejected) (kind='snapshot_aborted') ... ERROR
+test_rejected_duplicate_must_leave_visible_state_unchanged (__main__.OnlineWitnessTests.test_rejected_duplicate_must_leave_visible_state_unchanged) ... ERROR
+test_rejection_requires_a_valid_host_publication (__main__.OnlineWitnessTests.test_rejection_requires_a_valid_host_publication) ... ERROR
+test_rejoin_cannot_commit_an_update_as_its_first_baseline (__main__.OnlineWitnessTests.test_rejoin_cannot_commit_an_update_as_its_first_baseline) ... ERROR
+test_rejoin_must_show_host_correlated_input (__main__.OnlineWitnessTests.test_rejoin_must_show_host_correlated_input) ... ERROR
+test_replay_rejects_nonmonotonic_host_snapshot_sequence (__main__.OnlineWitnessTests.test_replay_rejects_nonmonotonic_host_snapshot_sequence) ... ERROR
+test_retire_must_observe_no_leftover_actors (__main__.OnlineWitnessTests.test_retire_must_observe_no_leftover_actors) ... ERROR
+test_retired_swarm_generation_cannot_reappear (__main__.OnlineWitnessTests.test_retired_swarm_generation_cannot_reappear) ... ERROR
+test_reused_guest_life_generation_cannot_become_alive_after_rejoin (__main__.OnlineWitnessTests.test_reused_guest_life_generation_cannot_become_alive_after_rejoin) ... ERROR
+test_same_map_restart_rejects_old_epoch_reuse (__main__.OnlineWitnessTests.test_same_map_restart_rejects_old_epoch_reuse) ... ERROR
+test_synthetic_controls_show_scope_and_distinct_lifecycles (__main__.OnlineWitnessTests.test_synthetic_controls_show_scope_and_distinct_lifecycles) ... ERROR
+test_synthetic_rejected_by_native_candidate_route (__main__.OnlineWitnessTests.test_synthetic_rejected_by_native_candidate_route) ... ERROR
+test_valid_old_epoch_is_distinct_from_duplicate (__main__.OnlineWitnessTests.test_valid_old_epoch_is_distinct_from_duplicate) ... ERROR
+
+======================================================================
+ERROR: test_body_reference_is_immutable_within_actor_generation (__main__.OnlineWitnessTests.test_body_reference_is_immutable_within_actor_generation)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 325, in test_body_reference_is_immutable_within_actor_generation
+    self.reject(lambda data: event_in(data, "host_events", "snapshot_published", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_candidate_cannot_reuse_one_native_log (__main__.OnlineWitnessTests.test_candidate_cannot_reuse_one_native_log)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 228, in test_candidate_cannot_reuse_one_native_log
+    self.reject(lambda data: data["provenance"]["guest"].update(native_log_sha256="a" * 64),
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_candidate_must_bind_exact_matching_public_source (__main__.OnlineWitnessTests.test_candidate_must_bind_exact_matching_public_source)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 224, in test_candidate_must_bind_exact_matching_public_source
+    self.reject(lambda data: data["provenance"]["guest"].update(public_arena_sha256="f" * 64),
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_candidate_requires_independent_process_receipts (__main__.OnlineWitnessTests.test_candidate_requires_independent_process_receipts)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 221, in test_candidate_requires_independent_process_receipts
+    self.reject(lambda data: data["provenance"].pop("guest"), "separate process", candidate=True)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_cli_replays_valid_input_and_rejects_unbound_native_request (__main__.OnlineWitnessTests.test_cli_replays_valid_input_and_rejects_unbound_native_request)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 374, in test_cli_replays_valid_input_and_rejects_unbound_native_request
+    path.write_text(json.dumps(witness()), encoding="utf-8")
+                               ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='room')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 279, in test_commit_checks_room_body_rotation_support_frame_scale_and_identity
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_commit", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='body')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 279, in test_commit_checks_room_body_rotation_support_frame_scale_and_identity
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_commit", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='rotation_q')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 279, in test_commit_checks_room_body_rotation_support_frame_scale_and_identity
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_commit", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='position_q')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 279, in test_commit_checks_room_body_rotation_support_frame_scale_and_identity
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_commit", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='support_q')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 279, in test_commit_checks_room_body_rotation_support_frame_scale_and_identity
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_commit", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='frame_q')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 279, in test_commit_checks_room_body_rotation_support_frame_scale_and_identity
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_commit", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='scale_q')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 279, in test_commit_checks_room_body_rotation_support_frame_scale_and_identity
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_commit", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='generation')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 279, in test_commit_checks_room_body_rotation_support_frame_scale_and_identity
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_commit", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_commit_checks_room_body_rotation_support_frame_scale_and_identity (__main__.OnlineWitnessTests.test_commit_checks_room_body_rotation_support_frame_scale_and_identity) (field='animation')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 279, in test_commit_checks_room_body_rotation_support_frame_scale_and_identity
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_commit", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_commit_requires_a_matching_staged_snapshot (__main__.OnlineWitnessTests.test_commit_requires_a_matching_staged_snapshot)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 263, in test_commit_requires_a_matching_staged_snapshot
+    self.reject(remove, "without its matching staged")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_giant_cannot_precede_encounter_finale (__main__.OnlineWitnessTests.test_giant_cannot_precede_encounter_finale)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 357, in test_giant_cannot_precede_encounter_finale
+    self.reject(lambda data: event_in(data, "host_events", "snapshot_published", seq=35)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_guest_cannot_publish_a_different_tunnel_state (__main__.OnlineWitnessTests.test_guest_cannot_publish_a_different_tunnel_state)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 283, in test_guest_cannot_publish_a_different_tunnel_state
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_commit", seq=32)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_guest_cannot_publish_authoritative_state (__main__.OnlineWitnessTests.test_guest_cannot_publish_authoritative_state)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 234, in test_guest_cannot_publish_authoritative_state
+    self.reject(inject, "unknown guest event snapshot_published")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_guest_sequence_gap_must_be_bounded (__main__.OnlineWitnessTests.test_guest_sequence_gap_must_be_bounded)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 317, in test_guest_sequence_gap_must_be_bounded
+    self.reject(skip, "snapshot gap exceeds")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_guest_stage_ready_is_required (__main__.OnlineWitnessTests.test_guest_stage_ready_is_required)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 245, in test_guest_stage_ready_is_required
+    self.reject(remove, "guest snapshot staging")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_host_snapshot_requires_peer_rematching_after_rejoin (__main__.OnlineWitnessTests.test_host_snapshot_requires_peer_rematching_after_rejoin)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 252, in test_host_snapshot_requires_peer_rematching_after_rejoin
+    self.reject(remove, "before stage and peer admission")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_listen_authority_required (__main__.OnlineWitnessTests.test_listen_authority_required)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 237, in test_listen_authority_required
+    self.reject(lambda data: data["host_events"][0].update(mode="dedicated"),
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_missing_reordered_control_cannot_qualify (__main__.OnlineWitnessTests.test_missing_reordered_control_cannot_qualify)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 303, in test_missing_reordered_control_cannot_qualify
+    self.reject(remove, "missing unchanged-state duplicate")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_native_candidate_shape_never_claims_native_qualification (__main__.OnlineWitnessTests.test_native_candidate_shape_never_claims_native_qualification)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 211, in test_native_candidate_shape_never_claims_native_qualification
+    report = verify_witness(native_candidate(witness()), native_candidate=True)
+                                             ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_ordinary_death_cannot_be_replaced_by_a_synthetic_action (__main__.OnlineWitnessTests.test_ordinary_death_cannot_be_replaced_by_a_synthetic_action)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 334, in test_ordinary_death_cannot_be_replaced_by_a_synthetic_action
+    self.reject(lambda data: event_in(data, "host_events", "player_death").update(source="injected_kill"),
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_partially_publishing_staged_or_aborted_world_is_rejected (__main__.OnlineWitnessTests.test_partially_publishing_staged_or_aborted_world_is_rejected) (kind='snapshot_staged')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 268, in test_partially_publishing_staged_or_aborted_world_is_rejected
+    self.reject(lambda data: event_in(data, "guest_events", kind, seq=31).update(
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_partially_publishing_staged_or_aborted_world_is_rejected (__main__.OnlineWitnessTests.test_partially_publishing_staged_or_aborted_world_is_rejected) (kind='snapshot_aborted')
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 268, in test_partially_publishing_staged_or_aborted_world_is_rejected
+    self.reject(lambda data: event_in(data, "guest_events", kind, seq=31).update(
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_rejected_duplicate_must_leave_visible_state_unchanged (__main__.OnlineWitnessTests.test_rejected_duplicate_must_leave_visible_state_unchanged)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 287, in test_rejected_duplicate_must_leave_visible_state_unchanged
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_rejected", seq=32).update(
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_rejection_requires_a_valid_host_publication (__main__.OnlineWitnessTests.test_rejection_requires_a_valid_host_publication)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 291, in test_rejection_requires_a_valid_host_publication
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_rejected", seq=31).update(
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_rejoin_cannot_commit_an_update_as_its_first_baseline (__main__.OnlineWitnessTests.test_rejoin_cannot_commit_an_update_as_its_first_baseline)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 255, in test_rejoin_cannot_commit_an_update_as_its_first_baseline
+    self.reject(lambda data: event_in(data, "host_events", "snapshot_published", seq=34).update(kind="update"),
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_rejoin_must_show_host_correlated_input (__main__.OnlineWitnessTests.test_rejoin_must_show_host_correlated_input)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 346, in test_rejoin_must_show_host_correlated_input
+    self.reject(remove, "no independently witnessed ordinary gameplay")
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_replay_rejects_nonmonotonic_host_snapshot_sequence (__main__.OnlineWitnessTests.test_replay_rejects_nonmonotonic_host_snapshot_sequence)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 330, in test_replay_rejects_nonmonotonic_host_snapshot_sequence
+    self.reject(lambda data: event_in(data, "host_events", "snapshot_published", seq=31).update(snapshot_seq=30),
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_retire_must_observe_no_leftover_actors (__main__.OnlineWitnessTests.test_retire_must_observe_no_leftover_actors)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 353, in test_retire_must_observe_no_leftover_actors
+    self.reject(lambda data: event_in(data, "guest_events", "stage_retired", epoch=10, attachment=1).update(
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_retired_swarm_generation_cannot_reappear (__main__.OnlineWitnessTests.test_retired_swarm_generation_cannot_reappear)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 320, in test_retired_swarm_generation_cannot_reappear
+    self.reject(lambda data: event_in(data, "host_events", "snapshot_published", seq=33)
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_reused_guest_life_generation_cannot_become_alive_after_rejoin (__main__.OnlineWitnessTests.test_reused_guest_life_generation_cannot_become_alive_after_rejoin)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 338, in test_reused_guest_life_generation_cannot_become_alive_after_rejoin
+    self.reject(lambda data: event_in(data, "host_events", "player_spawn", attachment=2, epoch=10).update(generation=101),
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_same_map_restart_rejects_old_epoch_reuse (__main__.OnlineWitnessTests.test_same_map_restart_rejects_old_epoch_reuse)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 349, in test_same_map_restart_rejects_old_epoch_reuse
+    self.reject(lambda data: event_in(data, "host_events", "stage_prepare", epoch=11).update(epoch=10),
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_synthetic_controls_show_scope_and_distinct_lifecycles (__main__.OnlineWitnessTests.test_synthetic_controls_show_scope_and_distinct_lifecycles)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 200, in test_synthetic_controls_show_scope_and_distinct_lifecycles
+    report = verify_witness(witness())
+                            ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_synthetic_rejected_by_native_candidate_route (__main__.OnlineWitnessTests.test_synthetic_rejected_by_native_candidate_route)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 218, in test_synthetic_rejected_by_native_candidate_route
+    verify_witness(witness(), native_candidate=True)
+                   ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+======================================================================
+ERROR: test_valid_old_epoch_is_distinct_from_duplicate (__main__.OnlineWitnessTests.test_valid_old_epoch_is_distinct_from_duplicate)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 295, in test_valid_old_epoch_is_distinct_from_duplicate
+    self.reject(lambda data: event_in(data, "guest_events", "snapshot_rejected", seq=37).update(
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 192, in reject
+    data = witness()
+           ^^^^^^^^^
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 125, in witness
+    publish(10, 1, 30, "baseline", [left, right])
+  File "C:\Users\mikeh\AppData\Local\Temp\pd2-skedar-swarm-6aff5927\native-prep-online\test_verify_skedar_swarm_online.py", line 84, in publish
+    emit(host, "snapshot_published", epoch=epoch, attachment=attachment,
+TypeError: witness.<locals>.emit() got multiple values for argument 'kind'
+
+----------------------------------------------------------------------
+Ran 31 tests in 0.030s
+
+FAILED (errors=39)

@@ -1,0 +1,1294 @@
+{
+  "schema": 1,
+  "origin": "synthetic",
+  "level": "fixture:skedar_keep",
+  "scenario": "fixture:three_tunnels",
+  "host_peer": "host-1",
+  "guest_peer": "guest-1",
+  "tunnels": [
+    "north",
+    "middle",
+    "south"
+  ],
+  "max_commit_gap": 4,
+  "host_events": [
+    {
+      "ordinal": 1,
+      "event": "listen_started",
+      "peer": "host-1",
+      "mode": "listen_host"
+    },
+    {
+      "ordinal": 2,
+      "event": "peer_attached",
+      "attachment": 1,
+      "peer": "guest-1"
+    },
+    {
+      "ordinal": 3,
+      "event": "stage_prepare",
+      "epoch": 10,
+      "level": "fixture:skedar_keep",
+      "scenario": "fixture:three_tunnels",
+      "reason": "initial"
+    },
+    {
+      "ordinal": 4,
+      "event": "peer_ready",
+      "epoch": 10,
+      "attachment": 1,
+      "post_load": true
+    },
+    {
+      "ordinal": 5,
+      "event": "stage_active",
+      "epoch": 10,
+      "post_load": true
+    },
+    {
+      "ordinal": 6,
+      "event": "player_spawn",
+      "epoch": 10,
+      "attachment": 1,
+      "generation": 101,
+      "source": "ordinary_spawn"
+    },
+    {
+      "ordinal": 7,
+      "event": "snapshot_published",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 30,
+      "kind": "baseline",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              100,
+              0,
+              0
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          },
+          {
+            "actor": "raider-b",
+            "generation": 5,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              200,
+              0,
+              0
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [],
+        "player": {
+          "peer": "guest-1",
+          "generation": 101,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 8,
+      "event": "snapshot_published",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 31,
+      "kind": "update",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              160,
+              10,
+              30
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          },
+          {
+            "actor": "raider-b",
+            "generation": 5,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              200,
+              0,
+              0
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [],
+        "player": {
+          "peer": "guest-1",
+          "generation": 101,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 9,
+      "event": "snapshot_published",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 32,
+      "kind": "update",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              160,
+              10,
+              30
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [
+          "north"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 101,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 10,
+      "event": "player_death",
+      "epoch": 10,
+      "attachment": 1,
+      "generation": 101,
+      "source": "ordinary_combat"
+    },
+    {
+      "ordinal": 11,
+      "event": "snapshot_published",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 33,
+      "kind": "update",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              160,
+              10,
+              30
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [
+          "north"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 101,
+          "alive": false
+        }
+      }
+    },
+    {
+      "ordinal": 12,
+      "event": "peer_detached",
+      "attachment": 1,
+      "peer": "guest-1",
+      "reason": "ordinary_leave"
+    },
+    {
+      "ordinal": 13,
+      "event": "peer_attached",
+      "attachment": 2,
+      "peer": "guest-1"
+    },
+    {
+      "ordinal": 14,
+      "event": "peer_ready",
+      "epoch": 10,
+      "attachment": 2,
+      "post_load": true
+    },
+    {
+      "ordinal": 15,
+      "event": "snapshot_published",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 34,
+      "kind": "baseline",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              160,
+              10,
+              30
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [
+          "north"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 101,
+          "alive": false
+        }
+      }
+    },
+    {
+      "ordinal": 16,
+      "event": "player_spawn",
+      "epoch": 10,
+      "attachment": 2,
+      "generation": 102,
+      "source": "ordinary_spawn"
+    },
+    {
+      "ordinal": 17,
+      "event": "snapshot_published",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 35,
+      "kind": "update",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              160,
+              10,
+              30
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "draining",
+        "wave": 1,
+        "closed_tunnels": [
+          "north",
+          "middle",
+          "south"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 102,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 18,
+      "event": "guest_input_accepted",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 35,
+      "input_seq": 7,
+      "source": "ordinary_gameplay"
+    },
+    {
+      "ordinal": 19,
+      "event": "snapshot_published",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 36,
+      "kind": "update",
+      "world": {
+        "actors": [
+          {
+            "actor": "giant",
+            "generation": 9,
+            "role": "giant",
+            "body": "base:sp_body_147",
+            "room": "tunnel-a",
+            "position_q": [
+              300,
+              400,
+              500
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 3000
+          }
+        ],
+        "phase": "finale",
+        "wave": 1,
+        "closed_tunnels": [
+          "north",
+          "middle",
+          "south"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 102,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 20,
+      "event": "snapshot_published",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 37,
+      "kind": "update",
+      "world": {
+        "actors": [],
+        "phase": "victory",
+        "wave": 1,
+        "closed_tunnels": [
+          "north",
+          "middle",
+          "south"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 102,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 21,
+      "event": "stage_end",
+      "epoch": 10,
+      "actors_absent": true
+    },
+    {
+      "ordinal": 22,
+      "event": "stage_prepare",
+      "epoch": 11,
+      "level": "fixture:skedar_keep",
+      "scenario": "fixture:three_tunnels",
+      "reason": "same_map_restart"
+    },
+    {
+      "ordinal": 23,
+      "event": "peer_ready",
+      "epoch": 11,
+      "attachment": 2,
+      "post_load": true
+    },
+    {
+      "ordinal": 24,
+      "event": "stage_active",
+      "epoch": 11,
+      "post_load": true
+    },
+    {
+      "ordinal": 25,
+      "event": "player_spawn",
+      "epoch": 11,
+      "attachment": 2,
+      "generation": 103,
+      "source": "ordinary_spawn"
+    },
+    {
+      "ordinal": 26,
+      "event": "snapshot_published",
+      "epoch": 11,
+      "attachment": 2,
+      "snapshot_seq": 1,
+      "kind": "baseline",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              100,
+              0,
+              0
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [],
+        "player": {
+          "peer": "guest-1",
+          "generation": 103,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 27,
+      "event": "guest_input_accepted",
+      "epoch": 11,
+      "attachment": 2,
+      "snapshot_seq": 1,
+      "input_seq": 8,
+      "source": "ordinary_gameplay"
+    },
+    {
+      "ordinal": 28,
+      "event": "stage_end",
+      "epoch": 11,
+      "actors_absent": true
+    },
+    {
+      "ordinal": 29,
+      "event": "peer_detached",
+      "attachment": 2,
+      "peer": "guest-1",
+      "reason": "session_close"
+    },
+    {
+      "ordinal": 30,
+      "event": "listen_stopped",
+      "actors_absent": true
+    }
+  ],
+  "guest_events": [
+    {
+      "ordinal": 1,
+      "event": "guest_started",
+      "peer": "guest-1",
+      "mode": "ordinary_guest"
+    },
+    {
+      "ordinal": 2,
+      "event": "connected",
+      "attachment": 1,
+      "authority": "host-1"
+    },
+    {
+      "ordinal": 3,
+      "event": "stage_prepare",
+      "epoch": 10,
+      "attachment": 1,
+      "level": "fixture:skedar_keep",
+      "scenario": "fixture:three_tunnels",
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 4,
+      "event": "stage_ready",
+      "epoch": 10,
+      "attachment": 1,
+      "post_load": true,
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 5,
+      "event": "snapshot_staged",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 30,
+      "authority": "host-1",
+      "received_world_sha256": "34b5b7e491198080a31c33bd385cfaf6684f56b48951119ebae0bbc66d9bbfdd",
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 6,
+      "event": "snapshot_commit",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 30,
+      "authority": "host-1",
+      "received_world_sha256": "34b5b7e491198080a31c33bd385cfaf6684f56b48951119ebae0bbc66d9bbfdd",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-b",
+            "generation": 5,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              200,
+              0,
+              0
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          },
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              100,
+              0,
+              0
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [],
+        "player": {
+          "peer": "guest-1",
+          "generation": 101,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 7,
+      "event": "snapshot_staged",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 31,
+      "authority": "host-1",
+      "received_world_sha256": "93c7051761df9d2f5acd2fdcc429f3873c98e01e84c9112f16ad2a73163a1d01",
+      "observed_world_sha256": "34b5b7e491198080a31c33bd385cfaf6684f56b48951119ebae0bbc66d9bbfdd"
+    },
+    {
+      "ordinal": 8,
+      "event": "snapshot_aborted",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 31,
+      "authority": "host-1",
+      "received_world_sha256": "93c7051761df9d2f5acd2fdcc429f3873c98e01e84c9112f16ad2a73163a1d01",
+      "observed_world_sha256": "34b5b7e491198080a31c33bd385cfaf6684f56b48951119ebae0bbc66d9bbfdd"
+    },
+    {
+      "ordinal": 9,
+      "event": "snapshot_staged",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 32,
+      "authority": "host-1",
+      "received_world_sha256": "6420e2d257bbdeba44129f2f47bd2d80bea24c55500fefd43df00d25630b332e",
+      "observed_world_sha256": "34b5b7e491198080a31c33bd385cfaf6684f56b48951119ebae0bbc66d9bbfdd"
+    },
+    {
+      "ordinal": 10,
+      "event": "snapshot_commit",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 32,
+      "authority": "host-1",
+      "received_world_sha256": "6420e2d257bbdeba44129f2f47bd2d80bea24c55500fefd43df00d25630b332e",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              160,
+              10,
+              30
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [
+          "north"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 101,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 11,
+      "event": "snapshot_rejected",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 32,
+      "authority": "host-1",
+      "received_world_sha256": "6420e2d257bbdeba44129f2f47bd2d80bea24c55500fefd43df00d25630b332e",
+      "reason": "duplicate",
+      "observed_world_sha256": "6420e2d257bbdeba44129f2f47bd2d80bea24c55500fefd43df00d25630b332e"
+    },
+    {
+      "ordinal": 12,
+      "event": "snapshot_rejected",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 31,
+      "authority": "host-1",
+      "received_world_sha256": "93c7051761df9d2f5acd2fdcc429f3873c98e01e84c9112f16ad2a73163a1d01",
+      "reason": "stale_sequence",
+      "observed_world_sha256": "6420e2d257bbdeba44129f2f47bd2d80bea24c55500fefd43df00d25630b332e"
+    },
+    {
+      "ordinal": 13,
+      "event": "snapshot_staged",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 33,
+      "authority": "host-1",
+      "received_world_sha256": "b57da6259844ea38ff71f22e9d32e18b4e5683c9044f0909ab30caf265b9ef66",
+      "observed_world_sha256": "6420e2d257bbdeba44129f2f47bd2d80bea24c55500fefd43df00d25630b332e"
+    },
+    {
+      "ordinal": 14,
+      "event": "snapshot_commit",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 33,
+      "authority": "host-1",
+      "received_world_sha256": "b57da6259844ea38ff71f22e9d32e18b4e5683c9044f0909ab30caf265b9ef66",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              160,
+              10,
+              30
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [
+          "north"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 101,
+          "alive": false
+        }
+      }
+    },
+    {
+      "ordinal": 15,
+      "event": "stage_retired",
+      "epoch": 10,
+      "attachment": 1,
+      "reason": "ordinary_leave",
+      "actors_absent": true,
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 16,
+      "event": "disconnected",
+      "attachment": 1,
+      "reason": "ordinary_leave",
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 17,
+      "event": "connected",
+      "attachment": 2,
+      "authority": "host-1"
+    },
+    {
+      "ordinal": 18,
+      "event": "stage_prepare",
+      "epoch": 10,
+      "attachment": 2,
+      "level": "fixture:skedar_keep",
+      "scenario": "fixture:three_tunnels",
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 19,
+      "event": "stage_ready",
+      "epoch": 10,
+      "attachment": 2,
+      "post_load": true,
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 20,
+      "event": "snapshot_staged",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 34,
+      "authority": "host-1",
+      "received_world_sha256": "b57da6259844ea38ff71f22e9d32e18b4e5683c9044f0909ab30caf265b9ef66",
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 21,
+      "event": "snapshot_commit",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 34,
+      "authority": "host-1",
+      "received_world_sha256": "b57da6259844ea38ff71f22e9d32e18b4e5683c9044f0909ab30caf265b9ef66",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              160,
+              10,
+              30
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [
+          "north"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 101,
+          "alive": false
+        }
+      }
+    },
+    {
+      "ordinal": 22,
+      "event": "snapshot_rejected",
+      "epoch": 10,
+      "attachment": 1,
+      "snapshot_seq": 33,
+      "authority": "host-1",
+      "received_world_sha256": "b57da6259844ea38ff71f22e9d32e18b4e5683c9044f0909ab30caf265b9ef66",
+      "reason": "stale_attachment",
+      "observed_world_sha256": "b57da6259844ea38ff71f22e9d32e18b4e5683c9044f0909ab30caf265b9ef66"
+    },
+    {
+      "ordinal": 23,
+      "event": "snapshot_staged",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 35,
+      "authority": "host-1",
+      "received_world_sha256": "bb1d41cd1501544529a51520550a23630f758fade2824eca8a492b31dbbbd0ce",
+      "observed_world_sha256": "b57da6259844ea38ff71f22e9d32e18b4e5683c9044f0909ab30caf265b9ef66"
+    },
+    {
+      "ordinal": 24,
+      "event": "snapshot_commit",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 35,
+      "authority": "host-1",
+      "received_world_sha256": "bb1d41cd1501544529a51520550a23630f758fade2824eca8a492b31dbbbd0ce",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              160,
+              10,
+              30
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "draining",
+        "wave": 1,
+        "closed_tunnels": [
+          "south",
+          "middle",
+          "north"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 102,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 25,
+      "event": "guest_input_observed",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 35,
+      "input_seq": 7,
+      "source": "ordinary_gameplay"
+    },
+    {
+      "ordinal": 26,
+      "event": "snapshot_staged",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 36,
+      "authority": "host-1",
+      "received_world_sha256": "3557da7657f15fb3878391b6528abd152967aa7c44183b56d868bcc57faac52b",
+      "observed_world_sha256": "bb1d41cd1501544529a51520550a23630f758fade2824eca8a492b31dbbbd0ce"
+    },
+    {
+      "ordinal": 27,
+      "event": "snapshot_commit",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 36,
+      "authority": "host-1",
+      "received_world_sha256": "3557da7657f15fb3878391b6528abd152967aa7c44183b56d868bcc57faac52b",
+      "world": {
+        "actors": [
+          {
+            "actor": "giant",
+            "generation": 9,
+            "role": "giant",
+            "body": "base:sp_body_147",
+            "room": "tunnel-a",
+            "position_q": [
+              300,
+              400,
+              500
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 3000
+          }
+        ],
+        "phase": "finale",
+        "wave": 1,
+        "closed_tunnels": [
+          "south",
+          "middle",
+          "north"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 102,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 28,
+      "event": "snapshot_staged",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 37,
+      "authority": "host-1",
+      "received_world_sha256": "e6df6a16ac4bacf512f9d2c0fe95e09b2561a7f810ad1c5b70d261ed6d7ae3c5",
+      "observed_world_sha256": "3557da7657f15fb3878391b6528abd152967aa7c44183b56d868bcc57faac52b"
+    },
+    {
+      "ordinal": 29,
+      "event": "snapshot_commit",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 37,
+      "authority": "host-1",
+      "received_world_sha256": "e6df6a16ac4bacf512f9d2c0fe95e09b2561a7f810ad1c5b70d261ed6d7ae3c5",
+      "world": {
+        "actors": [],
+        "phase": "victory",
+        "wave": 1,
+        "closed_tunnels": [
+          "south",
+          "middle",
+          "north"
+        ],
+        "player": {
+          "peer": "guest-1",
+          "generation": 102,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 30,
+      "event": "stage_retired",
+      "epoch": 10,
+      "attachment": 2,
+      "reason": "stage_end",
+      "actors_absent": true,
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 31,
+      "event": "stage_prepare",
+      "epoch": 11,
+      "attachment": 2,
+      "level": "fixture:skedar_keep",
+      "scenario": "fixture:three_tunnels",
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 32,
+      "event": "stage_ready",
+      "epoch": 11,
+      "attachment": 2,
+      "post_load": true,
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 33,
+      "event": "snapshot_rejected",
+      "epoch": 10,
+      "attachment": 2,
+      "snapshot_seq": 37,
+      "authority": "host-1",
+      "received_world_sha256": "e6df6a16ac4bacf512f9d2c0fe95e09b2561a7f810ad1c5b70d261ed6d7ae3c5",
+      "reason": "stale_epoch",
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 34,
+      "event": "snapshot_staged",
+      "epoch": 11,
+      "attachment": 2,
+      "snapshot_seq": 1,
+      "authority": "host-1",
+      "received_world_sha256": "322a13b6f6f5820f7a2fc94def41863f69f32b4e2baf698167aa1f7250b0b59c",
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 35,
+      "event": "snapshot_commit",
+      "epoch": 11,
+      "attachment": 2,
+      "snapshot_seq": 1,
+      "authority": "host-1",
+      "received_world_sha256": "322a13b6f6f5820f7a2fc94def41863f69f32b4e2baf698167aa1f7250b0b59c",
+      "world": {
+        "actors": [
+          {
+            "actor": "raider-a",
+            "generation": 4,
+            "role": "raider",
+            "body": "base:skedar",
+            "room": "tunnel-a",
+            "position_q": [
+              100,
+              0,
+              0
+            ],
+            "rotation_q": [
+              0,
+              0,
+              0,
+              1000
+            ],
+            "support_q": [
+              0,
+              1000,
+              0
+            ],
+            "animation": "base:skedar_run",
+            "frame_q": 40,
+            "scale_q": 1000
+          }
+        ],
+        "phase": "defense",
+        "wave": 1,
+        "closed_tunnels": [],
+        "player": {
+          "peer": "guest-1",
+          "generation": 103,
+          "alive": true
+        }
+      }
+    },
+    {
+      "ordinal": 36,
+      "event": "guest_input_observed",
+      "epoch": 11,
+      "attachment": 2,
+      "snapshot_seq": 1,
+      "input_seq": 8,
+      "source": "ordinary_gameplay"
+    },
+    {
+      "ordinal": 37,
+      "event": "stage_retired",
+      "epoch": 11,
+      "attachment": 2,
+      "reason": "stage_end",
+      "actors_absent": true,
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 38,
+      "event": "disconnected",
+      "attachment": 2,
+      "reason": "session_close",
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    },
+    {
+      "ordinal": 39,
+      "event": "guest_stopped",
+      "actors_absent": true,
+      "observed_world_sha256": "c865a860469b0497ee38565729fe55338ec62b15e7fa09b884284001e2ee0fde"
+    }
+  ]
+}

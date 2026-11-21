@@ -1,0 +1,112 @@
+[
+  {
+    "name": "Grid layout builds detached collision through the native world grid",
+    "tags": "[grid-layout-apply][meshcollision][source]",
+    "success": "true"
+  },
+  {
+    "name": "Grid world swap preserves the outgoing grid and its ray state",
+    "tags": "[grid-layout-apply][meshcollision][source]",
+    "success": "true"
+  },
+  {
+    "name": "Grid layout changes retain the same executable level graph",
+    "tags": "[grid-layout-apply]",
+    "success": "true"
+  },
+  {
+    "name": "host autostart rematch: the lobby UI does not draw the Room over an open results screen",
+    "tags": "[b1192][finding4][net][rematch]",
+    "success": "true"
+  },
+  {
+    "name": "results for every player: a client shows its results screen before the Room",
+    "tags": "[b1190][finding4][net][rematch]",
+    "success": "true"
+  },
+  {
+    "name": "results for every player: the room shows who is still reviewing match stats",
+    "tags": "[b1190][finding4][net][rematch]",
+    "success": "true"
+  },
+  {
+    "name": "Roster wire preserves sparse identities and public catalog IDs",
+    "tags": "[lobby][net][roster-wire]",
+    "success": "true"
+  },
+  {
+    "name": "Roster rejects every truncated payload without partial destination mutation",
+    "tags": "[lobby][net][roster-wire]",
+    "success": "true"
+  },
+  {
+    "name": "Roster rejects duplicate identities invalid bounds and hidden string suffixes",
+    "tags": "[lobby][net][roster-wire]",
+    "success": "true"
+  },
+  {
+    "name": "Roster supports all 32 players and refuses insufficient output capacity atomically",
+    "tags": "[lobby][net][roster-wire]",
+    "success": "true"
+  },
+  {
+    "name": "Remote roster updates presentation without fabricating gameplay clients",
+    "tags": "[lobby][net][roster-apply]",
+    "success": "true"
+  },
+  {
+    "name": "Room presentation maps identity portraits and authority through the same filtered rows",
+    "tags": "[lobby][net][roster-apply]",
+    "success": "true"
+  },
+  {
+    "name": "Authoritative roster excludes unauthenticated slots and tracks room moves",
+    "tags": "[lobby][net][roster-apply]",
+    "success": "true"
+  },
+  {
+    "name": "Roster accepts initial authentication before public appearance settings arrive",
+    "tags": "[lobby][net][roster-auth-empty]",
+    "success": "true"
+  },
+  {
+    "name": "Roster empty metadata uses canonical string sizes and preserves short output buffers",
+    "tags": "[lobby][net][roster-auth-empty]",
+    "success": "true"
+  },
+  {
+    "name": "Roster carries the reviewing match stats flag and refuses unknown flag bits",
+    "tags": "[b1190][lobby][net][roster-wire]",
+    "success": "true"
+  },
+  {
+    "name": "Grid results preserve the exact played revision and score bytes",
+    "tags": "[grid-match-result][netbuf]",
+    "success": "true"
+  },
+  {
+    "name": "Grid results refuse invalid writes without altering the packet",
+    "tags": "[grid-match-result][netbuf]",
+    "success": "true"
+  },
+  {
+    "name": "Grid results refuse invalid reads without replacing an earlier result",
+    "tags": "[grid-match-result][netbuf]",
+    "success": "true"
+  },
+  {
+    "name": "Grid scorecards decode signed scores in sparse host slot order",
+    "tags": "[grid-match-result][netbuf]",
+    "success": "true"
+  },
+  {
+    "name": "Grid scorecards accept the wire count boundaries",
+    "tags": "[grid-match-result][netbuf]",
+    "success": "true"
+  },
+  {
+    "name": "Grid scorecards refuse invalid payloads without changing the previous card",
+    "tags": "[grid-match-result][netbuf]",
+    "success": "true"
+  }
+]

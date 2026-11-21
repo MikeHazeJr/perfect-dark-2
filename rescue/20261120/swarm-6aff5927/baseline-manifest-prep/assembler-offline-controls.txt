@@ -1,0 +1,13 @@
+test_both_manifests_feed_frozen_verifier_and_cannot_be_overwritten (__main__.AssemblyTests.test_both_manifests_feed_frozen_verifier_and_cannot_be_overwritten) ... ok
+test_capture_file_must_MATCH_frozen_time (__main__.AssemblyTests.test_capture_file_must_MATCH_frozen_time) ... ok
+test_collected_asset_length_is_bound (__main__.AssemblyTests.test_collected_asset_length_is_bound) ... ok
+test_complete_stdout_has_no_filesystem_side_effect (__main__.AssemblyTests.test_complete_stdout_has_no_filesystem_side_effect) ... ok
+test_frozen_verifier_refuses_missing_population_even_with_matching_log_hash (__main__.AssemblyTests.test_frozen_verifier_refuses_missing_population_even_with_matching_log_hash) ... ok
+test_recipe_head_is_bound_to_the_binary_source_receipt (__main__.AssemblyTests.test_recipe_head_is_bound_to_the_binary_source_receipt) ... ok
+test_retained_receipt_is_required (__main__.AssemblyTests.test_retained_receipt_is_required) ... ok
+test_source_install_paths_cannot_escape (__main__.AssemblyTests.test_source_install_paths_cannot_escape) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 1.066s
+
+OK

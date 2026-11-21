@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "original_brief": "https://hazelcloud.slack.com/archives/C0C5S3S2F33/p1791827319616709",
+  "decision_scope": "Fixture limits are supplied by the authored scenario under test. The checker does not choose shipping values or certify any game run.",
+  "trace_contract": {
+    "subject": "One authoritative local or listen-host encounter. Use one native tick domain and a nonzero stage epoch. Sequence numbers start at one and never skip. Use live actor names and generations within the stage, never pointer values.",
+    "identity": "Use typed catalog IDs for the original level, scenario and Giant body. The authored plan declares three independent tunnel, portal and blocker IDs, an ordered finite wave schedule with opening routes and start delays, a spawn interval, Giant body and attack, spacing and telegraph limits.",
+    "tunnel_projection": "Each passage episode may accumulate actual sweeps across ticks. Compare signed start, desired and resolved centers with each oriented capsule extent projected along the portal normal. Closed episodes begin after the blocker commits. Retain the underlying native sweeps for physical acceptance.",
+    "hit": "Track independent player spawn and death generations. Recheck live hostile state and LOS at start and impact. Bound each reported effective reach by the authored world-space reach for that actor role and attack kind.",
+    "native_candidate": "Pass --native-candidate to require source, client, installed public level/scenario, fixture, managed recipe and log hashes plus run and queue identity. These fields link a candidate to files for separate review. This program always leaves native qualification unverified.",
+    "external_handoff": "Retain per-case commands, pd queue entry and closeout, exact build and authored asset hashes, raw logs/captures, a supported receipt, independent inspection and the verdict. Missing evidence remains open."
+  },
+  "cases": [
+    {
+      "id": "paired_baseline",
+      "source": "native_evidence",
+      "run": "Qualify frozen N-1055 unchanged first. Run the seeded four-actor CPU and GPU_FULL pair with the same prepared actor rows, room, team, scale, pose and installed authored inputs.",
+      "retain": "Paired verifier output, immutable run recipes, binary and source hashes, both native process logs and two native back-buffer captures per backend.",
+      "accept": "Both runs complete and close cleanly. The GPU submission, shader completion, readback and application match live actors in the capture windows. Inspect all four captures. Preserve a mismatch before applying the follow-up."
+    },
+    {
+      "id": "gpu_snapshot",
+      "source": "native_evidence",
+      "run": "Run the repaired GPU path on repeated identical seeds, no-empty, sparse and empty rows, generation reuse, retired actor rows and a same-map restart. Exercise an actually supported fenced path and any available fallback separately.",
+      "retain": "Input and output checksums per dispatch and producer epoch, row-identity and consumer traces, repeated native GPU results and exact application counters.",
+      "accept": "One immutable input drives each dispatch. Output writes, readback and application have the same stage and generation. Empty, dead, stale and previous-stage rows generate no movement or damage. Repeats agree within the predeclared comparison tolerance."
+    },
+    {
+      "id": "authored_round_trip",
+      "source": "native_evidence",
+      "run": "Author an original playable level through the supported level builder, import, or editor. Open it in Forge, save a variant and reopen it in a fresh native client. Play it after reopen and prove live provider activation and a controlled edit.",
+      "retain": "Original, reopened and edited user-authored members, package and source hashes, stable typed references, provider activation and consumed-row receipts after each reopen, and validation/asset native-source guard evidence.",
+      "accept": "The exact public source drives the native client after both reopenings. The edit changes the runtime binding. Each portal, provider, target and blocker matches the intended same-level authoring identity. Runtime caches can be rebuilt from the user-authored source."
+    },
+    {
+      "id": "three_tunnels",
+      "source": "trace",
+      "run": "In one encounter play, demonstrate a raider crossing each open tunnel. Use normal player interaction to close each distinct objective and repeat an exterior ingress attempt after each closure.",
+      "retain": "Three tunnel/portal/blocker bindings, the live raider generation and actual start, desired and resolved swept-body extents for each route.",
+      "accept": "Each intended opening is traversable before its closure. Each intended closed blocker stops the whole attempted body on the exterior side. No duplicate closure or closed-route spawn or crossing occurs."
+    },
+    {
+      "id": "bounded_waves",
+      "source": "trace",
+      "run": "Start the finite authored wave schedule, keep raiders attacking while the player closes the routes, and let surviving raiders retire through gameplay.",
+      "retain": "Authoritative wave starts and ends, authored and observed spawn limits, native actor identities and retirement events.",
+      "accept": "Each wave respects its authored order, budget, delay, open routes and spawn interval, and drains before advancing. Closure ends or cancels future wave admission, without despawning surviving threats to skip combat."
+    },
+    {
+      "id": "bounded_attacks",
+      "source": "trace",
+      "run": "Play a timeline with jump, drop and ordinary attacks, including overlapping opportunities. Exercise real player combat and both completed airborne transitions.",
+      "retain": "Attack start, same-tick target/LOS/range checks at impact, applied damage, actor and target generations, telegraph, duration and terminal state.",
+      "accept": "Start cooldowns, starts per native tick, concurrent attacks by kind, combined airborne count and airborne lifetime stay within authored limits. Starts and impacts require fresh live hostile targets with range and LOS. Impact requires telegraph, and one attack identity never double-applies damage."
+    },
+    {
+      "id": "native_collision",
+      "source": "native_evidence",
+      "run": "On the authored level test a high-step thin-wall sweep, glancing or diagonal convex corner, traversable tunnel, undersized tunnel, closure collision in each corridor, ledge and ceiling discontinuity. Use the production triangle collider and include moving support where the scenario permits it.",
+      "retain": "Public geometry/collider identity, actual world triangles or geometry fixture, per-step swept body start/goal/result, contact normal and separation, blocker identity and observable native captures.",
+      "accept": "The production volume cannot pass through thin walls or closed, undersized or concave routes; grazes slide or stop at the real support without tunneling. Open passages allow legal motion and report stable support. Synthetic trace and math controls only cover their own contract."
+    },
+    {
+      "id": "native_pose",
+      "source": "native_evidence",
+      "run": "Observe actual floor-to-wall, wall-to-ceiling, attached wall/ceiling travel, ledge/release, airborne jump and ceiling drop, then landing. Include an easy-to-see run on CPU and GPU with the same expected body and scale.",
+      "retain": "Actor/root/support orientation and distance, real surface/contact and animation transitions, velocity/release record, native captures or footage that show spacing and posture.",
+      "accept": "Pose and movement are aligned with support and gravity while attached, transition without snapping or skating, and converge correctly on landing. Attached feet and the visible model match the collision envelope through each transition."
+    },
+    {
+      "id": "giant_finale",
+      "source": "trace",
+      "run": "Close all three objectives, end wave admission, finish remaining gameplay combat, then engage a single Giant and defeat it with normal player damage.",
+      "retain": "Finale phase, native actor/generation, catalog body ID, model scale, radius, height, spawn clearance, attack and health/death events, terminal victory.",
+      "accept": "Finale starts once after all three closures and raider/attack drain. Exactly one properly cleared, scaled Giant uses the authored body, attempts combat and reaches zero health by ordinary player damage before victory."
+    },
+    {
+      "id": "native_encounter",
+      "source": "native_evidence",
+      "run": "Complete the saved and reopened authored encounter on the native client using ordinary player movement, pickup, objective use and combat. Include a second play that exercises another closure order.",
+      "retain": "Native level and process binding, raw trace consumed by this script, successful harness receipt, gameplay footage and independent visual/gameplay inspection.",
+      "accept": "Two real gameplay passes demonstrate authored scenario use, three closures while the encounter remains playable, bounded pressure and a clear Giant finale. Direct door interactions and injected kills may test plumbing separately."
+    },
+    {
+      "id": "stock",
+      "source": "native_evidence",
+      "run": "Launch ordinary local stock map gameplay and the stock Grid normal-bot route on the exact Swarm-enabled build.",
+      "retain": "Exact public inputs, ordinary client and stock gameplay receipts, a short capture covering AI, movement and kills, and cleanup closeout.",
+      "accept": "Normal gameplay launches and remains playable. Stock bot behavior, asset resolution and the normal Grid flow remain independent of an active Swarm encounter."
+    },
+    {
+      "id": "listen_authority",
+      "source": "native_evidence",
+      "run": "Use supported game QA to run one listen host and at least one peer through the authored scenario, and a normal two-player stock match as a separate regression.",
+      "retain": "Host/peer exact build and source identities, authority and accepted sequence/actor generation logs, objective/wave/Giant state followed by client render/pose receipts and connection closeout.",
+      "accept": "Only host state mutates authoritative actors, routes, damage or the finale. The peer sees matching live state, pose, closure and death without duplicate actors or stale shells. Stock two-player QA remains healthy."
+    },
+    {
+      "id": "network_lifecycle",
+      "source": "native_evidence",
+      "run": "Use supported gameplay QA for packet loss/delay/reordering conditions, player death, ordinary leave/rejoin, same-map restart and host loss. Record any separate physical or WAN follow-up as unrun while unavailable.",
+      "retain": "Bounded sent/received sequence and epoch windows, snapshots/resync and catch-up evidence, authoritative actor and closure state, teardown/absence records and per-run supported setup.",
+      "accept": "Sequence and state remain bounded, stale epoch/actor records never mutate fresh state, and current participants converge after allowed resync without preserving retired actor lifetimes. Host loss closes or returns through the supported path."
+    },
+    {
+      "id": "repeat_scale",
+      "source": "native_evidence",
+      "run": "On a pinned client, provider, configuration and hardware, repeat a declared warmup and measurement protocol at the chosen actor counts and budgets. Include stage restart and respawn stability, native motion and network correctness under pressure.",
+      "retain": "At least two independent per-tier raw runs, valid applied results and failure counters, frame-time percentiles, GPU latency, bandwidth/snapshot size, resource and teardown receipts, and fixture/threshold version.",
+      "accept": "Report measured correctness and scale against predeclared budgets across repeats, with explicit capacity and hardware limits. Preserve historical stress ladders as regression fixtures without promoting them to qualifying gameplay or performance proof."
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+asset-native-source guard ok
+[dev 2f75be449] Modding - T-MODDING-021: Preserve authored UVs in Grid model imports
+ 2 files changed, 71 insertions(+), 5 deletions(-)
+Verified local commit 2f75be4494ac339a28f895b25a7cade7f0ebcfca, committed only the importer and test; browser exact hashes intact.
