@@ -466,3 +466,147 @@ TEST_CASE("the example mode carries Combat's base program",
 		"examples/modding/typed-pdxxx-basic/gamemodes/tri_gamemode.pdgamemode", "gamemode.ini");
 	REQUIRE(ini.find("mode_graph_file = mode.graph.json") != std::string::npos);
 }
+
+TEST_CASE("each base mode's plan is the original table's",
+	"[gamemode-graphs][slice3][plan]")
+{
+	for (s32 mode = 0; mode < MODE_RULES_MODE_COUNT; mode++) {
+		INFO("mode " << mode);
+		CompiledProgram compiled;
+		compileMode(compiled, baseProgram(mode, "base:test"));
+		REQUIRE(compiled.program != nullptr);
+		mode_rules_plan_t plan, native;
+		REQUIRE(modeRulesPlanFromProgram(compiled.program, &plan) == 1);
+		modeRulesNativePlan(mode, &native);
+		REQUIRE(plan.modules == native.modules);
+		REQUIRE(plan.modules == missionGraphProgramModuleNodeCount(compiled.program));
+		for (s32 seam = 0; seam < MODE_SEAM_COUNT; seam++) {
+			INFO("seam " << modeRulesSeamName(seam));
+			REQUIRE(modeRulesPlanSeamEqual(&plan, &native, seam) == 1);
+		}
+	}
+
+	// Capture the Case places its players with its own chooser first, then
+	// the general one; Combat scores and spawns with the defaults alone.
+	mode_rules_plan_t ctc;
+	modeRulesNativePlan(MPSCENARIO_CAPTURETHECASE, &ctc);
+	REQUIRE(ctc.owner[MODE_SEAM_SPAWN][0] == MPSCENARIO_CAPTURETHECASE);
+	REQUIRE(ctc.owner[MODE_SEAM_SPAWN][1] == MODE_RULES_DEFAULT);
+	REQUIRE(ctc.owner[MODE_SEAM_SCORE][0] == MPSCENARIO_CAPTURETHECASE);
+	REQUIRE(ctc.owner[MODE_SEAM_SCORE][1] == MODE_PLAN_NONE);
+	mode_rules_plan_t combat;
+	modeRulesNativePlan(MPSCENARIO_COMBAT, &combat);
+	REQUIRE(combat.modules == 2);
+	REQUIRE(combat.owner[MODE_SEAM_SCORE][0] == MODE_RULES_DEFAULT);
+	REQUIRE(combat.owner[MODE_SEAM_SPAWN][0] == MODE_RULES_DEFAULT);
+	REQUIRE(modeRulesPlanRuns(&combat, MODE_SEAM_TICK, MPSCENARIO_COMBAT) == 0);
+
+	// An empty plan, and no plan without a program.
+	mode_rules_plan_t empty;
+	REQUIRE(modeRulesPlanFromProgram(nullptr, &empty) == 0);
+	REQUIRE(empty.modules == 0);
+	REQUIRE(empty.owner[MODE_SEAM_SPAWN][0] == MODE_PLAN_NONE);
+}
+
+TEST_CASE("a plan keeps the walk order, each module once, at most two per seam",
+	"[gamemode-graphs][slice3][plan]")
+{
+	// The general chooser first: the plan runs it before the mode's own.
+	CompiledProgram reversed;
+	compileMode(reversed, "{\"nodes\":[{\"id\":\"e\",\"kind\":\"event.mode.spawn\"},"
+		"{\"id\":\"d\",\"kind\":\"og.mode.default.spawn\"},{\"id\":\"c\",\"kind\":\"og.mode.ctc.spawn\"},"
+		"{\"id\":\"d2\",\"kind\":\"og.mode.default.spawn\"}],"
+		"\"edges\":[{\"from\":\"e\",\"to\":\"d\",\"input\":\"exec\"},"
+		"{\"from\":\"e\",\"to\":\"c\",\"input\":\"exec\"},{\"from\":\"e\",\"to\":\"d2\",\"input\":\"exec\"}]}");
+	INFO(reversed.err);
+	REQUIRE(reversed.program != nullptr);
+	mode_rules_plan_t plan;
+	REQUIRE(modeRulesPlanFromProgram(reversed.program, &plan) == 1);
+	REQUIRE(plan.owner[MODE_SEAM_SPAWN][0] == MODE_RULES_DEFAULT);
+	REQUIRE(plan.owner[MODE_SEAM_SPAWN][1] == MPSCENARIO_CAPTURETHECASE);
+	REQUIRE(plan.modules == 2);
+
+	// The walk fires each choosing event: a mode program's events are valid.
+	mission_graph_event_t event = {};
+	event.kind = MISSION_GRAPH_EVENT_MODE_SPAWN;
+	event.player = -1;
+	REQUIRE(missionGraphProgramFire(reversed.program, &event,
+		[](const char *, const char *, const mission_graph_params_t *, const mission_graph_event_t *,
+			void *) -> s32 { return 1; }, nullptr) == 3);
+	event.seam = MISSION_GRAPH_SEAM_ENDSCREEN;
+	REQUIRE(missionGraphProgramFire(reversed.program, &event,
+		[](const char *, const char *, const mission_graph_params_t *, const mission_graph_event_t *,
+			void *) -> s32 { return 1; }, nullptr) == -1);
+}
+
+TEST_CASE("the mode dispatchers run the program's plan and compare it with the original table",
+	"[gamemode-graphs][slice3][static]")
+{
+	const std::string scenarios = readRepoFile("src/game/mplayer/scenarios.c");
+	REQUIRE(!scenarios.empty());
+	REQUIRE(scenarios.find("#include \"mode_rules.h\"") != std::string::npos);
+	REQUIRE(scenarios.find("scenarioPlanMake(scenario, \"chosen\");") != std::string::npos);
+	REQUIRE(scenarios.find("scenarioPlanMake(scenario, \"stage_reset\");") != std::string::npos);
+	REQUIRE(scenarios.find("sysLoudFailf(\"MODE.PLAN\"") != std::string::npos);
+	REQUIRE(scenarios.find("modeRulesPlanFromProgram(program, &s_ScenarioPlans[scenario])") !=
+		std::string::npos);
+	REQUIRE(scenarios.find("\"MODE.PARITY: differ scenario=%d seam=%s native=%d,%d program=%d,%d\"") !=
+		std::string::npos);
+
+	// Every seam is compared where it is dispatched.
+	for (const char *seam : { "MODE_SEAM_INIT", "MODE_SEAM_NUM_PROPS", "MODE_SEAM_INIT_PROPS",
+			"MODE_SEAM_TICK", "MODE_SEAM_TICK_CHR", "MODE_SEAM_HUD", "MODE_SEAM_SCORE",
+			"MODE_SEAM_RADAR_EXTRA", "MODE_SEAM_RADAR_CHR", "MODE_SEAM_HIGHLIGHT_PROP",
+			"MODE_SEAM_SPAWN", "MODE_SEAM_MAX_TEAMS", "MODE_SEAM_ROOM_LIGHTS", "MODE_SEAM_SAVE" }) {
+		INFO(seam);
+		REQUIRE(scenarios.find(std::string("plan, ") + seam + ");") != std::string::npos);
+		REQUIRE(scenarios.find(std::string("case ") + seam + ":") != std::string::npos);
+	}
+
+	// No dispatcher calls a mode's callback past its plan: the table is read
+	// by owner (the plan's), and by mode only for the options dialog, the
+	// first-tick and spawn logs, and the parity probe's row.
+	size_t at = 0;
+	while ((at = scenarios.find("g_MpScenarios[scenario].", at)) != std::string::npos) {
+		const std::string use = scenarios.substr(at, 40);
+		INFO(use);
+		REQUIRE((use.find(".optionsdialog") != std::string::npos ||
+			use.find(".tickfunc);") != std::string::npos ||
+			use.find(".spawnfunc)") != std::string::npos));
+		at += 1;
+	}
+	REQUIRE(scenarios.find("g_MpScenarios[g_MpSetup.scenario].") == std::string::npos);
+	REQUIRE(scenarios.find("g_MpScenarios[owner].calcscorefunc(mpchr, chrnum, score, deaths);") !=
+		std::string::npos);
+	REQUIRE(scenarios.find("const struct mpscenario *row = &g_MpScenarios[scenario];") != std::string::npos);
+
+	const std::string events = readRepoFile("port/src/mode_events.c");
+	REQUIRE(events.find("\"MODE.PARITY: %s mode=%s compared=%d differ=%d\"") != std::string::npos);
+	REQUIRE(events.find("void modeParityRecord(s32 differ)") != std::string::npos);
+}
+
+TEST_CASE("the local mode smokes require the plan and no parity difference",
+	"[gamemode-graphs][slice3][smokes][static]")
+{
+	const std::vector<std::pair<std::string, std::string>> smokes = {
+		{ "mp_combat_local_scorelimit_smoke", "base:combat scenario=0" },
+		{ "mp_hold_the_briefcase_local_smoke", "base:hold_the_briefcase scenario=1" },
+		{ "mp_hacker_central_local_smoke", "base:hacker_central scenario=2" },
+		{ "mp_pop_a_cap_local_smoke", "base:pop_a_cap scenario=3" },
+		{ "mp_king_of_the_hill_local_smoke", "base:king_of_the_hill scenario=4" },
+		{ "mp_capture_the_case_local_smoke", "base:capture_the_case scenario=5" },
+	};
+	for (const auto &smoke : smokes) {
+		INFO(smoke.first);
+		const std::string fixture = readRepoFile(("tools/smoke-verify/tests/" + smoke.first + ".json").c_str());
+		REQUIRE(!fixture.empty());
+		// The fixture's JSON text writes each regex backslash twice.
+		REQUIRE(fixture.find("MODE\\\\.PLAN: stage_reset mode=" + smoke.second + " modules=[1-9][0-9]*") !=
+			std::string::npos);
+		const std::string mode = smoke.second.substr(0, smoke.second.find(' '));
+		REQUIRE(fixture.find("MODE\\\\.PARITY: stage_end mode=" + mode +
+			" compared=[1-9][0-9]* differ=0\\\\b") != std::string::npos);
+		REQUIRE(fixture.find("\"MODE\\\\.PARITY: differ\"") != std::string::npos);
+		REQUIRE(fixture.find("\"LOUDFAIL\\\\.MODE\\\\.PLAN\"") != std::string::npos);
+	}
+}

@@ -112,6 +112,8 @@
       "MODE\\.EVENT: chosen mode=base:hacker_central scenario=2",
       "MODE\\.EVENT: tick mode=base:hacker_central scenario=2 who=-",
       "MODE\\.EVENTS: stage_end mode=base:hacker_central .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.PLAN: stage_reset mode=base:hacker_central scenario=2 modules=[1-9][0-9]*",
+      "MODE\\.PARITY: stage_end mode=base:hacker_central compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",
       "SMOKE: result=scripted_exit",
       "MATCH\\.RESULT\\.(CHR|TEAM): .*score=[1-9]"
@@ -127,7 +129,9 @@
       "HTM: no pad for terminal",
       "HTM: bank holds",
       "HTM: uplink placed pad=0 ",
-      "SCENARIO: object model="
+      "SCENARIO: object model=",
+      "MODE\\.PARITY: differ",
+      "LOUDFAIL\\.MODE\\.PLAN"
     ],
     "required_counts": [
       {
