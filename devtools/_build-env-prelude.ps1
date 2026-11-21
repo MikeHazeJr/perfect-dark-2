@@ -68,6 +68,17 @@ $env:CCACHE_BASEDIR    = Split-Path (Split-Path $MyInvocation.MyCommand.Path -Pa
 # PCH missed, GCC wrote a .gch with different bytes, and all 717 C files that
 # use it missed too. GCC does not need that rule.
 $env:CCACHE_COMPILERTYPE = "gcc"
+# Every AI session builds in its own folder (.claude/session-builds/<id>).
+# With -g, ccache hashes the build folder by default, so no session could use
+# another's results: a fresh session with a warm cache hit 54 of 1,466 units.
+# Not hashing it shares results across folders (CCACHE_BASEDIR already makes
+# the paths relative); the cost is that debug info may name another session's
+# folder as its compile directory.
+$env:CCACHE_NOHASHDIR = "1"
+# Depend mode reads the compiler's own -MD output instead of running the
+# preprocessor a second time for every miss, which made cold builds slower
+# with ccache than without it.
+$env:CCACHE_DEPEND = "1"
 
 # Dev Window / GUI tools set PD_BUILD_ENV_QUIET=1 before dot-sourcing to avoid
 # printing into a visible console during startup.

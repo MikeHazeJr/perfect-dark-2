@@ -29,6 +29,13 @@ esac
 
 export CCACHE_SLOPPINESS="pch_defines,time_macros,include_file_mtime,include_file_ctime"
 export CCACHE_BASEDIR="$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)"
+# B-1280, same as devtools/_build-env-prelude.ps1: cc.exe is GCC (ccache cannot
+# tell from the name, and as "other" it misses every precompiled-header user in a
+# fresh build folder); share results across build folders; use the compiler's
+# -MD output instead of a second preprocessor run on each miss.
+export CCACHE_COMPILERTYPE=gcc
+export CCACHE_NOHASHDIR=1
+export CCACHE_DEPEND=1
 echo "Build env: TEMP=$TEMP | mingw64 on PATH | ccache sloppy | CCACHE_BASEDIR=$CCACHE_BASEDIR | USERPROFILE=$USERPROFILE"
 
 # B-1122 follow-up: a build no longer makes an updater signing key, so it never
