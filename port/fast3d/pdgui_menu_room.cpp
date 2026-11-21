@@ -75,6 +75,9 @@ extern "C" {
 char *langGet(s32 textid);
 char *langSafe(s32 textid);
 s32 challengeIsFeatureUnlocked(u32 feature);
+/* The original's preset games (mplayer.c), for the Room's Load Preset. */
+s32 mpGetNumUnlockedPresets(void);
+char *mpGetPresetNameBySlot(s32 slot);
 
 /* Rule 6 reconciliation (Q4, 2026-05-03): Y-Social is restricted to
  * Main Menu + Pause Menu only. Combat Sim does NOT bind Y to social.
@@ -705,7 +708,8 @@ enum RoomFocusRegion {
 };
 
 enum RoomCsSection {
-    ROOM_CS_ARENA = 0,
+    ROOM_CS_PRESET = 0, /* Load Preset and Quick Start (Mike 2026-11-21) */
+    ROOM_CS_ARENA,
     ROOM_CS_SCENARIO,
     ROOM_CS_LIMITS,
     ROOM_CS_WEAPONS,
@@ -1113,6 +1117,21 @@ static int  s_ScenarioCount     = 0;
 static int  s_ScenarioSelected  = -1;
 static char s_ScenarioStatusMsg[128] = "";
 
+/* Load Preset and Quick Start (Mike 2026-11-17: presets are a Load Preset list
+ * at the top of the Combat Simulator tab, host only, and picking one fills
+ * every setting below, including the simulants; 2026-11-21: Presets and Quick
+ * Start get a working entry, Challenges stay without a Room entry). They are the
+ * original Combat Simulator menu's "Load/Preset Games" and "Quick Start". */
+static int  s_PresetSelected    = -1;
+static char s_PresetStatusMsg[128] = "";
+static bool s_ShowQuickStart    = false;
+static int  s_QuickStartMode    = 1;  /* see s_QuickStartModeNames */
+static int  s_QuickStartSims    = 3;
+static int  s_QuickStartDiff    = 2;  /* NormalSim */
+/* >0: frames until Quick Start fires the Room's own Start Match. One frame lets
+ * a networked room's settings go out (end-of-frame flush) before the start. */
+static int  s_QuickStartFireFrames = 0;
+
 /* M-5 (Menu Stack Compliance Tier 1) — destructive-action confirm modals.
  * Canonical S385 pattern: 5-frame SetKeyboardFocusHere(0) on Cancel + 3-frame
  * input debounce so the Enter/A press that opened the popup can't bleed
@@ -1212,6 +1231,139 @@ static void syncArenaFromConfig(void)
     strncpy(g_MatchConfig.stage_id, s_Arenas[s_SelectedArena].id,
             sizeof(g_MatchConfig.stage_id) - 1);
     g_MatchConfig.stage_id[sizeof(g_MatchConfig.stage_id) - 1] = '\0';
+}
+
+/* ========================================================================
+ * Load Preset and Quick Start (Mike 2026-11-21)
+ * ======================================================================== */
+
+/* The Room's Load Preset: the original's preset game in that slot (counting the
+ * unlocked ones) through scenarioLoadPreset, the same plan and commit as a saved
+ * setup, so a refused preset leaves the match as it was. */
+static void roomLoadPreset(int slot)
+{
+    const char *name = mpGetPresetNameBySlot(slot);
+    s32 humanCount = lobbyRoomGetPlayerCount();
+
+    if (humanCount < 1) humanCount = 1;
+    if (!name || !name[0]) name = "?";
+    if (scenarioLoadPreset(slot, humanCount) == 0) {
+        s_PresetSelected = slot;
+        syncArenaFromConfig();
+        syncSpawnWeaponFromConfig();
+        s_RoomSettingsDirty = true;
+        snprintf(s_PresetStatusMsg, sizeof(s_PresetStatusMsg), "Loaded preset: %s", name);
+        sysLogPrintf(LOG_NOTE, "ROOM: preset loaded slot=%d name='%s' humans=%d",
+                     slot, name, (int)humanCount);
+        pdguiPlaySound(PDGUI_SND_SELECT);
+    } else {
+        snprintf(s_PresetStatusMsg, sizeof(s_PresetStatusMsg), "Could not load preset: %s", name);
+        sysLogPrintf(LOG_WARNING, "ROOM: preset load failed slot=%d name='%s' humans=%d",
+                     slot, name, (int)humanCount);
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+    }
+}
+
+/* The original's Quick Team choices (g_MpQuickTeamMenuItems). */
+#define ROOM_QS_PLAYERS_ONLY     0
+#define ROOM_QS_PLAYERS_AND_SIMS 1
+#define ROOM_QS_PLAYER_TEAMS     2
+#define ROOM_QS_PLAYERS_VS_SIMS  3
+#define ROOM_QS_PLAYER_SIM_TEAMS 4
+#define ROOM_QS_MODE_COUNT       5
+
+static const char *s_QuickStartModeNames[ROOM_QS_MODE_COUNT] = {
+    "Players Only", "Players and Simulants", "Player Teams",
+    "Players vs. Simulants", "Player-Simulant Teams",
+};
+
+static bool roomQuickStartModeHasSims(int mode)
+{
+    return mode == ROOM_QS_PLAYERS_AND_SIMS || mode == ROOM_QS_PLAYERS_VS_SIMS
+        || mode == ROOM_QS_PLAYER_SIM_TEAMS;
+}
+
+/* Quick Start: the original's Quick Team rules (mpConfigureQuickTeamPlayers and
+ * mpConfigureQuickTeamSimulants, setup.c) applied to the Room's match. The
+ * simulants are replaced; Teams goes off for Players Only and Players and
+ * Simulants and on for the three team choices; Players vs. Simulants puts every
+ * human on one team and the simulants on the other; Player-Simulant Teams gives
+ * each human a team of its own with `sims` simulants on it; Player Teams keeps
+ * the teams the humans picked in the player list. The mode's own rules apply
+ * last, so King of the Hill and Capture the Case keep Teams on. Returns the
+ * number of simulants added, or -1 when the choice needs simulants and none
+ * could be added (a locked difficulty, or no room for one). */
+static int roomQuickStartApply(int mode, int sims, int difficulty)
+{
+    const bool teams = mode == ROOM_QS_PLAYER_TEAMS || mode == ROOM_QS_PLAYERS_VS_SIMS
+        || mode == ROOM_QS_PLAYER_SIM_TEAMS;
+    int wanted = 0;
+    int added = 0;
+    int human = 0;
+
+    for (int i = g_MatchConfig.numSlots - 1; i >= 1; i--) {
+        if (g_MatchConfig.slots[i].type == SLOT_BOT) {
+            matchConfigRemoveSlot(i);
+        }
+    }
+    matchConfigSetUserOption(MPOPTION_TEAMSENABLED, teams ? 1 : 0);
+
+    for (int i = 0; i < g_MatchConfig.numSlots; i++) {
+        struct matchslot *slot = &g_MatchConfig.slots[i];
+        if (slot->type != SLOT_PLAYER) continue;
+        if (mode == ROOM_QS_PLAYERS_VS_SIMS) {
+            slot->team = 0;
+        } else if (mode == ROOM_QS_PLAYER_SIM_TEAMS) {
+            slot->team = (u8)(human % 8);
+        }
+        human++;
+    }
+
+    if (mode == ROOM_QS_PLAYERS_AND_SIMS || mode == ROOM_QS_PLAYERS_VS_SIMS) {
+        for (int b = 0; b < sims; b++) {
+            s32 idx;
+            wanted++;
+            idx = matchConfigAddBot(0 /*BOTTYPE_GENERAL*/, (u8)difficulty, nullptr, nullptr, nullptr);
+            if (idx < 0) break;
+            g_MatchConfig.slots[idx].team = mode == ROOM_QS_PLAYERS_VS_SIMS ? 1 : 0;
+            added++;
+        }
+    } else if (mode == ROOM_QS_PLAYER_SIM_TEAMS) {
+        const int numHumanSlots = g_MatchConfig.numSlots;
+        for (int i = 0; i < numHumanSlots; i++) {
+            if (g_MatchConfig.slots[i].type != SLOT_PLAYER) continue;
+            const u8 team = g_MatchConfig.slots[i].team;
+            for (int b = 0; b < sims; b++) {
+                s32 idx;
+                wanted++;
+                idx = matchConfigAddBot(0 /*BOTTYPE_GENERAL*/, (u8)difficulty, nullptr, nullptr, nullptr);
+                if (idx < 0) break;
+                g_MatchConfig.slots[idx].team = team;
+                added++;
+            }
+        }
+    }
+
+    matchConfigApplyScenarioRules("quick-start");
+    s_PresetSelected = -1;
+    s_RoomSettingsDirty = true;
+    sysLogPrintf(LOG_NOTE,
+                 "ROOM: Quick Start mode='%s' humans=%d sims=%d of %d difficulty=%d teams=%d",
+                 s_QuickStartModeNames[mode], human, added, wanted, difficulty, teams ? 1 : 0);
+    return (wanted > 0 && added == 0) ? -1 : added;
+}
+
+/* The most simulants the Quick Start slider offers for this many humans: the
+ * Room's cap, divided among the humans for Player-Simulant Teams. */
+static int roomQuickStartMaxSims(int mode)
+{
+    s32 humans = lobbyRoomGetPlayerCount();
+    int max;
+
+    if (humans < 1) humans = 1;
+    max = matchConfigMaxBotsForHumans(humans);
+    if (mode == ROOM_QS_PLAYER_SIM_TEAMS) max /= humans;
+    return max < 1 ? 1 : max;
 }
 
 /* ========================================================================
@@ -2880,6 +3032,53 @@ static void renderCombatSimTab(float panelW, float panelH, bool leader)
     float comboW = panelW - ImGui::GetStyle().WindowPadding.x * 2;
 
     roomCsHandlePendingSectionJump();
+
+    /* --- Preset --- (Mike 2026-11-17 / 2026-11-21: Load Preset at the top of
+     * the Combat Simulator tab, host only, and Quick Start beside it; picking a
+     * preset fills every setting below and the host can still change anything) */
+    ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Preset");
+    if (!leader) ImGui::BeginDisabled();
+    {
+        const float quickW = pdguiScale(150.0f);
+        const float presetW = comboW - quickW - ImGui::GetStyle().ItemSpacing.x;
+        const int numPresets = (int)mpGetNumUnlockedPresets();
+        const char *presetLabel = "Load Preset...";
+
+        if (s_PresetSelected >= 0 && s_PresetSelected < numPresets) {
+            const char *selectedName = mpGetPresetNameBySlot(s_PresetSelected);
+            if (selectedName && selectedName[0]) presetLabel = selectedName;
+        }
+        roomCsSectionPrepareFocus(ROOM_CS_PRESET);
+        ImGui::SetNextItemWidth(presetW > 0.0f ? presetW : comboW);
+        if (ImGui::BeginCombo("##preset", presetLabel)) {
+            for (int p = 0; p < numPresets; p++) {
+                const char *presetName = mpGetPresetNameBySlot(p);
+                ImGui::PushID(p);
+                if (ImGui::Selectable(presetName && presetName[0] ? presetName : "?",
+                                      p == s_PresetSelected)) {
+                    roomLoadPreset(p);
+                }
+                if (p == s_PresetSelected) ImGui::SetItemDefaultFocus();
+                ImGui::PopID();
+            }
+            ImGui::EndCombo();
+        }
+        roomCsSectionTrackLastItem(ROOM_CS_PRESET);
+        ImGui::SameLine();
+        if (ImGui::Button("Quick Start", ImVec2(quickW, 0.0f))) {
+            int maxSims = roomQuickStartMaxSims(s_QuickStartMode);
+            if (s_QuickStartSims > maxSims) s_QuickStartSims = maxSims;
+            s_ShowQuickStart = true;
+            pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+        }
+        roomCsSectionTrackLastItem(ROOM_CS_PRESET);
+    }
+    if (!leader) ImGui::EndDisabled();
+    if (s_PresetStatusMsg[0]) {
+        ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "%s", s_PresetStatusMsg);
+    }
+
+    ImGui::Spacing();
 
     /* --- Arena --- */
     ImGui::TextColored(ImVec4(0.7f, 0.7f, 0.9f, 1.0f), "Arena");
@@ -5107,7 +5306,17 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
                 s_ActiveTab);
             s_DebugRoomTabWanted = -1;
         }
-        if (autoStart || ImGui::Button("Start Match", ImVec2(startW, btnH))) {
+        /* Quick Start (Mike 2026-11-21): its setup went in a frame ago, so a
+         * networked room's settings are out before the start request. */
+        bool quickStartFire = false;
+        if (s_QuickStartFireFrames > 0 && --s_QuickStartFireFrames == 0) {
+            quickStartFire = s_ActiveTab == 0;
+            sysLogPrintf(quickStartFire ? LOG_NOTE : LOG_WARNING,
+                "ROOM: Quick Start -- %s Start Match tab=%d",
+                quickStartFire ? "firing" : "not firing (not the Combat Simulator tab)",
+                s_ActiveTab);
+        }
+        if (autoStart || quickStartFire || ImGui::Button("Start Match", ImVec2(startW, btnH))) {
             pdguiPlaySound(PDGUI_SND_SELECT);
             menuGraphFireSceneOp(MENU_TYPE_ROOM, "start_match",
                                  roomGraphStartMatch, NULL);
@@ -5542,6 +5751,78 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         }
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(bw, 0.0f)) || cancelSaveScenario) {
+            pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    /* ---- Quick Start popup (Mike 2026-11-21: the original Combat Simulator
+     * menu's Quick Start: a Quick Team choice, its simulants, then the match) ---- */
+    if (s_ShowQuickStart) {
+        ImGui::OpenPopup("Quick Start##quickstartpop");
+        s_ShowQuickStart = false;
+    }
+
+    ImGui::SetNextWindowSize(ImVec2(pdguiScale(480.0f), 0.0f));
+    if (ImGui::BeginPopupModal("Quick Start##quickstartpop", nullptr,
+                               ImGuiWindowFlags_AlwaysAutoResize)) {
+        const bool cancelQuickStart = pdguiMenuCancelPressed();
+        ImGui::TextColored(pdguiVec4TitleGlow(), "Quick Start");
+        ImGui::Separator();
+        ImGui::Spacing();
+
+        for (int m = 0; m < ROOM_QS_MODE_COUNT; m++) {
+            if (ImGui::RadioButton(s_QuickStartModeNames[m], s_QuickStartMode == m)) {
+                s_QuickStartMode = m;
+                pdguiPlaySound(PDGUI_SND_SUBFOCUS);
+            }
+            if (m == ROOM_QS_PLAYERS_AND_SIMS) {
+                ImGui::Separator();
+            }
+        }
+
+        if (roomQuickStartModeHasSims(s_QuickStartMode)) {
+            const int maxSims = roomQuickStartMaxSims(s_QuickStartMode);
+            if (s_QuickStartSims > maxSims) s_QuickStartSims = maxSims;
+            if (s_QuickStartSims < 1) s_QuickStartSims = 1;
+            ImGui::Spacing();
+            ImGui::SetNextItemWidth(pdguiScale(260.0f));
+            ImGui::SliderInt(s_QuickStartMode == ROOM_QS_PLAYER_SIM_TEAMS
+                                 ? "Simulants per player" : "Simulants",
+                             &s_QuickStartSims, 1, maxSims);
+            ImGui::SetNextItemWidth(pdguiScale(260.0f));
+            if (ImGui::BeginCombo("Difficulty##qsdiff",
+                                  s_SimDiffNames[s_QuickStartDiff])) {
+                for (int d = 0; d < s_NumSimDiffs; d++) {
+                    if (ImGui::Selectable(s_SimDiffNames[d], d == s_QuickStartDiff)) {
+                        s_QuickStartDiff = d;
+                    }
+                    if (d == s_QuickStartDiff) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+        }
+
+        ImGui::Spacing();
+        float qbw = pdguiScale(150.0f);
+        if (ImGui::Button("Start", ImVec2(qbw, 0.0f)) && !cancelQuickStart) {
+            const int sims = roomQuickStartModeHasSims(s_QuickStartMode) ? s_QuickStartSims : 0;
+            if (roomQuickStartApply(s_QuickStartMode, sims, s_QuickStartDiff) >= 0) {
+                snprintf(s_PresetStatusMsg, sizeof(s_PresetStatusMsg), "Quick Start: %s",
+                         s_QuickStartModeNames[s_QuickStartMode]);
+                s_QuickStartFireFrames = 2;
+                pdguiPlaySound(PDGUI_SND_SELECT);
+            } else {
+                snprintf(s_PresetStatusMsg, sizeof(s_PresetStatusMsg),
+                         "Quick Start could not add simulants at that difficulty.");
+                pdguiPlaySound(PDGUI_SND_KBCANCEL);
+            }
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel", ImVec2(qbw, 0.0f)) || cancelQuickStart) {
             pdguiPlaySound(PDGUI_SND_KBCANCEL);
             ImGui::CloseCurrentPopup();
         }

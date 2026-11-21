@@ -103,4 +103,13 @@ s32 scenarioListFiles(char (*outPaths)[SCENARIO_PATH_MAX], s32 maxCount);
  */
 s32 scenarioDelete(const char *filepath);
 
+/**
+ * scenarioLoadPreset -- the Room's Load Preset: one of the original's preset
+ * games (slot counts the presets this profile has unlocked), loaded through
+ * the same plan and commit as a saved setup. The humans keep their slots; the
+ * preset's arena, mode, limits, options, weapons and simulants replace the
+ * rest. Returns 0 on success, -1 with the prior match intact on failure.
+ */
+s32 scenarioLoadPreset(s32 slot, s32 humanCount);
+
 #endif /* SCENARIO_SAVE_H */

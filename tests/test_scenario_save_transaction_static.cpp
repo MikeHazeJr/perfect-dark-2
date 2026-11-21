@@ -324,3 +324,54 @@ TEST_CASE("saved Scenario save and production start callers check verdicts",
 	REQUIRE(boot.find("if (matchStart() != 0) {") != std::string::npos);
 	REQUIRE(scenarios.find("if (matchStart() != 0) {") != std::string::npos);
 }
+
+TEST_CASE("Room Load Preset and Quick Start publish through the Room's own paths",
+	"[scenario][room][preset][quick-start][static]")
+{
+	const std::string source = readSource("port/src/scenario_save.c");
+	const std::string room = readSource("port/fast3d/pdgui_menu_room.cpp");
+	const std::string mplayer = readSource("src/game/mplayer/mplayer.c");
+
+	/* A preset is the original's table entry as a Room document, through the
+	 * same plan and commit as a saved setup: no second publication site. */
+	const std::string preset = functionBody(source, "s32 scenarioLoadPreset(",
+		"s32 scenarioListFiles(");
+	const auto config = preset.find("challengeLoadConfig(confignum, buffer, sizeof(buffer))");
+	const auto plan = preset.find("scenarioBuildPlan(&document, humanCount, &plan, detail,");
+	const auto commit = preset.find("scenarioCommitPlan(&plan);");
+	REQUIRE(config != std::string::npos);
+	REQUIRE(plan != std::string::npos);
+	REQUIRE(commit != std::string::npos);
+	REQUIRE(config < plan);
+	REQUIRE(plan < commit);
+	REQUIRE(preset.find("g_MatchConfig =") == std::string::npos);
+	REQUIRE(preset.find("document.options = setup->options | MPOPTION_BOTJUMP;")
+		!= std::string::npos);
+	REQUIRE(preset.find("challengeIsFeatureUnlocked(MPFEATURE_WEAPON_SHIELD)")
+		!= std::string::npos);
+	REQUIRE(preset.find("sim->difficulties[diffindex]") != std::string::npos);
+	REQUIRE(mplayer.find("s32 mpGetPresetConfigNumBySlot(s32 slot)") != std::string::npos);
+
+	/* The Room: Load Preset at the top of the Combat Simulator tab, host only,
+	 * publishing only after success; Quick Start replaces the simulants by the
+	 * original's Quick Team rules and starts through the Room's Start Match. */
+	const std::string load = functionBody(room, "static void roomLoadPreset(",
+		"#define ROOM_QS_PLAYERS_ONLY");
+	REQUIRE(load.find("if (scenarioLoadPreset(slot, humanCount) == 0) {") != std::string::npos);
+	REQUIRE(load.find("syncArenaFromConfig();") != std::string::npos);
+	REQUIRE(load.find("s_RoomSettingsDirty = true;") != std::string::npos);
+	REQUIRE(room.find("roomCsSectionPrepareFocus(ROOM_CS_PRESET);") != std::string::npos);
+	REQUIRE(room.find("roomCsSectionPrepareFocus(ROOM_CS_PRESET);")
+		< room.find("roomCsSectionPrepareFocus(ROOM_CS_ARENA);"));
+	const std::string quick = functionBody(room, "static int roomQuickStartApply(",
+		"static int roomQuickStartMaxSims(");
+	REQUIRE(quick.find("matchConfigRemoveSlot(i);") != std::string::npos);
+	REQUIRE(quick.find("matchConfigSetUserOption(MPOPTION_TEAMSENABLED, teams ? 1 : 0);")
+		!= std::string::npos);
+	REQUIRE(quick.find("matchConfigApplyScenarioRules(\"quick-start\");") != std::string::npos);
+	REQUIRE(room.find("if (autoStart || quickStartFire || ImGui::Button(\"Start Match\"")
+		!= std::string::npos);
+	REQUIRE(occurrences(room, "menuGraphFireSceneOp(MENU_TYPE_ROOM, \"start_match\"") == 1);
+	/* Challenges stay without a Room entry (Mike 2026-11-21). */
+	REQUIRE(room.find("g_MpChallengesMenuDialog") == std::string::npos);
+}

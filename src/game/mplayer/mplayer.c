@@ -4549,6 +4549,30 @@ s32 mpGetNumUnlockedPresets(void)
 	return numunlocked;
 }
 
+/* PC (Mike 2026-11-21, the Room's Load Preset): the mpconfigs.c entry of the
+ * slot-th preset this profile can use (slots count unlocked presets only, as
+ * mpGetPresetNameBySlot and mp0f18dec4 do), or -1. */
+s32 mpGetPresetConfigNumBySlot(s32 slot)
+{
+	u32 i;
+
+	if (slot < 0) {
+		return -1;
+	}
+
+	for (i = 0; i < ARRAYCOUNT(g_MpPresets); i++) {
+		if (mpIsPresetUnlocked(i)) {
+			if (slot == 0) {
+				return (s32)g_MpPresets[i].confignum;
+			}
+
+			slot--;
+		}
+	}
+
+	return -1;
+}
+
 char *mpGetPresetNameBySlot(s32 slot)
 {
 	s32 i;
