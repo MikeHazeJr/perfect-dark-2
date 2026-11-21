@@ -1,0 +1,285 @@
+{
+  "scenario_name": "held_weapon_cadence_smoke",
+  "description": "Held weapon cadence (context/designs/modding/held-weapon-events.md, slice 3). On Felicity with no simulants, player 0 is given each base gun whose attack is not a single shot, and a pistol, and fires every function: the AR34 (automatic with a 3-round burst, both functions), the Reaper (spin up and down), the Cyclone (automatic, then the 50-round magazine dump), the MagSec 4's 3-round burst, the Shotgun's single shell and double blast, the CMP150, the Laser's single shot and stream, and the Falcon 2. Each function's first press logs the attack its program started (the trigger, its settings and the rounds a shot takes) beside the original's plan for the function; they must be equal, and no rule may differ in the stage's totals at the scripted exit.",
+  "tags": [
+    "graph",
+    "weapons",
+    "combatsim",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "src/game/bondgun.c",
+    "port/src/weapon_events.c",
+    "port/include/weapon_rules.h",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-force-first-person",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay."
+    },
+    {
+      "at_ms": 500,
+      "type": "action",
+      "name": "ACTION_DEBUG_INVINCIBILITY",
+      "action": "tap",
+      "comment": "Dev invincibility. From every give to its first input there are 3 s (equip time, as in projectile_events_smoke)."
+    },
+    {
+      "at_ms": 1000,
+      "type": "give_weapon",
+      "path": "base:ar34"
+    },
+    {
+      "at_ms": 4000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press",
+      "comment": "AR34: automatic 750 a minute with a 3-round burst that gives way while aiming."
+    },
+    {
+      "at_ms": 6000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 7000,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the secondary function."
+    },
+    {
+      "at_ms": 8000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press"
+    },
+    {
+      "at_ms": 9000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 10000,
+      "type": "give_weapon",
+      "path": "base:reaper"
+    },
+    {
+      "at_ms": 13000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press",
+      "comment": "Reaper: spins up from 60 to 1800 a minute over 88 ticks and down again after release."
+    },
+    {
+      "at_ms": 16000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 19000,
+      "type": "give_weapon",
+      "path": "base:cyclone"
+    },
+    {
+      "at_ms": 22000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press",
+      "comment": "Cyclone: automatic 900 a minute."
+    },
+    {
+      "at_ms": 23500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 24500,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the magazine dump."
+    },
+    {
+      "at_ms": 25500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Magazine dump: one press fires a 50-round burst at 2000 a minute."
+    },
+    {
+      "at_ms": 29000,
+      "type": "give_weapon",
+      "path": "base:magsec"
+    },
+    {
+      "at_ms": 32000,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the 3-round burst."
+    },
+    {
+      "at_ms": 33000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "MagSec 4: three rounds, 3 ticks apart, from one press."
+    },
+    {
+      "at_ms": 35000,
+      "type": "give_weapon",
+      "path": "base:shotgun"
+    },
+    {
+      "at_ms": 38000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Shotgun: one shell."
+    },
+    {
+      "at_ms": 40000,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the double blast."
+    },
+    {
+      "at_ms": 41000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Double blast: two shells, 13 ticks apart."
+    },
+    {
+      "at_ms": 44000,
+      "type": "give_weapon",
+      "path": "base:cmp150"
+    },
+    {
+      "at_ms": 47000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press",
+      "comment": "CMP150: automatic 900 a minute."
+    },
+    {
+      "at_ms": 48500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 49500,
+      "type": "give_weapon",
+      "path": "base:laser"
+    },
+    {
+      "at_ms": 52500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Laser: a single shot that takes no ammunition."
+    },
+    {
+      "at_ms": 53500,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the stream."
+    },
+    {
+      "at_ms": 54500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "press",
+      "comment": "Stream: automatic 3600 a minute with no clip."
+    },
+    {
+      "at_ms": 55500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 57000,
+      "type": "give_weapon",
+      "path": "base:falcon2"
+    },
+    {
+      "at_ms": 60000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Falcon 2: one round."
+    },
+    {
+      "at_ms": 62000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=held_weapon_cadence_smoke",
+      "PLAYER: invincibility ON",
+      "SMOKE\\.GIVE_WEAPON: weapon=base:ar34 weaponnum=[0-9]+ result=1",
+      "SMOKE\\.GIVE_WEAPON: weapon=base:falcon2 weaponnum=[0-9]+ result=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:ar34 func=primary program=yes modules=automatic native=automatic plan=automatic rate=750 start_rate=750 spin_up=0 spin_down=0 burst=3 aimed_burst=false rounds=1 native_plan=automatic rate=750 start_rate=750 spin_up=0 spin_down=0 burst=3 aimed_burst=false rounds=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:ar34 func=secondary program=yes modules=automatic native=automatic plan=automatic rate=750 start_rate=750 spin_up=0 spin_down=0 burst=3 aimed_burst=false rounds=1 native_plan=automatic rate=750 start_rate=750 spin_up=0 spin_down=0 burst=3 aimed_burst=false rounds=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:reaper func=primary program=yes modules=automatic native=automatic plan=automatic rate=1800 start_rate=60 spin_up=88 spin_down=88 burst=3 aimed_burst=false rounds=1 native_plan=automatic rate=1800 start_rate=60 spin_up=88 spin_down=88 burst=3 aimed_burst=false rounds=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:cyclone func=primary program=yes modules=automatic native=automatic plan=automatic rate=900 start_rate=900 spin_up=0 spin_down=0 burst=0 aimed_burst=true rounds=1 native_plan=automatic rate=900 start_rate=900 spin_up=0 spin_down=0 burst=0 aimed_burst=true rounds=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:cyclone func=secondary program=yes modules=automatic native=automatic plan=automatic rate=2000 start_rate=2000 spin_up=0 spin_down=0 burst=50 aimed_burst=true rounds=1 native_plan=automatic rate=2000 start_rate=2000 spin_up=0 spin_down=0 burst=50 aimed_burst=true rounds=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:magsec func=secondary program=yes modules=burst native=burst plan=burst count=3 gap=3 rounds=1 native_plan=burst count=3 gap=3 rounds=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:shotgun func=primary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 native_plan=fire_once rounds=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:shotgun func=secondary program=yes modules=burst native=burst plan=burst count=2 gap=13 rounds=1 native_plan=burst count=2 gap=13 rounds=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:cmp150 func=primary program=yes modules=automatic native=automatic plan=automatic rate=900 start_rate=900 spin_up=0 spin_down=0 burst=0 aimed_burst=true rounds=1 native_plan=automatic rate=900 start_rate=900 spin_up=0 spin_down=0 burst=0 aimed_burst=true rounds=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:laser func=primary program=yes modules=fire_once native=fire_once plan=fire_once rounds=0 native_plan=fire_once rounds=0",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:laser func=secondary program=yes modules=automatic native=automatic plan=automatic rate=3600 start_rate=3600 spin_up=0 spin_down=0 burst=0 aimed_burst=true rounds=0 native_plan=automatic rate=3600 start_rate=3600 spin_up=0 spin_down=0 burst=0 aimed_burst=true rounds=0",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:falcon2 func=primary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 native_plan=fire_once rounds=1",
+      "WEAPON\\.EVENTS: smoke_exit trigger_pressed=[1-9][0-9]* ready_while_held=[0-9]+ clip_empty=[0-9]+ trigger_released=[1-9][0-9]* reload_done=[0-9]+ rules\\.compared=[1-9][0-9]* rules\\.differ=0",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "KILLFEED: suicide",
+      "PLAYER: invincibility OFF",
+      "SMOKE\\.GIVE_WEAPON: [^\\n]*result=0",
+      "WEAPON\\.RULE differs",
+      "program refused",
+      "ASSET\\.FALLBACK",
+      "LOUDFAIL\\.FALLBACK"
+    ]
+  }
+}

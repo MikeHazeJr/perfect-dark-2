@@ -259,6 +259,99 @@ modules its events apply and settings it can read"),
 program through compose and split"),
 `tools/tests/test_projectile_program_conformance.py` (`HeldWeaponPrograms`).
 
+## Slice 3 as written (Core Weapons, 2026-11-21)
+
+An attack's cadence (one round, a burst, an automatic with its rate, spin and
+burst) and what each shot spends were read from the function record's burst
+flag bits, its rates and spin, and three weapon-number tests (the Shotgun's
+13-tick burst gap, the Laser's free single shot, and `bondgun.c`'s
+automatic-by-rate rule). They are now the attack's **plan**: the trigger node
+its program started, with that node's settings, and `og.weapon.use_ammo`'s
+rounds.
+
+| Module | Settings (unit, range; a setting left out is the record's) | What the attack does |
+|---|---|---|
+| `og.weapon.fire_once` | none | one round, then the attack ends |
+| `og.weapon.burst` | `count` (rounds, 2 to 50), `gap` (60 Hz ticks between rounds, 0 to 255) | `count` rounds from one press, released or not |
+| `og.weapon.automatic` | `rate`, `start_rate` (rounds a minute, above 0 to 3600), `spin_up`, `spin_down` (ticks, 0 to 10000), `burst` (rounds it fires once started, released or not, 0 to 255), `aimed_burst` (whether that burst holds while aiming) | fires at `rate` while held, speeding up from `start_rate` over `spin_up` ticks and slowing over `spin_down` after release |
+| `og.weapon.use_ammo` | `rounds` (rounds a shot takes, 1 to 255) | each shot takes `rounds` from the clip; without it the attack is free |
+
+The three triggers replace slice 2's `og.weapon.fire`. They and `use_ammo`
+apply at the idle seam's three rule events; on a record event registration
+refuses them.
+
+- **The table** (`port/include/weapon_rules.h`): the plan
+  (`weapon_rule_trigger_t`), the original's plan for a record
+  (`weaponRulesNativeTrigger`: a function that does not shoot fires once and
+  spends nothing here; an automatic is `automatic` at the record's rates and
+  spin with the burst its flags give, the 3-round one giving way while
+  aiming; a shooting function with a 2-, 3- or 5-round flag is `burst`, 3
+  ticks apart, 13 for the Shotgun; a shot takes a round unless the function
+  has no clip or is the Laser's single shot), the settings table
+  (`weaponRulesSettingAt`, which registration, conformance and the creator
+  read), `weaponRulesApplySettings` (defaults from the record), and the
+  cadence itself as plain functions: `weaponRulesCadenceStep` (the original
+  `bgun0f09a3f8`, reading the plan), `weaponRulesRateAt`,
+  `weaponRulesPayShots` and `weaponRulesTicksPerShot`. The program walk is
+  in the table too (`weaponRulesWalk`, `weaponRulesWalkModule`): the gates,
+  `set_state`, the first trigger reached planning the attack, `use_ammo`
+  naming the rounds. The game's seam and pd-tests run that one walk.
+- **The base programs** (`romextract_pdweapon.c`): `has_ammo`'s pass goes to
+  the function's trigger node (`<mode>_attack`), written with every setting of
+  the original's plan, then to `og.weapon.use_ammo` (rounds 1), which a
+  function that spends nothing here has none of. So the base guns' quirks are
+  visible settings: the AR34 is `automatic` 750 a minute with `burst` 3 and
+  `aimed_burst` false; the Reaper `automatic` 1800 from `start_rate` 60 over
+  88 ticks each way; the Cyclone's dump `burst` 50; the MagSec 4's secondary
+  `burst` 3 rounds 3 ticks apart; the Shotgun's double blast `burst` 2 rounds
+  13 ticks apart; the Laser's single shot has no `use_ammo`. The record no
+  longer writes `burst_count` (the runtime still reads it from older archives
+  and still ignores it); its flags keep the bits for the parity probe. Marker
+  `embedded.v18`, cache kind `_heldtriggers`.
+- **The seam** (`weapon_events.c`, `bondgun.c`): when the idle seam starts an
+  attack the hand keeps its plan (the program's, or the original's for a
+  function with no program); `bgun0f09a3f8` and `bgun0f09a6f8` read it
+  (`weaponHandTrigger`) in place of the flags, the rates, the spin, the
+  Shotgun's gap and the Laser's number. The parity probe now compares the
+  plans too: `WEAPON.RULE: ... plan=... native_plan=...`, and a different
+  plan counts in `rules.differ`.
+- **Simulants and guards** fire the same programs: `weaponGetNumTicksPerShot`
+  (`game_0b0fd0.c`, read by `bot.c` and `chraction.c`) is the rate of the
+  automatic a press starts, walked for a ready hand with a loaded clip and
+  every state false (`weaponProgramPressPlan`, cached until a program is
+  registered or dropped); a base function whose answer differs logs
+  `WEAPON.RULE differs: ticks_per_shot ...`. A simulant's single-shot burst
+  in `bot.c` (2 or 3 rounds, 5 ticks apart, from the flags) is Multiplayer &
+  Rules' file: `weaponProgramBurstRounds` is ready for it, and the request is
+  in the hub.
+- **Registration and conformance** refuse a trigger or `use_ammo` setting
+  that is not a value of its kind ("og.weapon.burst needs count from 2 to
+  50, got 1"), and a program node that takes a record node's id (the runner
+  checks it now: "node id 'primary_action' is used twice").
+
+**Not exact, on purpose:** a v1 record whose flags give an automatic both the
+3-round and the 2-round burst keeps the 3-round burst while aiming (the
+original kept 2). No base weapon has two burst flags.
+
+**With a program, the trigger node's settings are the cadence.** A
+`fire_cadence` tunable (`settings.json`) sets the record's rate, which is a
+default: an automatic node that names its own `rate` keeps it. A mod that
+wants a tunable rate names it as a variable (`"rate": "$fire_rate"`). The mods
+that use `fire_cadence` today (the crystal pistol, the triangle fixtures) are
+v1 graphs and unchanged.
+
+Tests: `tests/test_mission_graph_runner.cpp` ("the trigger table plans each
+base function's attack as the original does"; "the trigger's cadence is the
+original's, for every base function", which runs a copy of the original
+`bgun0f09a3f8` and `bgun0f09a6f8` beside the plan's steps over held, tapped
+and released triggers, aiming or not, at 1 to 3 ticks a frame and four clip
+loads, comparing every return and every hand field; "a trigger node's
+settings default to the function's record and refuse what they cannot read";
+"the base wiring starts the original's attack, for players and for
+simulants"; "a held program's trigger settings are checked when its weapon
+registers"), `tests/test_weapon_graph_editor_io.cpp`,
+`tools/tests/test_projectile_program_conformance.py`.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
@@ -271,11 +364,17 @@ Listed as each slice lands; none is run by Core Weapons.
 | 2 | `boot_smoke` on a freshly extracted install | every base weapon re-extracts once as v2 (`embedded.v17`) and registers its programs; no `program refused` line |
 | 2 | `mod_author_weapon_create_smoke`, `mod_author_weapon_play_smoke` | a weapon made from a base one keeps its program and fires |
 | 2 | any campaign or combat smoke that fires, reloads and clicks (for example `projectile_events_smoke`) | `WEAPON.EVENTS: stage_end ... rules.differ=0`, `WEAPON.RULE:` lines for trigger_pressed, ready_while_held and clip_empty |
+| 3 | `held_weapon_cadence_smoke` (new, `tools/smoke-verify/tests/`) | each automatic, burst and single shot's first press logs its program's plan equal to the original's (AR34, Reaper, Cyclone and its dump, MagSec 4 burst, Shotgun double blast, CMP150, Laser shot and stream, Falcon 2); `WEAPON.EVENTS: smoke_exit ... rules.differ=0`; no `WEAPON.RULE differs` |
+| 3 | `boot_smoke` on a freshly extracted install | every base weapon re-extracts once (`embedded.v18`) and registers its programs with their trigger nodes; no `program refused` line |
+| 3 | a Combat Simulator match with simulants holding automatics (for example `mp_combat_local_scorelimit_smoke` or `combat_sim_simulant_twins`) | no `WEAPON.RULE differs: ticks_per_shot` line: simulants fire base guns at the original rates |
+| 3 | `mod_author_weapon_create_smoke`, `mod_author_weapon_play_smoke` | a weapon made from a base one keeps its trigger node and fires |
 
 ## Where to look
 
 - Runner: `port/src/mission_graph_runner.cpp`, `port/include/mission_graph_runner.h`.
 - Records and held programs: `port/src/weapon_graph_runtime.c`.
 - The profile: `port/src/weapon_graph_v2*.cpp`.
+- The rule table, the plan, the cadence steps and the walk: `port/include/weapon_rules.h`.
+- The seam side (hands' presses, states and plans; the parity probe; simulants' press plans): `port/src/weapon_events.c`.
 - Seams: `src/game/bondgun.c`, `src/game/game_0b0fd0.c`, `src/game/prop.c`.
 - The projectile pattern this follows: `context/designs/modding/projectile-events.md`.
