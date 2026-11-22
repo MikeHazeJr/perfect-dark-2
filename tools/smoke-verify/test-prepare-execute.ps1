@@ -151,3 +151,6 @@ try {
     }
 }
 Write-Output ("PASS: {0} prepare/execute boundary checks; no game launched." -f $checks.Count)
+# The last runner child is an expected refusal (exit 1). Without this, an
+# in-process caller (CI's pwsh step) inherits that $LASTEXITCODE and fails.
+exit 0
