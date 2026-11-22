@@ -669,6 +669,15 @@ function Get-Pd2qTitleItem([string] $Title) {
     return $null
 }
 
+function Get-Pd2qLandingNoteTarget([hashtable] $Request) {
+    # The Workbench item a landing is noted on: the title's item, which the
+    # commit-msg check requires to be in the roadmap. The issue may be a bug id
+    # (B-1307), and the Workbench refuses that as a note target (B-1308).
+    $item = Get-Pd2qTitleItem ([string]$Request.title)
+    if ($item) { return $item }
+    return [string]$Request.issue
+}
+
 function Get-Pd2qCommitMessage([hashtable] $Request, [string] $JobId, [string] $BuiltLine) {
     # Title, the submitted body, the queue's line, then the trailers. Refs names
     # the title's item and, when it differs, the issue (a bug id such as B-1277),
