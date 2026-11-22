@@ -645,6 +645,109 @@ class StorageTests(unittest.TestCase):
             with self.assertRaises(storage.StorageError):
                 s.seed(self.template_request(template, sources=[[str(tested / 'PerfectDark.exe'), '../escape.exe']]))
 
+    # T-TOOLING-019: the prepare/execute boundary. A prepare step stages an
+    # install outside the game-runtime slot and hands it off; the execute step
+    # adopts it with the one-time token, runs, and completes it.
+    TOKEN = 'unit-prepared-token-' + 'a' * 44
+
+    def handoff(self, run, owner_pid=None, token=None):
+        with self.operation() as s:
+            return s.handoff(dict(id=run['StorageId'], owner_pid=os.getpid() if owner_pid is None else owner_pid,
+                                  token_sha256=hashlib.sha256((token or self.TOKEN).encode()).hexdigest()))
+
+    def adopt(self, run, token=None, owner_pid=None):
+        with self.operation() as s:
+            return s.adopt(dict(id=run['StorageId'], token=token or self.TOKEN,
+                                owner_pid=os.getpid() if owner_pid is None else owner_pid))
+
+    def stage_fixture(self, run, name='mods/prepared/fixture.json', data=b'{"staged":true}'):
+        path = Path(run['InstallDir']) / name
+        path.parent.mkdir(parents=True, exist_ok=True); path.write_bytes(data)
+        return path
+
+    @staticmethod
+    def live_child():
+        return subprocess.Popen([os.sys.executable, '-c', 'import time; time.sleep(120)'])
+
+    def test_prepared_handoff_is_adopted_once_with_its_token_then_completed(self):
+        run = self.seed(); self.stage_fixture(run)
+        handed = self.handoff(run)
+        self.assertEqual(handed['StorageId'], run['StorageId'])
+        with self.assertRaisesRegex(storage.StorageError, 'already handed off'): self.handoff(run)
+        with self.assertRaisesRegex(storage.StorageError, 'token mismatch'): self.adopt(run, token='wrong-token')
+        adopted = self.adopt(run)
+        self.assertEqual(adopted['ContentSha256'], handed['ContentSha256'])
+        self.assertEqual(Path(adopted['InstallDir']), Path(run['InstallDir']))
+        with self.assertRaisesRegex(storage.StorageError, 'no unused prepared handoff'): self.adopt(run)
+        receipt = self.complete(run)
+        with gzip.open(receipt['Receipt'], 'rt') as f: recipe = json.load(f)
+        self.assertIn('mods/prepared/fixture.json', recipe['changed'])
+        with self.operation() as s:
+            row = s.state['installs'][run['StorageId']]
+            self.assertEqual(row['status'], 'completed')
+            self.assertNotIn('handoff', row)
+            self.assertEqual(row['adopted']['content_sha256'], handed['ContentSha256'])
+
+    def test_prepared_install_changed_after_handoff_is_refused_and_kept(self):
+        run = self.seed(); fixture = self.stage_fixture(run)
+        self.handoff(run)
+        fixture.write_bytes(b'{"staged":"edited after prepare"}')
+        with self.assertRaisesRegex(storage.StorageError, 'changed between prepare and execute'): self.adopt(run)
+        with self.operation() as s:
+            row = s.state['installs'][run['StorageId']]
+            self.assertEqual(row['status'], 'active'); self.assertIn('handoff', row)
+        self.assertTrue(fixture.exists())
+
+    def test_adoption_by_another_runner_waits_for_the_preparer_to_exit(self):
+        child = self.live_child()
+        try:
+            run = self.seed(owner_pid=child.pid); self.stage_fixture(run)
+            self.handoff(run, owner_pid=child.pid)
+            with self.assertRaisesRegex(storage.StorageError, 'still running'): self.adopt(run)
+        finally:
+            child.kill(); child.wait()
+        self.adopt(run)
+        with self.operation() as s:
+            self.assertEqual(s.state['installs'][run['StorageId']]['owner_pid'], os.getpid())
+        self.complete(run)
+
+    def test_handoff_refuses_shared_wrong_owner_and_inactive_installs(self):
+        shared = self.seed(shared=True)
+        with self.assertRaisesRegex(storage.StorageError, 'shared workspace'): self.handoff(shared)
+        self.complete(shared)
+        run = self.seed()
+        with self.assertRaisesRegex(storage.StorageError, 'owner mismatch'): self.handoff(run, owner_pid=os.getpid() + 1)
+        with self.assertRaisesRegex(storage.StorageError, 'sha256'):
+            with self.operation() as s: s.handoff(dict(id=run['StorageId'], owner_pid=os.getpid(), token_sha256='x'))
+        self.complete(run)
+        with self.assertRaisesRegex(storage.StorageError, 'Only an active install'): self.handoff(run)
+
+    def test_reviewed_release_frees_a_prepared_install_that_never_ran(self):
+        child = self.live_child()
+        try:
+            run = self.seed(owner_pid=child.pid); self.stage_fixture(run)
+            self.handoff(run, owner_pid=child.pid)
+        finally:
+            child.kill(); child.wait()
+        released = self.release(run, reason='prepared batch abandoned')
+        self.assertEqual(released['StagedFiles'], 1)
+        with self.operation() as s:
+            row = s.state['installs'][run['StorageId']]
+            self.assertEqual(row['status'], 'completed'); self.assertNotIn('handoff', row)
+            self.assertTrue(s.eligible(row))  # its recipe reconstructs exactly what is there
+            compacted = s.compact(dict(ids=[run['StorageId']]))
+        self.assertEqual(compacted['Compacted'], [run['StorageId']])
+
+    def test_reviewed_release_keeps_a_prepared_install_changed_after_handoff(self):
+        child = self.live_child()
+        try:
+            run = self.seed(owner_pid=child.pid); fixture = self.stage_fixture(run)
+            self.handoff(run, owner_pid=child.pid)
+        finally:
+            child.kill(); child.wait()
+        fixture.write_bytes(b'a run wrote this')
+        with self.assertRaisesRegex(storage.StorageError, 'not unchanged seed copies'): self.release(run)
+
     def test_dry_run_is_non_mutating(self):
         request=json.dumps({'project':str(self.project),'policy':POLICY})
         result=subprocess.run([os.sys.executable,'-B',str(Path(__file__).with_name('storage.py')),'dry-run'],input=request,text=True,capture_output=True)
