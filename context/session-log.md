@@ -27,8 +27,12 @@ startup A/B pair (five disabled mods add about 0.02 s). Found on the way and fix
 (PR 48), B-1311, B-1312 (PR 53), B-1313 (PR 54). **v0.1.106** is out as a Dev prerelease: published 16:47 UTC, tagged on dev 5b8ef3d0, game code the version commit 180cce91 (candidate 3c plus the version), a 42-file zip of 46.8 MB plus PerfectDark.exe, Updater.exe and the .sha256 and .sig sidecars, signed with the release key the updater header embeds (the zip's sha256 equals GitHub's digest), concise notes as the body, the older prereleases kept (-KeepOldReleases); the release cut went out at 16:48 UTC, and Core Weapons' PR 44 and PR 49 and MP-RULES' PR 51 land next. Open for Mike: Install-QueueService.ps1
 and the reboot test; the HKCR\.PhotonWorkShop association (B-1283's trigger); the Recycle Bin and the Visual
 Studio installer's temp folders; deleting the four oldest prereleases (v0.1.1, v0.1.2, v0.1.3, v0.1.5), which this
-release kept; whether G2's ledge and table proofs must pass before the next release. Next: candidate 4 (Core
-Weapons' PR 44 and PR 49, MP-RULES' PR 51) and its reruns, listed in the evidence file.
+release kept; whether G2's ledge and table proofs must pass before the next release. Candidate 4 (dev 26505f13: PR 44, PR 49,
+PR 51; smoke base 16 for PR 49's embedded.v24) ran 17:14 to 18:31 UTC: 10 of 16 smokes pass; the four G2 smokes
+(PR 57) and crystal_pistol_bot_embed_smoke (PR 58; fixture timing, failing on the published v0.1.106 exe too) fail
+on harness and fixture faults, and mod_author_weapon_play_smoke on a regression from PR 44/49 (a mod weapon made
+from a base gun does not fire; with Core Weapons). Integration reviewed PR 56 (aim_at, on dev 1088eed51) and PR 58.
+Next: candidate 5 after PR 57, PR 58 and that fix, with held_weapon_lock_smoke; details in the evidence file.
 
 2026-11-21 AUTHORED MODS (claude-pd-authored-mods-20261121), 04:29 to 05:15 UTC, then 23:24 UTC to
 03:50 UTC on 11-22, after the Shadowbane crash. Mike's order: seven items, canonical checkout, own branch

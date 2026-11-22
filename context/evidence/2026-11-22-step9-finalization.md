@@ -321,3 +321,80 @@ smokes (complex_ledge_player, complex_ledge_simulant, villa_tabletop_player, vil
 held-weapon rows 6a to 8b of context/designs/modding/held-weapon-events.md and held_weapon_cloak_smoke; the six G1
 local modes and coop_ai_buddies_offline_smoke if PR 51's bot.c change reaches them; character_tool_play_smoke
 once Authored Mods updates its fixture.
+
+### Candidate 4: dev 26505f13 (after v0.1.106: PR 44 and PR 49 from Core Weapons, PR 51 from MP-RULES)
+
+- Game code from the v0.1.106 tag (5b8ef3d0): PR 44 5 files, PR 49 33 files (the extraction change is
+  romextract_pdweapon.c, embedded.v24), PR 51 3 files (smoke_harness.c/.h, bot.c +6). Checkout moved eb3ba06da ->
+  26505f13 at 17:01 UTC (37 game files).
+- Clean -Target full build 59 s. PerfectDark.exe sha256 ce4a4618c03b00b36b3d65b3bdd8b067b1f4b67e1f5648cea1a5c25552d3c1d5.
+- pd-tests: 2,664 cases, 724,755 assertions, all passed (17:02 UTC).
+- Base 16 (17:02 to 17:03 UTC): base 15 copied, the candidate 4 exe, two --extract-assets-only passes. Pass 1:
+  "romextract pdweapon: written=86 skipped=0 failed=0" and nothing else rewritten (embedded.v24: every base weapon
+  re-extracts once, the design note's 6b/7a boot row); both passes "LOADER.UNIVERSAL.SUMMARY: scanned=5570
+  registered=5570 envelope_failures=0 register_failures=0"; pass 2 wrote nothing; no "program refused". The pass logs
+  are in step9\base16-logs (moved out of the template).
+
+| Record | Smoke | Result | Note |
+|---|---|---|---|
+| R16 (c4) | complex_ledge_player_smoke | FAIL 7/10 | B-1310's input fix works (the player moves now), but it overshoots: peak_feet 636, settles at the ledge height 551 at z=-386, past the ledge window; ledge_landing_missing; no phase=turn |
+| R16 (c4) | complex_ledge_simulant_smoke | FAIL 8/11 | 150 samples, peak 632.99; ends at height 551 inside the z window (x=-1431.4 z=-591.6) yet on_ledge=0 settled=0; ledge_landing_missing |
+| R16 (c4) | villa_tabletop_player_smoke | FAIL 7/10 | table_measured and table_bound as expected; overshoots the table (ends on the floor at z=2549); peak_feet=0.00 with every height negative (a max initialised at 0) |
+| R16 (c4) | villa_tabletop_simulant_smoke | FAIL 8/11 | table_measured and table_bound; takeoff_missing: the simulant never jumped |
+
+R16 ran 17:14 to 17:22 UTC (511 s) on candidate 4. Whole logs and readings sent to MP-RULES at 17:24 UTC.
+
+MP-RULES' diagnosis of R16 (received about 17:35 UTC), read from the logs and the code:
+1. complex_ledge_player landed on the ledge (feet = ground = 551, settled, from frame 265 at z=-423) and slid to
+   z=-386, past the harness's window (upper z -628 to -500): the fixture holds forward 735 to 1290 ms, about 33
+   frames, so the player travels about 314 units where the window needs about 140. Fixture timing, not D-052.
+2. complex_ledge_simulant behaved correctly: BOT.JUMP reason=OBST dy=39, landed inside the window at z=-586, stood
+   at x=-1431.4. A HOLD runs as MA_AIBOTDEFEND with a 40-unit post tolerance per axis; the harness's lane check is
+   |x - -1392| < 30, so 39.4 off never counted as settled.
+3. villa_tabletop_player overshot the same way (over the 84-unit table at feet about -178, landed at z=2521);
+   peak_feet starts at 0 from the struct's memset while every Villa height is negative.
+4. villa_tabletop_simulant never moved toward the table (no BOT.JUMP, no STUCK, no samples: sampling starts at
+   takeoff). Reading, not proven: the hold's goal on top of a 64-unit prop gets no route from the original
+   navigation, so the obstacle jump never triggers; if so the smoke cannot pass without jump-aware routing, which
+   D-052 does not do. MP-RULES puts that to Mike with options (for example a reach jump toward the player on top).
+Next: an MP-RULES PR (peak from takeoff, the hold's tolerance for a simulant's landing, forward released by the
+predicted stop for the jump and the walk-off, samples from placement); the four G2 smokes run on the next
+candidate with Core Weapons' two lock smokes (after PR 56).
+| R17 (c4) | boot_smoke | PASS 14/14 | base 16: no "program refused", no "WEAPON.RULE differs", rules.differ=0 |
+| R17 (c4) | held_weapon_cadence_smoke | PASS 29/29 | rows 6b to 7c: WEAPON.EVENTS ends aiming=0; first rule lines carry recoil= (AR34 6/18/0), sound=N slot=N, animation= (Falcon 2 invanim_falcon2_shoot, Shotgun single/double shot, CMP150, MagSec, Cyclone, Reaper; AR34 and laser none; one laser function sound=0); rules.differ=0 |
+| R17 (c4) | held_weapon_cloak_smoke | PASS 14/14 | "BONDGUN.CLOAK: on player=0 weapon=base:rcp120 drain=24 slot=0" then off, 3 s apart |
+| R17 (c4) | held_weapon_shot_smoke | PASS 30/30 | recoil=3/12/0 sound=32851 slot=4 animation=invanim_rockerlauncher_shoot; aiming=0; rules.differ=0 |
+
+R17 ran 17:32 to 17:43 UTC (665 s) on candidate 4, 4 pass.
+Core Weapons on R17's animation=none and sound=0 (18:0x UTC): the original's values. invfunc_ar34_burstfire,
+invfunc_laser_pulse and invfunc_laser_stream have no fire animation (weapondata_authored.c); the stream's shootsound
+is 0 and its audible beam is SFX_LASER_STREAM, a loop bgunUpdateLaser starts outside og.weapon.shot_sound.
+| R18 (c4) | crystal_pistol_bot_charge_smoke | PASS 22/22 | |
+| R18 (c4) | crystal_pistol_bot_embed_smoke | FAIL 16/18 | no "CHRTEST ... result=hit", no "CRYSTAL: landed ... embedded=1": fired at 00:22.12 from (816,-612,8); each frame CHRTEST chrnum=0 result=miss (dist 80 down to 51), CHRMODEL tri=0, dir_cam=(-0.15,0.17,-0.97): passes about 50 units from the held bot. Last recorded pass 18/18 after B-1212; not run in step 9 before. Sent to Core Weapons |
+| R18 (c4) | held_weapon_charge_smoke | PASS 16/16 | new in PR 49 (the Mauler's charge, slice 5's row) |
+| R18 (c4) | projectile_events_smoke | PASS 70/70 | |
+
+R18 ran 17:54 to 18:05 UTC (669 s) on candidate 4, 3 pass, 1 fail. A/B R18b: crystal_pistol_bot_embed_smoke with the
+published v0.1.106 exe (sha256 07b1ac0b..., 3c's game code) on base 15, to tell whether the miss predates candidate 4.
+| R18b (v0.1.106) | crystal_pistol_bot_embed_smoke | FAIL 16/18 | the A/B on the published exe (3c's game code), base 15: the same failure on the same timeline (placement 20.50, wait satisfied 23.02, hold complete 24.50 = script about 1480 ms, first shot 24.80 = at_ms 1800; crystals land embedded=0 near=1/3 to 3/3). Predates candidate 4 |
+
+R18b ran 18:10 to 18:12 UTC (109 s). Reading (Core Weapons, confirmed by the A/B): fixture timing. The 4 s hold from
+--debug-place-bot-near-player starts at placement, 30 stable frames after the stage loads, but the script clock starts
+after the 3 s stable wait, so the bot is released at script ~1490 ms, before the shots at 1800 and 3800 the fixture
+calls "while held"; the falling bot moves and the crystals miss. Fix (Core Weapons, for Authored Mods): place after
+the wait, or a hold that covers all three shots. Candidate 5.
+| R19 (c4) | coop_ai_buddies_offline_smoke | PASS 42/42 | PR 51's bot.c change leaves the offline co-op start as on 3b |
+| R19 (c4) | mod_author_weapon_create_smoke | PASS 22/22 | |
+| R19 (c4) | mod_author_weapon_play_smoke | FAIL 21/22 | no COMBAT: SHOT_FIRED. A regression from PR 44/49: candidate 1's run (06:58 UTC, same recipe, same B-1151 no-ammo warning, same plan rounds=1 vs native rounds=0) fired every 0.4 s while held. Here the rule line carries slice 7's fields (sound=1546 slot=0 animation=invanim_falcon2_shoot, the mod's staged copy), then no shot; the second press logs no trigger_pressed (smoke_exit trigger_pressed=1 ready_while_held=0 clip_empty=0). The base Falcon 2 fires (R17 cadence). Sent to Core Weapons |
+| R19 (c4) | mp_combat_local_scorelimit_smoke | PASS 31/31 | row 3: no "WEAPON.RULE differs" (ticks_per_shot), no "program refused" |
+
+R19 ran 18:21 to 18:31 UTC (575 s) on candidate 4, 3 pass, 1 fail.
+
+#### Candidate 4 summary (dev 26505f13)
+
+16 smokes in R16 to R19 plus the R18b A/B: 10 pass. Fail: the four G2 smokes (harness and fixture faults; PR 57,
+MP-RULES; the Villa simulant's routing goes to Mike), crystal_pistol_bot_embed_smoke (fixture timing, also on the
+published v0.1.106 exe; PR 58, Core Weapons), mod_author_weapon_play_smoke (a real regression from PR 44/49: a mod
+weapon made from a base gun does not fire; with Core Weapons). Candidate 5 = dev after PR 57, PR 58 and the
+mod-author fix: held_weapon_lock_smoke (PR 56), the four G2 smokes, crystal_pistol_bot_embed_smoke,
+mod_author_weapon_play_smoke, and mod_author_weapon_create_smoke with it.
