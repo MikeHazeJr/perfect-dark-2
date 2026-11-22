@@ -395,6 +395,15 @@ s32 bootApplyDeferredDebugLoadCatalogAssets(void);
  *       without depending on random arena spawn visibility. The optional
  *       bounded duration defaults to three seconds. One-shot per boot.
  *
+ *   --debug-place-bot-near-player-after-wait
+ *       With --debug-place-bot-near-player: the placement's stable-frame gate
+ *       starts counting only once the smoke's opening wait_until is
+ *       satisfied, so the hold starts near script time 0 however long the
+ *       wait takes (crystal_pistol_bot_embed_smoke times its shots against
+ *       the hold). With no opening wait_until, or no smoke, it places as
+ *       before; both are logged. Logs the placement's script time
+ *       ("placed at_script_ms=").
+ *
  *   --debug-bots-hold-fire
  *       Smoke-only: simulants never fire a shot (chrTickShoot); they still
  *       move, aim and set off proximity mines. Target-dummy smokes use it
@@ -634,6 +643,9 @@ static s32         g_BootDebugPlaceBotNearPlayerNum = 0;
  * points the BOT.RENDER.AUDIT traces at it, so a client can show whether it
  * draws a simulant the host owns. */
 static s32         g_BootDebugPlaceBotNearPlayerVisible = 0;
+/* --debug-place-bot-near-player-after-wait (the flag's note above). */
+static s32         g_BootDebugPlaceBotNearPlayerAfterWait = 0;
+static s32         g_BootDebugPlaceBotNearPlayerAfterWaitLogged = 0;
 static s32         g_BootDebugFaceNearestBot = 0;
 /* B-1193: --debug-end-mission "<seconds>:complete|fail" ends a mission on the
  * host (or offline) after that much play, through the level script's own end
@@ -5080,6 +5092,25 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 	 * boundary that a real shot uses instead of latching a transient camera
 	 * position. Once the first placement commits, keep following the player
 	 * until the requested wall-clock hold duration expires. */
+	/* --debug-place-bot-near-player-after-wait: no stable frame counts until
+	 * the smoke's opening wait_until is satisfied; with none, or no smoke,
+	 * the placement goes ahead as before (never an endless wait). Logged
+	 * once either way. */
+	if (!g_BootDebugPlaceBotNearPlayerLogged && g_BootDebugPlaceBotNearPlayerAfterWait) {
+		const int opening = smokeHarnessOpeningWait();
+
+		if (opening > 0) {
+			g_BootDebugPlaceBotNearPlayerReadyFrames = 0;
+			return 0;
+		}
+		if (!g_BootDebugPlaceBotNearPlayerAfterWaitLogged) {
+			g_BootDebugPlaceBotNearPlayerAfterWaitLogged = 1;
+			sysLogPrintf(LOG_NOTE, "BOOT: --debug-place-bot-near-player-after-wait: %s",
+				opening < 0 ? "no opening wait_until; placing at script start"
+					: "the opening wait is satisfied; placing");
+		}
+	}
+
 	if (!g_BootDebugPlaceBotNearPlayerLogged) {
 		if (g_Vars.tickmode != TICKMODE_NORMAL
 				|| g_Vars.currentplayer->cameramode != CAMERAMODE_DEFAULT) {
@@ -5364,6 +5395,11 @@ s32 bootDebugPlaceBotNearPlayerPreRenderTick(void)
 			g_BootDebugPlaceBotNearPlayerHoldDurationMs);
 		g_BootDebugPlaceBotNearPlayerLogged = true;
 		g_BootDebugPlaceBotNearPlayerHoldStartMs = SDL_GetTicks();
+		if (g_BootDebugPlaceBotNearPlayerAfterWait) {
+			sysLogPrintf(LOG_NOTE,
+				"BOOT: --debug-place-bot-near-player-after-wait placed at_script_ms=%d hold_ms=%u",
+				smokeHarnessScriptMs(), g_BootDebugPlaceBotNearPlayerHoldDurationMs);
+		}
 	}
 
 	g_BootDebugPlaceBotNearPlayerHoldFrames++;
@@ -10225,6 +10261,15 @@ int main(int argc, const char **argv)
 		} else {
 			g_BootDebugPlaceBotNearPlayerVisible = 1;
 			sysLogPrintf(LOG_NOTE, "BOOT: --debug-place-bot-near-player-visible armed");
+		}
+	}
+	if (sysArgCheck("--debug-place-bot-near-player-after-wait")) {
+		if (!g_BootDebugPlaceBotNearPlayer) {
+			sysLogPrintf(LOG_WARNING,
+				"BOOT: --debug-place-bot-near-player-after-wait requires --debug-place-bot-near-player; ignored");
+		} else {
+			g_BootDebugPlaceBotNearPlayerAfterWait = 1;
+			sysLogPrintf(LOG_NOTE, "BOOT: --debug-place-bot-near-player-after-wait armed");
 		}
 	}
 	{

@@ -1814,3 +1814,24 @@ TEST_CASE("aim_at holds player 0's view on its target after the look input",
     requireContains(harness, "extern f32 atan2f(f32 x, f32 z);");
     requireContains(harness, "        *verta -= 360.0f;");
 }
+
+// crystal_pistol_bot_embed_smoke (Integration, 2026-11-22): the bot is placed
+// after the smoke's opening wait, so its 4 s hold covers the shots timed
+// against it; never an endless wait without an opening wait_until.
+TEST_CASE("an after-wait bot placement starts counting once the smoke's opening wait is satisfied",
+    "[smoke][static]")
+{
+    const std::string main = readTextFile("port/src/main.c");
+    requireContains(main, "if (sysArgCheck(\"--debug-place-bot-near-player-after-wait\")) {");
+    requireContains(main, "\t\tconst int opening = smokeHarnessOpeningWait();\n\n\t\tif (opening > 0) {\n"
+        "\t\t\tg_BootDebugPlaceBotNearPlayerReadyFrames = 0;\n\t\t\treturn 0;\n\t\t}");
+    requireContains(main, "opening < 0 ? \"no opening wait_until; placing at script start\"");
+    requireContains(main, "\"BOOT: --debug-place-bot-near-player-after-wait placed at_script_ms=%d hold_ms=%u\"");
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    requireContains(harness, "int smokeHarnessOpeningWait(void)");
+    requireContains(harness, "            || s_State.events[0].type != SMOKE_EVENT_WAIT_UNTIL) {\n        return -1;");
+    requireContains(harness, "return s_State.next_event_idx > 0 ? 0 : 1;");
+    const std::string smoke = readTextFile("tools/smoke-verify/tests/crystal_pistol_bot_embed_smoke.json");
+    requireContains(smoke, "\"--debug-place-bot-near-player-after-wait\",");
+    requireContains(smoke, "placed at_script_ms=(1[0-7][0-9]{2}|[0-9]{1,3}) hold_ms=4000");
+}
