@@ -856,5 +856,57 @@ class HeldWeaponPrograms(unittest.TestCase):
                     self.assertIn('_PARAM "' + key + '"', rules)
 
 
+class HeldLock(unittest.TestCase):
+    """Held slice 6b: the sight's lock, og.weapon.lock_on at event.weapon.aiming."""
+
+    def _with_lock(self, lock: dict, event: str = "event.weapon.aiming") -> dict:
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].insert(2, {"id": "primary_aiming", "kind": event})
+        graph["nodes"].insert(3, dict(lock, id="primary_lock"))
+        graph["edges"].insert(1, {"from": "primary_aiming", "output": "out", "to": "primary_lock", "input": "exec"})
+        return graph
+
+    def test_the_original_locks_and_mikes_enemy_vehicles(self):
+        for lock in ({"kind": "og.weapon.lock_on", "locks": 1, "aim_follows": False, "kinds": "all",
+                      "sight_targets_only": False, "vehicles": "any", "relation": "anyone", "alive": False,
+                      "cloaked": "always"},
+                     {"kind": "og.weapon.lock_on", "locks": 4, "aim_follows": True, "sight_targets_only": True},
+                     {"kind": "og.weapon.lock_on", "kinds": "vehicle", "vehicles": "occupied", "relation": "enemy",
+                      "alive": True, "cloaked": "never"},
+                     {"kind": "og.weapon.lock_on", "relation": "$side"}):
+            with self.subTest(lock=lock):
+                self.assertEqual(weapon_errors(self._with_lock(lock)), [])
+
+    def test_only_at_aiming_and_only_the_lock_there(self):
+        graph = copy.deepcopy(V2_HELD)
+        for node in graph["nodes"]:
+            if node["id"] == "primary_dry_fire":
+                node["kind"] = "og.weapon.lock_on"
+        messages = weapon_errors(graph)
+        self.assertTrue(any("og.weapon.lock_on 'primary_dry_fire' has no effect on event.weapon.trigger_pressed" in m
+                            for m in messages), messages)
+        messages = weapon_errors(self._with_lock({"kind": "og.weapon.dry_fire"}))
+        self.assertTrue(any("has no effect on event.weapon.aiming" in m for m in messages), messages)
+
+    def test_malformed(self):
+        for lock, why in (({"kind": "og.weapon.lock_on", "locks": 5}, "needs locks from 1 to 4"),
+                          ({"kind": "og.weapon.lock_on", "aim_follows": "yes"}, "needs aim_follows true or false"),
+                          ({"kind": "og.weapon.lock_on", "kinds": "tank"}, "needs kinds player"),
+                          ({"kind": "og.weapon.lock_on", "sight_targets_only": "yes"},
+                           "needs sight_targets_only true or false"),
+                          ({"kind": "og.weapon.lock_on", "relation": "rival"}, "needs relation anyone")):
+            with self.subTest(lock=lock):
+                messages = weapon_errors(self._with_lock(lock))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+
+    def test_the_filter_settings_are_the_filters(self):
+        header = (REPO / "port" / "include" / "target_filter.h").read_text(encoding="utf-8")
+        for key in conf.TARGET_FILTER_SETTINGS:
+            with self.subTest(setting=key):
+                self.assertIn('_PARAM "' + key + '"', header)
+        self.assertEqual(conf.PROJECTILE_GRAPH_FLIGHT_SETTINGS["og.projectile.home"]["sight_targets_only"],
+                         conf.TARGET_FILTER_SETTINGS["sight_targets_only"])
+
 if __name__ == "__main__":
     unittest.main()

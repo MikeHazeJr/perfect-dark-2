@@ -713,6 +713,36 @@ conformance refuse a malformed setting with what it takes. Mike's "Enemy
 vehicles" passes an occupied enemy bike and refuses its rider; vehicles
 cannot be locked until 6c.
 
+**6b part 2 as written (2026-11-22, `week-pd/core-weapons-w6b`): the held
+lock.** A new held event, `event.weapon.aiming` (kind 41, numbered after the
+flight event; `weaponRulesEventAt` and `weaponRulesEventIndex` keep the six
+weapon events in one order), walked for the right hand each tick the sight is
+on (`weaponSightLock`, from `sightTick`), applies one module,
+`og.weapon.lock_on` (weapon module bit 16): `locks` (1 to 4, the targets the
+sight holds; with more than one each box shows its number), `aim_follows`
+(the aim follows the held targets, the CMP150 secondary's follow lock-on) and
+the target filter's settings, which gain `sight_targets_only` (a vehicle,
+sentry or object only if the stage marks it for the sight; the CMP150's).
+Gates work there too (a scope that locks only while a state is on). The hand
+keeps the lock while it holds the function, for the sight between walks and
+for auto-aim (`autoaimTick` reads `aim_follows` instead of the CMP150's
+number); a program that handles the event and reaches no lock has none (the
+box follows the aim). A function with no program, or whose program does not
+handle the event, has the original's (`weaponRulesNativeLock`): its weapon's
+aim settings' track type (the rocket launcher's one target, the CMP150's
+four), with the rocket launcher's "whatever the player looks at" and the
+CMP150 secondary's follow kept by number in the table, so a mod weapon whose
+descriptor names `rocket_launcher` keeps today's filter. The extractor writes
+the rocket launcher's and the CMP150's lock into their base programs with
+every setting (`embedded.v23`, cache kind `_heldlocks`: installs re-extract
+base weapons once), and the parity probe compares each walked base lock with
+the original's (`rules.compared`, `rules.differ`; `WEAPON.EVENTS` ends with
+`aiming=N`). `targetFilterSame` now ignores the CI training targets when a
+filter's things need not react (they cannot matter then). Bots have no sight:
+a simulant's rocket homes on its own target, checked in flight by the home's
+filter (part 1). Still in 6b: the proximity event's candidate and mod mine
+filters.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
@@ -741,6 +771,9 @@ Listed as each slice lands; none is run by Core Weapons.
 | 5 (review) | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the player's and the bot's `BONDGUN.CHARGE: start ... release_in=` both equal the function's plan time; the glow ramps over it |
 | 5 (review) | `projectile_events_smoke` | a cooked grenade's fuse lines unchanged (a base grenade's fuse is its activation time) |
 | 4 (review) | any Laser stream smoke (`held_weapon_cadence_smoke`) | the stream still hits at up to 300 |
+| 6b | `boot_smoke` on a freshly extracted install | `embedded.v23`: every base weapon re-extracts once; no `program refused` line (the rocket launcher's and the CMP150's programs register with `event.weapon.aiming`) |
+| 6b | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their `WEAPON.EVENTS` lines end with `aiming=N`; `rules.differ=0` as before |
+| 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 
 ## Where to look
 

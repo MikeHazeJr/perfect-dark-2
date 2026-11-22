@@ -5,7 +5,10 @@
 #include "types.h"
 
 bool sightIsPropFriendly(struct prop *prop);
-bool sightCanTargetProp(struct prop *prop, s32 max);
+/* held-weapon-events.md slice 6b: whether the sight's lock takes the prop
+ * (its filter, the lock's: weaponSightLock). */
+struct target_filter;
+bool sightCanTargetProp(struct prop *prop, s32 max, const struct target_filter *filter);
 /* held-weapon-events.md slice 6a: a prop's facts for the target filter
  * (target_filter.h), as the current player sees it. */
 struct target_facts;

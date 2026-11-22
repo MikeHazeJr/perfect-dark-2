@@ -1175,7 +1175,12 @@ TEST_CASE("the held weapon rule table names its modules, gates and events",
 	for (s32 e = 0; weaponRulesEventAt(e) >= 0; e++) kinds.push_back(weaponRulesEventAt(e));
 	CHECK(kinds == std::vector<s32>{ MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED,
 		MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD, MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY,
-		MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED, MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE });
+		MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED, MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE,
+		MISSION_GRAPH_EVENT_WEAPON_AIMING });
+	for (size_t e = 0; e < kinds.size(); e++) {
+		CHECK(weaponRulesEventIndex(kinds[e]) == (s32)e);
+	}
+	CHECK(weaponRulesEventIndex(MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT) == -1);
 	for (s32 kind : kinds) {
 		INFO(kind);
 		CHECK(missionGraphEventIsWeapon(kind) == 1);
@@ -1196,6 +1201,8 @@ TEST_CASE("the held weapon rule table names its modules, gates and events",
 		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_SET_STATE));
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED) == WEAPON_MODULE_SET_STATE);
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE) == WEAPON_MODULE_SET_STATE);
+	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_AIMING) == WEAPON_MODULE_LOCK_ON);
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_LOCK_ON)) == "og.weapon.lock_on");
 
 	// The original's idle rule and its rounds.
 	for (s32 kind : { MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD }) {
@@ -3567,8 +3574,12 @@ TEST_CASE("the look and lock pickers are the target filter's native ones",
 	REQUIRE(lv.find("targetFilterNative(TARGET_PICKER_LOOK, bgunGetWeaponNum(HAND_RIGHT), &look);") != std::string::npos);
 	CHECK(lv.find("(obj->flags3 & OBJFLAG3_REACTTOSIGHT) == 0") == std::string::npos);
 	const std::string sight = readSource("src/game/sight.c");
-	REQUIRE(sight.find("targetFilterNative(TARGET_PICKER_LOCK, bgunGetWeaponNum(HAND_RIGHT), &lock);") != std::string::npos);
+	// slice 6b: the lock's filter is the sight's lock's, whose native one
+	// is the table's (weaponRulesNativeLock).
+	REQUIRE(sight.find("return targetFilterAccepts(filter, &facts) ? true : false;") != std::string::npos);
 	CHECK(sight.find("WEAPON_ROCKETLAUNCHER") == std::string::npos);
+	REQUIRE(readSource("port/include/weapon_rules.h").find(
+		"targetFilterNative(TARGET_PICKER_LOCK, weaponnum, &out->filter);") != std::string::npos);
 	REQUIRE(sight.find("void sightTargetFacts(struct prop *prop, struct target_facts *out)") != std::string::npos);
 }
 
@@ -3836,6 +3847,275 @@ TEST_CASE("a homing rocket's target filter is its home node's settings",
 		!= std::string::npos);
 	REQUIRE(sight.find("sightTargetFactsFor(prop, g_Vars.currentplayer->prop, USINGDEVICE(DEVICE_IRSCANNER) ? 1 : 0, out);")
 		!= std::string::npos);
+}
+
+namespace {
+
+// The base wiring of a function whose weapon has a lock, as the extractor
+// writes it (romextract_pdweapon.c, s_emitHeldLockNodes and
+// s_emitHeldLockEdge): event.weapon.aiming and og.weapon.lock_on with its
+// settings, before the idle wiring's nodes and edges.
+std::string withLock(std::string text, const std::string &m, const std::string &settings)
+{
+	const std::string pressed = "{ \"id\": \"" + m + "_pressed\"";
+	text.insert(text.find(pressed), "{ \"id\": \"" + m + "_aiming\", \"kind\": \"event.weapon.aiming\" },"
+		"{ \"id\": \"" + m + "_lock\", \"kind\": \"og.weapon.lock_on\"" + settings + " },");
+	const std::string firstEdge = "{ \"from\": \"" + m + "_pressed\"";
+	text.insert(text.find(firstEdge), "{ \"from\": \"" + m + "_aiming\", \"output\": \"out\", \"to\": \"" + m +
+		"_lock\", \"input\": \"exec\" },");
+	return text;
+}
+
+} // namespace
+
+// held-weapon-events.md slice 6b: the sight's lock is og.weapon.lock_on at
+// event.weapon.aiming, and the original's is the weapon's track type.
+TEST_CASE("the sight's lock is the original's, and a program's lock_on is its settings",
+	"[mission-graph][weapon-graph][held-weapon][target-filter][weapon-rules]")
+{
+	// The original's: the rocket launcher holds one target, whatever the
+	// player looks at; the CMP150 four, things only if the stage marks them,
+	// and its secondary aims at them; every other weapon none.
+	weapon_rule_lock_t rocket, cmp, cmpsec, falcon, unarmed, mod, threat;
+	weaponRulesNativeLock(WEAPON_ROCKETLAUNCHER, FUNC_SECONDARY, SIGHTTRACKTYPE_ROCKETLAUNCHER, &rocket);
+	CHECK(rocket.locks == 1);
+	CHECK(rocket.aim_follows == 0);
+	CHECK(rocket.tracktype == SIGHTTRACKTYPE_ROCKETLAUNCHER);
+	CHECK(rocket.filter.things_must_react == 0);
+	weaponRulesNativeLock(WEAPON_CMP150, FUNC_PRIMARY, SIGHTTRACKTYPE_FOLLOWLOCKON, &cmp);
+	weaponRulesNativeLock(WEAPON_CMP150, FUNC_SECONDARY, SIGHTTRACKTYPE_FOLLOWLOCKON, &cmpsec);
+	CHECK(cmp.locks == WEAPON_RULE_MAX_LOCKS);
+	CHECK(cmp.aim_follows == 0);
+	CHECK(cmpsec.aim_follows == 1);
+	CHECK(cmp.tracktype == SIGHTTRACKTYPE_FOLLOWLOCKON);
+	CHECK(cmp.filter.things_must_react == 1);
+	CHECK(cmp.filter.training_targets == 0);
+	weaponRulesNativeLock(WEAPON_FALCON2, FUNC_PRIMARY, SIGHTTRACKTYPE_DEFAULT, &falcon);
+	CHECK(falcon.locks == 0);
+	CHECK(falcon.tracktype == SIGHTTRACKTYPE_DEFAULT);
+	weaponRulesNativeLock(WEAPON_UNARMED, FUNC_PRIMARY, SIGHTTRACKTYPE_NONE, &unarmed);
+	CHECK(unarmed.locks == 0);
+	CHECK(unarmed.tracktype == SIGHTTRACKTYPE_NONE);
+	weaponRulesNativeLock(WEAPON_UNARMED, FUNC_PRIMARY, SIGHTTRACKTYPE_THREATDETECTOR, &threat);
+	CHECK(threat.tracktype == SIGHTTRACKTYPE_THREATDETECTOR);
+	// A mod weapon whose descriptor names the rocket launcher's track type
+	// keeps today's filter: only the rocket launcher's number takes things
+	// that do not react.
+	weaponRulesNativeLock(WEAPON_CUSTOM_START, FUNC_PRIMARY, SIGHTTRACKTYPE_ROCKETLAUNCHER, &mod);
+	CHECK(mod.locks == 1);
+	CHECK(mod.filter.things_must_react == 1);
+	// A lock's track type: one target the rocket launcher's, more the
+	// follow lock-on's numbered boxes; no lock keeps a weapon's own unless it
+	// is a lock's.
+	weapon_rule_lock_t none{};
+	CHECK(weaponRulesLockTrackType(&none, SIGHTTRACKTYPE_ROCKETLAUNCHER) == SIGHTTRACKTYPE_DEFAULT);
+	CHECK(weaponRulesLockTrackType(&none, SIGHTTRACKTYPE_NONE) == SIGHTTRACKTYPE_NONE);
+	none.locks = 2;
+	CHECK(weaponRulesLockTrackType(&none, SIGHTTRACKTYPE_DEFAULT) == SIGHTTRACKTYPE_FOLLOWLOCKON);
+
+	// A node's settings, over one target, no follow and the "anything" filter.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts empty;
+	weapon_rule_lock_t lock;
+	CHECK(weaponRulesApplyLockSettings(Texts::get, &empty, &lock) == 1);
+	CHECK(lock.locks == 1);
+	CHECK(lock.aim_follows == 0);
+	CHECK(lock.filter.kinds == TARGET_KINDS_ALL);
+	CHECK(weaponRulesLockEqual(&lock, &rocket) == 1); // the rocket launcher's is the default node
+	Texts follow;
+	follow.values = { { "locks", "4" }, { "aim_follows", "true" }, { "sight_targets_only", "true" } };
+	CHECK(weaponRulesApplyLockSettings(Texts::get, &follow, &lock) == 1);
+	CHECK(weaponRulesLockEqual(&lock, &cmpsec) == 1);
+	CHECK(weaponRulesLockEqual(&lock, &cmp) == 0);
+	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{ { "locks", "5" }, { "locks", "0" },
+			{ "aim_follows", "yes" }, { "relation", "rival" }, { "kinds", "tank" },
+			{ "sight_targets_only", "maybe" } }) {
+		INFO(bad.first << "=" << bad.second);
+		Texts wrong;
+		wrong.values = { bad };
+		CHECK(weaponRulesApplyLockSettings(Texts::get, &wrong, &lock) == 0);
+	}
+	// The sight targets setting is the filter's, on og.projectile.home too.
+	target_filter_t marked;
+	const char *badkey = nullptr;
+	Texts sightTargets;
+	sightTargets.values = { { "sight_targets_only", "true" } };
+	CHECK(targetFilterFromSettings(Texts::get, &sightTargets, &marked, &badkey) == 1);
+	CHECK(marked.things_must_react == 1);
+	CHECK(std::string(targetFilterSettingHelp("sight_targets_only")) == "true or false");
+	target_filter_t anything;
+	targetFilterAnything(&anything);
+	CHECK(targetFilterSame(&anything, &rocket.filter) == 1); // the training targets do not matter here
+	char text[512];
+	REQUIRE(weaponRulesLockSettingsText(&cmpsec, text, (s32)sizeof(text)) > 0);
+	INFO(text);
+	CHECK(std::string(text).find("\"locks\": 4, \"aim_follows\": true, \"kinds\": \"all\", \"sight_targets_only\": true")
+		!= std::string::npos);
+
+	// The base wiring, walked as the seam walks it, holds the original's
+	// lock whatever the hand holds.
+	int instance = 0;
+	const auto walkLock = [&](const std::string &json, const weapon_rule_states_t *with, weapon_rule_hand_t hand,
+		weapon_rule_lock_t *out, u32 *modules) -> s32 {
+		char err[256] = { 0 };
+		mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(),
+			heldKnown, err, sizeof(err));
+		INFO(err);
+		REQUIRE(program != nullptr);
+		weapon_rule_walk_t walk{};
+		weapon_rule_states_t states = with ? *with : weapon_rule_states_t{};
+		walk.weaponnum = -1;
+		walk.hand = hand;
+		walk.states = &states;
+		walk.param_text = weaponGraphRuntimeHeldParamText;
+		const s32 handled = weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_AIMING, 0, "base:test__weapon",
+			&instance, &walk);
+		*out = walk.lock;
+		*modules = walk.modules;
+		missionGraphProgramFree(program);
+		return handled;
+	};
+	struct Case { s32 weaponnum; s32 func; s32 tracktype; const char *mode; };
+	for (const Case &c : { Case{ WEAPON_ROCKETLAUNCHER, FUNC_PRIMARY, SIGHTTRACKTYPE_ROCKETLAUNCHER, "primary" },
+			Case{ WEAPON_ROCKETLAUNCHER, FUNC_SECONDARY, SIGHTTRACKTYPE_ROCKETLAUNCHER, "secondary" },
+			Case{ WEAPON_CMP150, FUNC_PRIMARY, SIGHTTRACKTYPE_FOLLOWLOCKON, "primary" },
+			Case{ WEAPON_CMP150, FUNC_SECONDARY, SIGHTTRACKTYPE_FOLLOWLOCKON, "secondary" } }) {
+		weapon_rule_lock_t native;
+		weaponRulesNativeLock(c.weaponnum, c.func, c.tracktype, &native);
+		char settings[512];
+		REQUIRE(weaponRulesLockSettingsText(&native, settings, (s32)sizeof(settings)) > 0);
+		const std::string json = withLock(baseIdleProgram(c.mode, 1), c.mode, settings);
+		for (const weapon_rule_hand_t hand : { weapon_rule_hand_t{ 1, 0, 8, 0, 0 }, weapon_rule_hand_t{ 1, 8, 8, 1, 1 },
+				weapon_rule_hand_t{ 0, 0, 0, 0, 1 } }) {
+			weapon_rule_lock_t walked;
+			u32 modules = 0;
+			INFO("weapon=" << c.weaponnum << " func=" << c.func << " loaded=" << hand.loaded);
+			REQUIRE(walkLock(json, nullptr, hand, &walked, &modules) == 1);
+			CHECK(modules == WEAPON_MODULE_LOCK_ON);
+			walked.tracktype = weaponRulesLockTrackType(&walked, c.tracktype);
+			CHECK(weaponRulesLockEqual(&walked, &native) == 1);
+		}
+	}
+
+	// A gate decides the lock while aiming: a scope that locks only while
+	// its state is on; handled without a lock, the box follows the aim.
+	std::string scoped = withLock(baseIdleProgram("primary", 1), "primary", ", \"locks\": 2");
+	scoped.replace(scoped.find("{ \"from\": \"primary_aiming\", \"output\": \"out\", \"to\": \"primary_lock\""),
+		std::string("{ \"from\": \"primary_aiming\", \"output\": \"out\", \"to\": \"primary_lock\"").size(),
+		"{ \"from\": \"primary_aiming\", \"output\": \"out\", \"to\": \"primary_scoped\", \"input\": \"exec\" },"
+		"{ \"from\": \"primary_scoped\", \"output\": \"pass\", \"to\": \"primary_lock\"");
+	scoped.insert(scoped.find("{ \"id\": \"primary_lock\""),
+		"{ \"id\": \"primary_scoped\", \"kind\": \"gate.weapon.state_is\", \"key\": \"scoped\", \"equals\": true },");
+	weapon_rule_lock_t walked;
+	u32 modules = 0;
+	REQUIRE(walkLock(scoped, nullptr, weapon_rule_hand_t{ 1, 8, 8, 1, 1 }, &walked, &modules) == 1);
+	CHECK(modules == 0);
+	CHECK(walked.locks == 0);
+	CHECK(weaponRulesLockTrackType(&walked, SIGHTTRACKTYPE_ROCKETLAUNCHER) == SIGHTTRACKTYPE_DEFAULT);
+	weapon_rule_states_t on{};
+	on.count = 1;
+	std::snprintf(on.keys[0], sizeof(on.keys[0]), "scoped");
+	on.values[0] = 1;
+	REQUIRE(walkLock(scoped, &on, weapon_rule_hand_t{ 1, 8, 8, 1, 1 }, &walked, &modules) == 1);
+	CHECK(modules == WEAPON_MODULE_LOCK_ON);
+	CHECK(walked.locks == 2);
+	CHECK(weaponRulesLockTrackType(&walked, SIGHTTRACKTYPE_DEFAULT) == SIGHTTRACKTYPE_FOLLOWLOCKON);
+
+	// Registration: the lock only at aiming, only the lock there, and its
+	// settings values of their kinds ("$name" from the weapon's variables).
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	const s32 weaponnum = 3;
+	char err[256] = { 0 };
+	const auto registers = [&](const std::string &primary, const char *variables = nullptr) {
+		err[0] = 0;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(weaponnum, "base:test__weapon", primary.data(),
+			(u32)primary.size(), secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0,
+			variables, variables ? (u32)std::strlen(variables) : 0, nullptr, 0, err, sizeof(err)) == 0;
+	};
+	weaponGraphRuntimeClearAll();
+	const std::string enemyVehicles = withLock(baseIdleProgram("primary", 1), "primary",
+		", \"locks\": 1, \"kinds\": \"vehicle\", \"vehicles\": \"occupied\", \"relation\": \"enemy\", "
+		"\"alive\": true, \"cloaked\": \"never\"");
+	REQUIRE(registers(enemyVehicles));
+	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, 0);
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_WEAPON_AIMING) == 1);
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_WEAPON_AIMING, "og.weapon.lock_on") == 1);
+	std::string pressLocks = baseIdleProgram("primary", 1);
+	pressLocks.replace(pressLocks.find("\"kind\": \"og.weapon.dry_fire\""),
+		std::string("\"kind\": \"og.weapon.dry_fire\"").size(), "\"kind\": \"og.weapon.lock_on\"");
+	CHECK_FALSE(registers(pressLocks));
+	CHECK(std::string(err).find("og.weapon.lock_on has no effect on event.weapon.trigger_pressed") != std::string::npos);
+	std::string aimReloads = withLock(baseIdleProgram("primary", 1), "primary", "");
+	aimReloads.replace(aimReloads.find("\"kind\": \"og.weapon.lock_on\""),
+		std::string("\"kind\": \"og.weapon.lock_on\"").size(), "\"kind\": \"og.weapon.dry_fire\"");
+	CHECK_FALSE(registers(aimReloads));
+	CHECK(std::string(err).find("og.weapon.dry_fire has no effect on event.weapon.aiming") != std::string::npos);
+	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{
+			{ ", \"locks\": 5", "og.weapon.lock_on needs locks from 1 to 4, got 5" },
+			{ ", \"aim_follows\": \"yes\"", "og.weapon.lock_on needs aim_follows true or false, got yes" },
+			{ ", \"relation\": \"rival\"", "og.weapon.lock_on needs relation anyone, enemy, friend or owner, got rival" },
+			{ ", \"kinds\": \"tank\"", "og.weapon.lock_on needs kinds player, simulant, guard, vehicle" },
+			{ ", \"sight_targets_only\": \"maybe\"", "og.weapon.lock_on needs sight_targets_only true or false, got maybe" },
+			{ ", \"relation\": \"$side\"", "og.weapon.lock_on needs relation anyone, enemy, friend or owner, got $side" } }) {
+		INFO(bad.first);
+		CHECK_FALSE(registers(withLock(baseIdleProgram("primary", 1), "primary", bad.first)));
+		INFO(err);
+		CHECK(std::string(err).find(bad.second) != std::string::npos);
+	}
+	const char *variables = R"({"schema":"pd.weapon_variables.v1","asset_id":"base:test__weapon",
+		"variables":[{"name":"side","value":"enemy"}]})";
+	CHECK(registers(withLock(baseIdleProgram("primary", 1), "primary", ", \"relation\": \"$side\""), variables));
+	weaponGraphRuntimeClearAll();
+
+	// The seams: the sight takes its lock from weaponSightLock while the
+	// player aims, and auto-aim's follow from the same lock.
+	const std::string sight = readSource("src/game/sight.c");
+	REQUIRE(sight.find("const weapon_rule_lock_t *lock = weaponSightLock(sighton);") != std::string::npos);
+	REQUIRE(sight.find("newtracktype = lock->tracktype;") != std::string::npos);
+	CHECK(sight.find("gunsettings->tracktype") == std::string::npos);
+	const std::string take = "sightCanTargetProp(g_Vars.currentplayer->lookingatprop.prop, lock->locks, &lock->filter)) {\n"
+		"\t\t\tindex = sightFindFreeTargetIndex(lock->locks);";
+	REQUIRE(sight.find(take) != std::string::npos);
+	CHECK(sight.find(take, sight.find(take) + 1) != std::string::npos); // the rocket launcher's and the follow's
+	const std::string prop = readSource("src/game/prop.c");
+	REQUIRE(prop.find("if (weaponSightLock(0)->aim_follows) {") != std::string::npos);
+	CHECK(prop.find("bgunGetWeaponNum(HAND_RIGHT) == WEAPON_CMP150") == std::string::npos);
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_AIMING, g_Vars.currentplayernum,")
+		!= std::string::npos);
+	REQUIRE(events.find("weaponRulesNativeLock(hand->gset.weaponnum, hand->gset.weaponfunc, tracktype, &native);")
+		!= std::string::npos);
+	REQUIRE(events.find("if (!weaponRulesLockEqual(out, native)) {") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("weaponRulesNativeLock(weapon_id, mode, tracktype, &lock);") != std::string::npos);
+	REQUIRE(extractor.find("if (s_emitHeldLockNodes(&w, mode_name, &lock) != 0) w.error = 1;\n"
+		"\t\ts_emitHeldProgramNodes(&w, mode_name,") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldLockEdge(&w, mode_name, &lock);\n\t\ts_emitHeldProgramEdges(&w, mode_name, &plan);")
+		!= std::string::npos);
+	REQUIRE(extractor.find("if (weaponRulesLockSettingsText(lock, settings, (s32)sizeof(settings)) < 0) return -1;")
+		!= std::string::npos);
+	const std::string trackTypeArg = "s_weaponTrackType(wpn)) != 0) {";
+	REQUIRE(extractor.find(trackTypeArg) != std::string::npos);
+	CHECK(extractor.find(trackTypeArg, extractor.find(trackTypeArg) + 1) != std::string::npos);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

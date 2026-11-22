@@ -216,11 +216,14 @@ static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t
 }
 
 /*
- * held-weapon-events.md slice 6b: the filter as a node's settings (on
- * og.projectile.home now, on the held lock next).
+ * held-weapon-events.md slice 6b: the filter as a node's settings
+ * (og.projectile.home, og.weapon.lock_on).
  *
  * - "kinds": names separated by commas: player, simulant, guard, vehicle,
  *   sentry, object, or characters, things, all.
+ * - "sight_targets_only": true for a vehicle, sentry or object only if the
+ *   stage marks it for the sight (OBJFLAG3_REACTTOSIGHT: the sight turns
+ *   red on it); the CMP150's lock. The CI training targets are not marked.
  * - "vehicles": any (a vehicle its rider left passes), or occupied.
  * - "relation": anyone, enemy, friend or owner (an empty vehicle or an
  *   object is nobody's friend: it passes enemy and anyone).
@@ -232,6 +235,7 @@ static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t
  * need not react to sight, any relation, the dead and the cloaked too).
  */
 #define TARGET_FILTER_KINDS_PARAM "kinds"
+#define TARGET_FILTER_SIGHT_TARGETS_PARAM "sight_targets_only"
 #define TARGET_FILTER_VEHICLES_PARAM "vehicles"
 #define TARGET_FILTER_RELATION_PARAM "relation"
 #define TARGET_FILTER_ALIVE_PARAM "alive"
@@ -251,10 +255,13 @@ static inline void targetFilterAnything(target_filter_t *f)
 	f->sees_cloaked = TARGET_SEES_CLOAKED_ALWAYS;
 }
 
+/* Whether two filters pass the same candidates (the CI training targets
+ * matter only to a filter whose things must react to sight). */
 static inline s32 targetFilterSame(const target_filter_t *a, const target_filter_t *b)
 {
 	return a->kinds == b->kinds && a->things_must_react == b->things_must_react
-		&& a->training_targets == b->training_targets && a->vehicles_occupied == b->vehicles_occupied
+		&& (!a->things_must_react || a->training_targets == b->training_targets)
+		&& a->vehicles_occupied == b->vehicles_occupied
 		&& a->relation == b->relation && a->alive_only == b->alive_only && a->awake_only == b->awake_only
 		&& a->explodable_only == b->explodable_only && a->armed_only == b->armed_only
 		&& a->sees_cloaked == b->sees_cloaked;
@@ -322,6 +329,17 @@ static inline s32 targetFilterFromSettings(target_text_fn get, void *user, targe
 		if (targetFilterKindsFromText(text, &kinds) == 0) out->kinds = kinds;
 		else TARGET_FILTER_BAD(TARGET_FILTER_KINDS_PARAM);
 	}
+	if ((text = get(TARGET_FILTER_SIGHT_TARGETS_PARAM, user)) != NULL) {
+		named = 1;
+		if (strcmp(text, "true") == 0) {
+			out->things_must_react = 1;
+			out->training_targets = 0;
+		} else if (strcmp(text, "false") == 0) {
+			out->things_must_react = 0;
+		} else {
+			TARGET_FILTER_BAD(TARGET_FILTER_SIGHT_TARGETS_PARAM);
+		}
+	}
 	if ((text = get(TARGET_FILTER_VEHICLES_PARAM, user)) != NULL) {
 		named = 1;
 		if (strcmp(text, "any") == 0) out->vehicles_occupied = 0;
@@ -359,6 +377,7 @@ static inline const char *targetFilterSettingHelp(const char *key)
 	if (!key) return NULL;
 	if (strcmp(key, TARGET_FILTER_KINDS_PARAM) == 0)
 		return "player, simulant, guard, vehicle, sentry, object, characters, things or all, separated by commas";
+	if (strcmp(key, TARGET_FILTER_SIGHT_TARGETS_PARAM) == 0) return "true or false";
 	if (strcmp(key, TARGET_FILTER_VEHICLES_PARAM) == 0) return "any or occupied";
 	if (strcmp(key, TARGET_FILTER_RELATION_PARAM) == 0) return "anyone, enemy, friend or owner";
 	if (strcmp(key, TARGET_FILTER_ALIVE_PARAM) == 0) return "true or false";
@@ -381,10 +400,17 @@ static inline s32 targetFilterSettingsText(const target_filter_t *f, char *buf, 
 	s32 len = 0;
 	s32 n;
 	u32 i;
+	s32 group;
 
 	if (!f || !buf || cap <= 0) return -1;
 	list[0] = '\0';
-	for (i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+	/* A whole group by its name. */
+	group = f->kinds == TARGET_KINDS_ALL || f->kinds == TARGET_KINDS_CHARACTERS || f->kinds == TARGET_KINDS_THINGS;
+	if (group) {
+		snprintf(list, sizeof(list), "%s", f->kinds == TARGET_KINDS_ALL ? "all"
+			: f->kinds == TARGET_KINDS_CHARACTERS ? "characters" : "things");
+	}
+	for (i = 0; !group && i < sizeof(kinds) / sizeof(kinds[0]); i++) {
 		if (f->kinds & kinds[i].kind) {
 			n = snprintf(list + len, sizeof(list) - (size_t)len, "%s%s", len ? "," : "", kinds[i].name);
 			if (n < 0 || n >= (s32)sizeof(list) - len) return -1;
@@ -392,10 +418,11 @@ static inline s32 targetFilterSettingsText(const target_filter_t *f, char *buf, 
 		}
 	}
 	n = snprintf(buf, (size_t)cap,
-		", \"" TARGET_FILTER_KINDS_PARAM "\": \"%s\", \"" TARGET_FILTER_VEHICLES_PARAM "\": \"%s\", \""
+		", \"" TARGET_FILTER_KINDS_PARAM "\": \"%s\", \"" TARGET_FILTER_SIGHT_TARGETS_PARAM "\": %s, \""
+		TARGET_FILTER_VEHICLES_PARAM "\": \"%s\", \""
 		TARGET_FILTER_RELATION_PARAM "\": \"%s\", \"" TARGET_FILTER_ALIVE_PARAM "\": %s, \""
 		TARGET_FILTER_CLOAKED_PARAM "\": \"%s\"",
-		list, f->vehicles_occupied ? "occupied" : "any",
+		list, f->things_must_react ? "true" : "false", f->vehicles_occupied ? "occupied" : "any",
 		f->relation == TARGET_RELATION_ENEMY ? "enemy" : f->relation == TARGET_RELATION_FRIEND ? "friend"
 			: f->relation == TARGET_RELATION_OWNER ? "owner" : "anyone",
 		f->alive_only ? "true" : "false",

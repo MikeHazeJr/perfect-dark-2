@@ -35,6 +35,9 @@ typedef struct weapon_hand_record {
 	u8 reload_planned;            /* slice 4b: the reload its idle seam last started */
 	weapon_rule_reload_t reload;
 	weapon_rule_reload_t native_reload;
+	u8 lock_planned;              /* slice 6b: the lock its last aiming walk chose */
+	weapon_rule_lock_t lock;
+	weapon_rule_lock_t native_lock;
 } weapon_hand_record_t;
 static weapon_hand_record_t s_WeaponHands[MAX_PLAYERS][2];
 
@@ -43,6 +46,7 @@ static weapon_hand_record_t s_WeaponHands[MAX_PLAYERS][2];
 static s32 s_WeaponEventTotals[WEAPON_EVENT_TOTALS];
 static s32 s_WeaponRuleCompared;
 static s32 s_WeaponRuleDiffer;
+static s32 s_WeaponAimingTotal; /* slice 6b: the aiming walks */
 
 /* The first choice for a weapon, function and event logs a line; later ones
  * only count. Bounded, so an automatic weapon cannot flood the log. The
@@ -339,7 +343,7 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 					style ? style : "-", native_style ? native_style : "-");
 			}
 		}
-		if (weaponEventFirst(weaponnum, func, (s32)(kind - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED))) {
+		if (weaponEventFirst(weaponnum, func, weaponRulesEventIndex(kind))) {
 			char reload_text[64] = "";
 
 			if (style || native_style) {
@@ -734,6 +738,114 @@ s32 weaponProgramBurstRounds(s32 weaponnum, s32 func, s32 native)
 	return plan.count;
 }
 
+/* "locks=4 aim_follows=false filter={ ... }" for a lock, for the log. */
+static const char *weaponLockText(const weapon_rule_lock_t *lock, char *buf, size_t cap)
+{
+	char filter[320];
+
+	if (lock->locks > 0 && targetFilterSettingsText(&lock->filter, filter, (s32)sizeof(filter)) > 0) {
+		snprintf(buf, cap, "locks=%d aim_follows=%s filter={%s }", lock->locks,
+			lock->aim_follows ? "true" : "false", filter + 1);
+	} else {
+		snprintf(buf, cap, "locks=%d aim_follows=%s", lock->locks, lock->aim_follows ? "true" : "false");
+	}
+	return buf;
+}
+
+/* slice 6b: the aiming event for the current player's right hand: 1 with
+ * *out the lock its function's program chose (locks 0 when it reached none),
+ * 0 when the function has no program or its program does not handle the
+ * event. A base function's lock is compared with the original's. */
+static s32 weaponRuleLockDecide(struct hand *hand, s32 tracktype, const weapon_rule_lock_t *native,
+	weapon_rule_lock_t *out)
+{
+	const s32 weaponnum = hand->gset.weaponnum;
+	const s32 func = hand->gset.weaponfunc;
+	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, func);
+	weapon_hand_record_t *record;
+	weapon_rule_function_t function;
+	weapon_rule_walk_t walk;
+
+	if (!program || !missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_WEAPON_AIMING)) {
+		return 0;
+	}
+	s_WeaponAimingTotal++;
+	record = weaponHandRecord(HAND_RIGHT, hand);
+	weaponRuleFunctionOfHeld(weaponnum, func, &function);
+	memset(&walk, 0, sizeof(walk));
+	walk.weaponnum = weaponnum;
+	weaponRuleHandOf(hand, &walk.hand);
+	walk.states = record ? &record->states : NULL;
+	walk.function = &function;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	walk.item_number = weaponItemNumber;
+	if (!weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_AIMING, g_Vars.currentplayernum,
+			weaponEventWeaponId(weaponnum), hand, &walk)) {
+		return 0;
+	}
+	*out = walk.lock;
+	out->tracktype = weaponRulesLockTrackType(out, tracktype);
+	/* A mod weapon's number has no original rule: its lock is logged, not
+	 * counted. */
+	if (weaponnum < WEAPON_CUSTOM_START) {
+		s_WeaponRuleCompared++;
+		if (!weaponRulesLockEqual(out, native)) {
+			s_WeaponRuleDiffer++;
+			if (s_WeaponRuleDiffer <= 8) {
+				char chose[400];
+				char orig[400];
+
+				sysLogPrintf(LOG_WARNING, "WEAPON.RULE differs: aiming weapon=%s func=%s lock=%s native_lock=%s",
+					weaponEventWeaponId(weaponnum), func == FUNC_SECONDARY ? "secondary" : "primary",
+					weaponLockText(out, chose, sizeof(chose)), weaponLockText(native, orig, sizeof(orig)));
+			}
+		}
+	}
+	if (weaponEventFirst(weaponnum, func, weaponRulesEventIndex(MISSION_GRAPH_EVENT_WEAPON_AIMING))) {
+		char chose[400];
+		char orig[400];
+
+		sysLogPrintf(LOG_NOTE, "WEAPON.RULE: aiming weapon=%s func=%s program=yes lock=%s native_lock=%s",
+			weaponEventWeaponId(weaponnum), func == FUNC_SECONDARY ? "secondary" : "primary",
+			weaponLockText(out, chose, sizeof(chose)), weaponLockText(native, orig, sizeof(orig)));
+	}
+	return 1;
+}
+
+const struct weapon_rule_lock *weaponSightLock(s32 aiming)
+{
+	static weapon_rule_lock_t s_NativeLock;
+	struct hand *hand;
+	struct invaimsettings *aim;
+	weapon_hand_record_t *kept;
+	weapon_rule_lock_t native;
+	weapon_rule_lock_t lock;
+	s32 tracktype;
+
+	if (!g_Vars.currentplayer) {
+		weaponRulesNativeLock(-1, FUNC_PRIMARY, SIGHTTRACKTYPE_NONE, &s_NativeLock);
+		return &s_NativeLock;
+	}
+	hand = &g_Vars.currentplayer->hands[HAND_RIGHT];
+	aim = gsetGetAimSettings(&hand->gset);
+	tracktype = aim ? (s32)aim->tracktype : SIGHTTRACKTYPE_DEFAULT;
+	weaponRulesNativeLock(hand->gset.weaponnum, hand->gset.weaponfunc, tracktype, &native);
+	kept = weaponHandRecord(HAND_RIGHT, hand);
+	if (aiming && weaponRuleLockDecide(hand, tracktype, &native, &lock) && kept) {
+		kept->lock = lock;
+		kept->lock_planned = 1;
+	}
+	if (kept && kept->lock_planned) {
+		return &kept->lock;
+	}
+	if (kept) {
+		kept->native_lock = native;
+		return &kept->native_lock;
+	}
+	s_NativeLock = native;
+	return &s_NativeLock;
+}
+
 void weaponEventReloadDone(s32 handnum, struct hand *hand)
 {
 	if (hand && hand->inuse) {
@@ -745,13 +857,14 @@ void weaponEventsReport(const char *why)
 {
 	sysLogPrintf(LOG_NOTE,
 		"WEAPON.EVENTS: %s trigger_pressed=%d ready_while_held=%d clip_empty=%d"
-		" trigger_released=%d reload_done=%d rules.compared=%d rules.differ=%d",
+		" trigger_released=%d reload_done=%d rules.compared=%d rules.differ=%d aiming=%d",
 		why ? why : "report",
 		s_WeaponEventTotals[0], s_WeaponEventTotals[1], s_WeaponEventTotals[2],
 		s_WeaponEventTotals[3], s_WeaponEventTotals[4],
-		s_WeaponRuleCompared, s_WeaponRuleDiffer);
+		s_WeaponRuleCompared, s_WeaponRuleDiffer, s_WeaponAimingTotal);
 	memset(s_WeaponEventTotals, 0, sizeof(s_WeaponEventTotals));
 	s_WeaponRuleCompared = 0;
 	s_WeaponRuleDiffer = 0;
+	s_WeaponAimingTotal = 0;
 	s_WeaponEventSeenCount = 0;
 }

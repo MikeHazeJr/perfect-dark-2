@@ -22,6 +22,8 @@
 #include "game/playermgr.h"
 #include "game/chr.h"
 #include "target_filter.h"
+#include "weapon_rules.h"
+#include "weapon_events.h"
 #include "types.h"
 #include <math.h>
 #include "video.h"
@@ -213,13 +215,13 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 /**
  * Return true if the given prop can be added to the target list.
  *
- * held-weapon-events.md slice 6a: the lock's filter, the gun's (its native
- * one: a character, a player or an object that reacts to sight; the rocket
- * launcher locks whatever the player looks at).
+ * held-weapon-events.md slice 6b: the sight's lock's filter (its
+ * og.weapon.lock_on's, or the original's: a character, a player or an
+ * object that reacts to sight; the rocket launcher's takes whatever the
+ * player looks at).
  */
-bool sightCanTargetProp(struct prop *prop, s32 max)
+bool sightCanTargetProp(struct prop *prop, s32 max, const struct target_filter *filter)
 {
-	target_filter_t lock;
 	target_facts_t facts;
 	s32 i;
 
@@ -229,10 +231,9 @@ bool sightCanTargetProp(struct prop *prop, s32 max)
 		}
 	}
 
-	targetFilterNative(TARGET_PICKER_LOCK, bgunGetWeaponNum(HAND_RIGHT), &lock);
 	sightTargetFacts(prop, &facts);
 
-	return targetFilterAccepts(&lock, &facts) ? true : false;
+	return targetFilterAccepts(filter, &facts) ? true : false;
 }
 
 /**
@@ -298,7 +299,11 @@ void sightTick(bool sighton)
 	u8 newtracktype;
 	s32 i;
 	s32 index;
-	struct invaimsettings *gunsettings = gsetGetAimSettings(&g_Vars.currentplayer->hands[0].gset);
+	/* held-weapon-events.md slice 6b: the sight's lock, the right hand's
+	 * function program's while the player aims (og.weapon.lock_on at
+	 * event.weapon.aiming), else the original's for the weapon's aim
+	 * settings (weaponRulesNativeLock). */
+	const weapon_rule_lock_t *lock = weaponSightLock(sighton);
 	struct weaponfunc *func = weaponGetFunctionById(g_Vars.currentplayer->hands[0].gset.weaponnum,
 			g_Vars.currentplayer->hands[0].gset.weaponfunc);
 
@@ -320,7 +325,7 @@ void sightTick(bool sighton)
 		}
 	}
 
-	newtracktype = gunsettings->tracktype;
+	newtracktype = lock->tracktype;
 
 	if (gsetHasFunctionFlags(&g_Vars.currentplayer->hands[0].gset, FUNCFLAG_THREATDETECTOR)) {
 		newtracktype = SIGHTTRACKTYPE_THREATDETECTOR;
@@ -398,8 +403,8 @@ void sightTick(bool sighton)
 	case SIGHTTRACKTYPE_ROCKETLAUNCHER:
 		// Conditionally copy lookingatprop to trackedprops[0], but only if that slot is empty
 		if (sighton && g_Vars.currentplayer->lookingatprop.prop
-				&& sightCanTargetProp(g_Vars.currentplayer->lookingatprop.prop, 1)) {
-			index = sightFindFreeTargetIndex(1);
+				&& sightCanTargetProp(g_Vars.currentplayer->lookingatprop.prop, lock->locks, &lock->filter)) {
+			index = sightFindFreeTargetIndex(lock->locks);
 
 			if (index >= 0) {
 				struct sndstate *handle;
@@ -421,8 +426,8 @@ void sightTick(bool sighton)
 	case SIGHTTRACKTYPE_FOLLOWLOCKON:
 		// Conditionally copy lookingatprop to any trackedprops slot, but only if the slot is empty
 		if (sighton && g_Vars.currentplayer->lookingatprop.prop
-				&& sightCanTargetProp(g_Vars.currentplayer->lookingatprop.prop, 4)) {
-			index = sightFindFreeTargetIndex(4);
+				&& sightCanTargetProp(g_Vars.currentplayer->lookingatprop.prop, lock->locks, &lock->filter)) {
+			index = sightFindFreeTargetIndex(lock->locks);
 
 			if (index >= 0) {
 				struct sndstate *handle;

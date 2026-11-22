@@ -54,6 +54,7 @@
 #include "weapon_graph_v2_runtime.h"
 #include "weapon_nested_runtime_harness.h"
 #include "weapon_rules.h"
+#include "weapon_events.h"
 
 #include <stdint.h>
 
@@ -3268,8 +3269,10 @@ void autoaimTick(void)
 		farsightChooseTarget();
 	}
 
-	if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_CMP150
-			&& g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY) {
+	/* held-weapon-events.md slice 6b: the aim follows the sight's held
+	 * targets when its lock says so (og.weapon.lock_on aim_follows; the
+	 * original's lock gives it to the CMP150's secondary). */
+	if (weaponSightLock(0)->aim_follows) {
 		iscmpsec = true;
 	}
 

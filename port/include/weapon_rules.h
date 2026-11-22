@@ -6,6 +6,7 @@
 #include <PR/ultratypes.h>
 #include "constants.h"
 #include "mission_graph_runner.h"
+#include "target_filter.h"
 
 /*
  * The modules and gates a held weapon program can run, the events that apply
@@ -53,7 +54,9 @@ extern "C" {
  * primes while the trigger is held. */
 #define WEAPON_MODULE_CHARGE      (1u << 14) /* og.weapon.charge ("start", "time", "steps", "release", ...) */
 #define WEAPON_MODULE_COOK        (1u << 15) /* og.weapon.cook ("fuse") */
-#define WEAPON_MODULE_COUNT 16
+/* Slice 6b: the sight's lock while the player aims (event.weapon.aiming). */
+#define WEAPON_MODULE_LOCK_ON     (1u << 16) /* og.weapon.lock_on ("locks", "aim_follows", the target filter) */
+#define WEAPON_MODULE_COUNT 17
 #define WEAPON_MODULE_ALL ((1u << WEAPON_MODULE_COUNT) - 1)
 #define WEAPON_MODULE_TRIGGERS (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC \
 	| WEAPON_MODULE_CHARGE | WEAPON_MODULE_COOK)
@@ -108,7 +111,7 @@ static inline const char *weaponRulesModuleKind(u32 bit)
 		"og.weapon.burst", "og.weapon.automatic", "og.weapon.use_ammo",
 		"og.weapon.hitscan", "og.weapon.beam", "og.weapon.launch", "og.weapon.throw",
 		"og.weapon.melee", "og.weapon.special", "og.weapon.mode_toggle",
-		"og.weapon.charge", "og.weapon.cook",
+		"og.weapon.charge", "og.weapon.cook", "og.weapon.lock_on",
 	};
 	for (s32 i = 0; i < WEAPON_MODULE_COUNT; i++) {
 		if (bit == (1u << i)) return kinds[i];
@@ -152,15 +155,28 @@ static inline u32 weaponRulesGateBit(const char *kind)
 	return 0;
 }
 
-/* The weapon events, in kind order (MISSION_GRAPH_EVENT_WEAPON_*). */
-#define WEAPON_RULE_EVENT_COUNT \
-	(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED + 1)
+/* The weapon events, in kind order (MISSION_GRAPH_EVENT_WEAPON_*): the five
+ * numbered together, then the aiming event (slice 6b), numbered after the
+ * projectile flight event. */
+#define WEAPON_RULE_EVENT_COUNT 6
 
 /* The index-th weapon event's kind, or -1 past the end. */
 static inline s32 weaponRulesEventAt(s32 index)
 {
-	return index >= 0 && index < WEAPON_RULE_EVENT_COUNT
-		? MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED + index : -1;
+	if (index >= 0 && index <= MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED) {
+		return MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED + index;
+	}
+	return index == WEAPON_RULE_EVENT_COUNT - 1 ? MISSION_GRAPH_EVENT_WEAPON_AIMING : -1;
+}
+
+/* A weapon event's place in that order, -1 for no weapon event. */
+static inline s32 weaponRulesEventIndex(s32 event_kind)
+{
+	if (event_kind >= MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED
+			&& event_kind <= MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE) {
+		return event_kind - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED;
+	}
+	return event_kind == MISSION_GRAPH_EVENT_WEAPON_AIMING ? WEAPON_RULE_EVENT_COUNT - 1 : -1;
 }
 
 /* "event.weapon.trigger_pressed" for its kind; NULL for no weapon event. */
@@ -169,17 +185,18 @@ static inline const char *weaponRulesEventName(s32 event_kind)
 	static const char *const names[WEAPON_RULE_EVENT_COUNT] = {
 		"event.weapon.trigger_pressed", "event.weapon.ready_while_held",
 		"event.weapon.clip_empty", "event.weapon.trigger_released",
-		"event.weapon.reload_done",
+		"event.weapon.reload_done", "event.weapon.aiming",
 	};
-	const s32 index = event_kind - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED;
+	const s32 index = weaponRulesEventIndex(event_kind);
 
-	return index >= 0 && index < WEAPON_RULE_EVENT_COUNT ? names[index] : NULL;
+	return index >= 0 ? names[index] : NULL;
 }
 
 /* The modules the event's seam applies. The idle seam's three rule events
  * (trigger_pressed, ready_while_held, clip_empty) apply the idle actions,
  * use_ammo and the shot modules (the attack a trigger starts) and set_state;
- * the records (trigger_released, reload_done) apply set_state only. */
+ * the records (trigger_released, reload_done) apply set_state only; aiming
+ * (slice 6b) the sight's lock. */
 static inline u32 weaponRulesEventModules(s32 event_kind)
 {
 	switch (event_kind) {
@@ -190,6 +207,8 @@ static inline u32 weaponRulesEventModules(s32 event_kind)
 	case MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED:
 	case MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE:
 		return WEAPON_MODULE_SET_STATE;
+	case MISSION_GRAPH_EVENT_WEAPON_AIMING:
+		return WEAPON_MODULE_LOCK_ON;
 	}
 	return 0;
 }
@@ -753,6 +772,9 @@ static inline f32 weaponRulesRateFromText(const char *text, f32 dflt)
 #define WEAPON_RULE_ACTION_PARAM "action"
 #define WEAPON_RULE_MODE_PARAM "mode"
 #define WEAPON_RULE_DRAIN_PARAM "drain"
+#define WEAPON_RULE_LOCKS_PARAM "locks"             /* og.weapon.lock_on (slice 6b) */
+#define WEAPON_RULE_AIM_FOLLOWS_PARAM "aim_follows"
+#define WEAPON_RULE_MAX_LOCKS 4                     /* the player's tracked props */
 typedef struct weapon_rule_setting {
 	u32 module;
 	const char *key;
@@ -760,7 +782,7 @@ typedef struct weapon_rule_setting {
 	s32 lo;
 	s32 hi;
 } weapon_rule_setting_t;
-#define WEAPON_RULE_SETTING_COUNT 30
+#define WEAPON_RULE_SETTING_COUNT 32
 
 static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 {
@@ -797,6 +819,8 @@ static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_RELEASE_PARAM, WEAPON_RULE_SETTING_RELEASE, 0, 0 },
 		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_DAMAGE_PER_STEP_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, 100 },
 		{ WEAPON_MODULE_COOK, WEAPON_RULE_FUSE_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_SPIN },
+		{ WEAPON_MODULE_LOCK_ON, WEAPON_RULE_LOCKS_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_LOCKS },
+		{ WEAPON_MODULE_LOCK_ON, WEAPON_RULE_AIM_FOLLOWS_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
 	};
 	return index >= 0 && index < WEAPON_RULE_SETTING_COUNT ? &settings[index] : NULL;
 }
@@ -1412,6 +1436,103 @@ static inline s32 weaponRulesTicksPerShot(const weapon_rule_trigger_t *plan)
 }
 
 /*
+ * held-weapon-events.md slice 6b: the sight's lock (og.weapon.lock_on, at
+ * event.weapon.aiming). While the player aims, the sight holds up to "locks"
+ * targets (1 to WEAPON_RULE_MAX_LOCKS) that its filter takes from what the
+ * player looks at, each until it is lost; with more than one, each box
+ * shows its number. "aim_follows": the aim follows the held targets (the
+ * CMP150's follow lock-on). The filter's settings are target_filter.h's; a
+ * setting left out takes the "anything" filter's. A launch hands the first
+ * held target to its projectile, as the original's does.
+ *
+ * The original's lock is its weapon's aim settings' track type: the rocket
+ * launcher's one target (whatever the player looks at), the CMP150's four
+ * (things only if the stage marks them for the sight), which the CMP150's
+ * secondary aims at; every other weapon has none (the box follows the aim).
+ * The base programs write it, so those quirks are settings.
+ */
+typedef struct weapon_rule_lock {
+	s32 locks;       /* targets held: 0 none (the box follows the aim), 1 to WEAPON_RULE_MAX_LOCKS */
+	s32 aim_follows; /* the aim follows the held targets */
+	s32 tracktype;   /* the sight's SIGHTTRACKTYPE_* for it (weaponRulesLockTrackType) */
+	target_filter_t filter;
+} weapon_rule_lock_t;
+
+/* The sight's track type for a lock: a lock's (the rocket launcher's for one
+ * target, the follow lock-on's numbered boxes for more), else the weapon's
+ * own when it is no lock (none, default, the beta scanner, the threat
+ * detector), else the default. */
+static inline s32 weaponRulesLockTrackType(const weapon_rule_lock_t *lock, s32 weapon_tracktype)
+{
+	if (lock && lock->locks > 1) return SIGHTTRACKTYPE_FOLLOWLOCKON;
+	if (lock && lock->locks == 1) return SIGHTTRACKTYPE_ROCKETLAUNCHER;
+	if (weapon_tracktype == SIGHTTRACKTYPE_ROCKETLAUNCHER || weapon_tracktype == SIGHTTRACKTYPE_FOLLOWLOCKON) {
+		return SIGHTTRACKTYPE_DEFAULT;
+	}
+	return weapon_tracktype;
+}
+
+/* The original's lock for a weapon function: its weapon's aim settings'
+ * track type (sightTick) and, as the original keys them by weapon number,
+ * the rocket launcher's filter (sightCanTargetProp) and the CMP150's
+ * secondary's follow (autoaimTick). */
+static inline void weaponRulesNativeLock(s32 weaponnum, s32 func, s32 tracktype, weapon_rule_lock_t *out)
+{
+	memset(out, 0, sizeof(*out));
+	targetFilterNative(TARGET_PICKER_LOCK, weaponnum, &out->filter);
+	if (tracktype == SIGHTTRACKTYPE_ROCKETLAUNCHER) {
+		out->locks = 1;
+	} else if (tracktype == SIGHTTRACKTYPE_FOLLOWLOCKON) {
+		out->locks = WEAPON_RULE_MAX_LOCKS;
+	}
+	out->aim_follows = weaponnum == WEAPON_CMP150 && func == FUNC_SECONDARY;
+	out->tracktype = weaponRulesLockTrackType(out, tracktype);
+}
+
+/* The lock an og.weapon.lock_on node sets: its settings, read by `get` (a
+ * node's text for a key, NULL for none), over one target, no follow and the
+ * "anything" filter. Returns 1, or 0 when a setting is malformed (which
+ * then keeps its default). */
+static inline s32 weaponRulesApplyLockSettings(weapon_rule_text_fn get, void *user, weapon_rule_lock_t *out)
+{
+	const char *bad = NULL;
+	const s32 locks = weaponRulesWholeFromText(get(WEAPON_RULE_LOCKS_PARAM, user), 1, WEAPON_RULE_MAX_LOCKS, 1);
+	const char *follows = get(WEAPON_RULE_AIM_FOLLOWS_PARAM, user);
+	const s32 follow = follows ? weaponRulesBoolFromText(follows) : 0;
+	s32 ok = locks >= 0 && follow >= 0;
+
+	memset(out, 0, sizeof(*out));
+	out->locks = locks < 0 ? 1 : locks;
+	out->aim_follows = follow > 0;
+	if (targetFilterFromSettings(get, user, &out->filter, &bad) < 0) ok = 0;
+	out->tracktype = weaponRulesLockTrackType(out, SIGHTTRACKTYPE_DEFAULT);
+	return ok;
+}
+
+/* Whether two locks hold the same targets the same way (the parity probe). */
+static inline s32 weaponRulesLockEqual(const weapon_rule_lock_t *a, const weapon_rule_lock_t *b)
+{
+	return a->locks == b->locks && a->aim_follows == b->aim_follows && a->tracktype == b->tracktype
+		&& (a->locks == 0 || targetFilterSame(&a->filter, &b->filter));
+}
+
+/* A lock as og.weapon.lock_on's settings, JSON members (", \"locks\": 4,
+ * ..."), every one written, as the extractor writes a base program's lock;
+ * the length, or -1 when it does not fit. */
+static inline s32 weaponRulesLockSettingsText(const weapon_rule_lock_t *lock, char *buf, s32 cap)
+{
+	char filter[320];
+	s32 n;
+
+	if (!lock || !buf || cap <= 0 || targetFilterSettingsText(&lock->filter, filter, (s32)sizeof(filter)) < 0) {
+		return -1;
+	}
+	n = snprintf(buf, (size_t)cap, ", \"" WEAPON_RULE_LOCKS_PARAM "\": %d, \"" WEAPON_RULE_AIM_FOLLOWS_PARAM "\": %s%s",
+		lock->locks, lock->aim_follows ? "true" : "false", filter);
+	return n < 0 || n >= cap ? -1 : n;
+}
+
+/*
  * One walk of a held program for one weapon event, shared by the game's
  * seams (weapon_events.c) and pd-tests, so what a program chooses is
  * decided by one piece of code:
@@ -1457,6 +1578,7 @@ typedef struct weapon_rule_walk {
 	u32 modules;                            /* what the walk chose */
 	weapon_rule_trigger_t plan;             /* the first trigger reached, with use_ammo's rounds */
 	weapon_rule_reload_t reload;            /* the first reload reached (slice 4b) */
+	weapon_rule_lock_t lock;                /* the first lock reached (slice 6b); locks 0 for none */
 } weapon_rule_walk_t;
 
 /* A node's settings as one module reads them: each read gets a buffer of
@@ -1555,6 +1677,19 @@ static inline s32 weaponRulesWalkModule(const char *kind, const char *node_id,
 		walk->modules |= bit;
 		return 1;
 	}
+	if (bit == WEAPON_MODULE_LOCK_ON) {
+		/* slice 6b: the first lock reached is the sight's. */
+		if (!(walk->modules & WEAPON_MODULE_LOCK_ON)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			read.next = 0;
+			weaponRulesApplyLockSettings(weaponRulesWalkSettingText, &read, &walk->lock);
+		}
+		walk->modules |= bit;
+		return 1;
+	}
 	if (bit & WEAPON_MODULE_SHOTS) {
 		/* slice 4: the first shot reached is the attack's. */
 		if (!(walk->modules & WEAPON_MODULE_SHOTS)) {
@@ -1602,6 +1737,7 @@ static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 ev
 	walk->modules = 0;
 	memset(&walk->plan, 0, sizeof(walk->plan));
 	memset(&walk->reload, 0, sizeof(walk->reload));
+	memset(&walk->lock, 0, sizeof(walk->lock));
 	walk->plan.aimed_burst = 1;
 	if (!program || !missionGraphProgramHandlesEvent(program, event_kind)) {
 		return 0;
@@ -1617,6 +1753,9 @@ static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 ev
 	walk->modules &= weaponRulesEventModules(event_kind);
 	if (!(walk->modules & WEAPON_MODULE_RELOAD)) {
 		memset(&walk->reload, 0, sizeof(walk->reload));
+	}
+	if (!(walk->modules & WEAPON_MODULE_LOCK_ON)) {
+		memset(&walk->lock, 0, sizeof(walk->lock));
 	}
 	if (!(walk->modules & WEAPON_MODULE_TRIGGERS)) {
 		memset(&walk->plan, 0, sizeof(walk->plan));

@@ -982,6 +982,28 @@ const char *weaponGraphRuntimeHeldParamText(s32 weaponnum, const struct mission_
 	return heldParamTextIn(table, params, key, buf, cap);
 }
 
+/* held-weapon-events.md slice 6b: a lock's filter settings as registration
+ * reads them: a "$name" one from the weapon's variables (one it does not
+ * name reads as malformed), or left to the weapon's registration while only
+ * the program is checked. */
+typedef struct held_filter_read {
+	const mission_graph_params_t *params;
+	s32 next;
+	char bufs[8][WEAPON_RULE_ITEM_LEN];
+} held_filter_read_t;
+
+static const char *heldFilterText(const char *key, void *user)
+{
+	held_filter_read_t *read = (held_filter_read_t *)user;
+	const char *raw = missionGraphParamText(read->params, key);
+	const char *text;
+
+	if (!raw || heldParamDeferred(raw)) return NULL;
+	text = heldParamTextIn(s_held_register_variables, read->params, key, read->bufs[read->next++ % 8],
+		WEAPON_RULE_ITEM_LEN);
+	return text ? text : "";
+}
+
 /* held-weapon-events.md slice 2: a held program's settings, checked when its
  * weapon registers: has_ammo's "rounds" a whole number from 1 to
  * WEAPON_RULE_MAX_ROUNDS (or none), state_is and set_state a key with a
@@ -1031,7 +1053,8 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 			"%s: its cloak drains its function's rounds, and this function has no ammunition (ammo_slot -1)", kind);
 		return 0;
 	}
-	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_RELOAD)) {
+	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_RELOAD
+			| WEAPON_MODULE_LOCK_ON)) {
 		for (s32 i = 0; weaponRulesSettingAt(i); i++) {
 			const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
 			const char *raw = setting->module == bit ? missionGraphParamText(params, setting->key) : NULL;
@@ -1100,6 +1123,23 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 				check->custom);
 			if (problem) {
 				snprintf(check->why, sizeof(check->why), "%s: %s", kind, problem);
+				return 0;
+			}
+		}
+		if (bit == WEAPON_MODULE_LOCK_ON) {
+			/* slice 6b: the lock's target filter (target_filter.h). */
+			held_filter_read_t read;
+			target_filter_t filter;
+			const char *bad = NULL;
+
+			memset(&read, 0, sizeof(read));
+			read.params = params;
+			if (targetFilterFromSettings(heldFilterText, &read, &filter, &bad) < 0) {
+				const char *raw = bad ? missionGraphParamText(params, bad) : NULL;
+				const char *help = targetFilterSettingHelp(bad);
+
+				snprintf(check->why, sizeof(check->why), "%s needs %s %s, got %s", kind,
+					bad ? bad : "a setting", help ? help : "?", raw ? raw : "?");
 				return 0;
 			}
 		}

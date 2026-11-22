@@ -47,6 +47,7 @@ struct hand;
 struct weapon_rule_function;
 struct weapon_rule_trigger;
 struct weapon_rule_reload;
+struct weapon_rule_lock;
 
 /* bgunSetTriggerOn: the hand's trigger is `on` now and was `previous`. A
  * press waits for the idle seam; a release drops a waiting press and is the
@@ -121,9 +122,20 @@ s32 weaponCloakToggle(s32 weaponnum, f32 *drain, s32 *ammo_slot);
  * a record). */
 void weaponEventReloadDone(s32 handnum, struct hand *hand);
 
+/* slice 6b: the sight's lock for the current player's right hand (the sight
+ * is the right hand's). While the player aims (`aiming`, sightTick), its
+ * function's program walks event.weapon.aiming and the og.weapon.lock_on it
+ * reaches is the lock (none reached: no lock, the box follows the aim); the
+ * hand keeps it while it holds that function, for the sight and auto-aim
+ * between walks. A function with no program, or whose program does not
+ * handle the event, has the original's for its weapon's aim settings
+ * (weaponRulesNativeLock). A base function's walked lock is compared with
+ * the original's (rules.compared, rules.differ). Never NULL. */
+const struct weapon_rule_lock *weaponSightLock(s32 aiming);
+
 /* Logs "WEAPON.EVENTS: <why> trigger_pressed=N ready_while_held=N
  * clip_empty=N trigger_released=N reload_done=N rules.compared=N
- * rules.differ=N" and starts the counts again. */
+ * rules.differ=N aiming=N" and starts the counts again. */
 void weaponEventsReport(const char *why);
 
 #endif
