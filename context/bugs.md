@@ -1,5 +1,18 @@
 # Bug Tracker
 
+## 2026-11-22 B-1307 `pd2q edit -New` failed for every new file, and an empty file in dev read as missing (T-TOOLING-020, fixed through the build queue)
+
+Found by claude-pd-integration-20261121 when the build queue's Milestone 4 run stopped at its first
+`pd2q edit <new file> -New`, before submitting anything: "Exception calling WriteAllBytes ... Value cannot be
+null (Parameter 'bytes')". The command wrote `$(if ($null -eq $content) { [byte[]]@() } else { $content })`, and a
+PowerShell subexpression unrolls an empty array to `$null`. `Invoke-Pd2qGitBytes` had the same flaw: it
+returned its byte array unrolled, so an empty file or an empty diff reached the caller as `$null`. An empty
+file in dev then would not open without `-New`, and the scratch patch added it as a new file, which cannot
+apply to dev. Fix: the helper returns the array whole (`return , $ms.ToArray()`), and `edit` writes from a
+byte array variable. Test-Pd2qLeases.ps1 checks both (84 checks). The Milestone 3 worker test had passed
+because it ignores that command's exit code and writes the new file itself. Class: SP-102 (PowerShell
+unrolls an empty array to $null); the same reader in devtools/pdxxx-asset-tool.psm1 is left to its owner.
+
 ## 2026-11-22 B-1302 Since D-052, simulants stall on stairs and ramps: Combat ends with no kill and a Hacker Central carrier never reaches the terminal (T-ENGINE-006, fixed on week-pd/mp-rules, found by Integration's finalization smokes)
 
 Found in Integration's group G1a on the step 9 candidate (dev 96882002, base 15), diagnosed by

@@ -442,7 +442,10 @@ function Invoke-Pd2qGitBytes([string] $Dir, [string[]] $GitArgs, [switch] $Allow
         if ($allowFailure) { return $null }
         throw "git $($args2 -join ' ') in $Dir failed ($($proc.ExitCode)): $($errTask.Result.Trim())"
     }
-    return $ms.ToArray()
+    # The comma keeps the array whole: PowerShell unrolls a returned array, and
+    # an empty one (an empty file, an empty diff) reached the caller as $null,
+    # which reads as "git failed" (B-1307).
+    return , $ms.ToArray()
 }
 
 function Get-Pd2qPatchPaths([string] $PatchFile) {

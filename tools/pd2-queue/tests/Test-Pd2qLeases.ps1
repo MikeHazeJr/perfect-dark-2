@@ -273,6 +273,31 @@ try {
     Check ($patchU -match '\+dev, edited after all' -and $patchU -notmatch 'deleted file mode') "a file deleted and then edited again is edited, not deleted`n$patchU"
     [void](Q @('release', 'T-UNIT-015', '-Lease', $nu))
 
+    # B-1307: an empty byte array used to reach its caller as $null (PowerShell
+    # unrolls it), so edit -New failed for every new file, and a file that is
+    # empty in dev read as missing: it would not open without -New, and the
+    # patch added it as a new file, which cannot apply to dev.
+    [IO.File]::WriteAllBytes((Join-Path $dev 'docs\empty.txt'), [byte[]]::new(0))
+    & $git -C $dev add -A; & $git -C $dev commit -q -m 'an empty file'
+    $o10 = Owner; $owners += $o10
+    $r = Q @('claim', 'T-UNIT-016', '-Session', 'claude-n', '-OwnerPid', $o10.Id); $nn = LeaseNumber $r.Out
+    $r = Q @('edit', 'docs/new.txt', '-Session', 'claude-n', '-New')
+    $fileN = $r.Out.Trim()
+    Check ($r.Code -eq 0 -and (Test-Path -LiteralPath $fileN -PathType Leaf) -and (Get-Item -LiteralPath $fileN).Length -eq 0) "edit -New starts a new file empty in scratch`n$($r.Out)"
+    [IO.File]::WriteAllText($fileN, "a new file`n")
+    $r = Q @('edit', 'docs/empty.txt', '-Session', 'claude-n')
+    $fileE = $r.Out.Trim()
+    Check ($r.Code -eq 0 -and (Test-Path -LiteralPath $fileE -PathType Leaf) -and (Get-Item -LiteralPath $fileE).Length -eq 0) "a file that is empty in dev opens without -New`n$($r.Out)"
+    [IO.File]::WriteAllText($fileE, "no longer empty`n")
+    [void](Q @('checkpoint', 'T-UNIT-016', '-Lease', $nn, '-Note', 'a new file and an emptied one'))
+    $patchN = Get-Content -LiteralPath (Join-Path $root 'queue\tasks\T-UNIT-016.patch') -Raw
+    $sections = @($patchN -split '(?m)^diff --git ')
+    $newSection = @($sections | Where-Object { $_.StartsWith('a/docs/new.txt ') })[0]
+    $emptySection = @($sections | Where-Object { $_.StartsWith('a/docs/empty.txt ') })[0]
+    Check ($newSection -and $newSection -match 'new file mode' -and $newSection -match '\+a new file') "the patch adds the new file`n$patchN"
+    Check ($emptySection -and $emptySection -notmatch 'new file mode' -and $emptySection -match '\+no longer empty') "and edits the empty file rather than adding it`n$patchN"
+    [void](Q @('release', 'T-UNIT-016', '-Lease', $nn))
+
     # submit -Patch declares both sides of a rename, names with spaces included,
     # so the worker's touched-files check accepts the rename's destination.
     [void](& $git -C $dev mv README.md 'docs/Read Me.md')

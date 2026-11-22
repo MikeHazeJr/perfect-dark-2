@@ -223,7 +223,10 @@ switch ($Command) {
                 $content = Invoke-Pd2qGitBytes $paths.Dev @('show', "$($base):$rel") -AllowFailure
                 if ($null -eq $content -and -not $New) { throw "$rel is not in dev at $($base.Substring(0, 12)); pass -New to create it." }
                 [IO.Directory]::CreateDirectory((Split-Path -Parent $dest)) | Out-Null
-                [IO.File]::WriteAllBytes($dest, $(if ($null -eq $content) { [byte[]]@() } else { $content }))
+                # Not $(if ...): a subexpression unrolls an empty array to $null (B-1307).
+                $bytes = [byte[]]::new(0)
+                if ($null -ne $content) { $bytes = [byte[]]$content }
+                [IO.File]::WriteAllBytes($dest, $bytes)
                 $text = $dest
             }
             $task = Get-Pd2qTask $mine[0].issue
