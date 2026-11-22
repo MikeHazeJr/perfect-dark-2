@@ -1093,7 +1093,7 @@ Listed as each slice lands; none is run by Core Weapons.
 | 4 | `boot_smoke` on a freshly extracted install | `embedded.v20`; every base program registers with its shot node and its reload's style |
 | 4b | any smoke that empties a Shotgun's or crossbow's clip | the clip_empty `WEAPON.RULE` line shows `reload=one_at_a_time native_reload=one_at_a_time`; no `WEAPON.RULE differs` |
 | 4b | `crystal_pistol_bot_charge_smoke` | the crystal pistol (a v1 graph, its record's regrow) still regrows its crystals (`BONDGUN.REGROW` lines) |
-| 5 | any smoke that charges the Mauler and fires it (none written yet: give `base:mauler`, switch to the secondary, wait two seconds, fire) | the press's `WEAPON.RULE` line shows `plan=charge start=while_selected time=100 steps=5 ... damage_per_step=3.33333325`; no `WEAPON.RULE differs` |
+| 5 | `held_weapon_charge_smoke` (written 2026-11-22, `tools/smoke-verify/tests/`: gives `base:mauler`, fires the primary, switches to the secondary, waits 3.5 s while it charges, fires) | the press's `WEAPON.RULE` line shows `plan=charge start=while_selected time=100 steps=5 ... damage_per_step=3.33333325`; no `WEAPON.RULE differs` |
 | 5 | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the crystal pistol's committed charge still waits its time and launches (`BONDGUN.CHARGE: start ... release_in=`) |
 | 5 | `projectile_events_smoke` | the timed grenade still cooks and throws (its fuse lines unchanged) |
 | 5 (review) | the Mauler smoke above | the gun's tint and the shot's pitch still follow the charge (now `chargelevel`); a weapon change clears it |
