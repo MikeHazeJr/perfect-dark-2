@@ -1566,6 +1566,12 @@ target_include_directories(pd-catch-main PRIVATE ${CMAKE_SOURCE_DIR}/port/includ
 
 add_executable(pd-tests ${SRC_TESTS})
 target_link_libraries(pd-tests PRIVATE pd-catch-main)
+# Build queue Milestone 0 (T-TOOLING-020, 2026-11-22): debug info on the test
+# objects cost 42.6 s of a 157 s cold clean build of client, updater and tests
+# (C:\PD2\reports\m0-build-timing.md, runs C and G). Catch2 reports a failure's
+# file and line without it; the client keeps -g for its crash backtraces.
+target_compile_options(pd-tests PRIVATE -g0)
+target_compile_options(pd-catch-main PRIVATE -g0)
 target_sources(pd-tests PRIVATE
   ${CMAKE_SOURCE_DIR}/port/src/native_write_policy.c
   ${CMAKE_SOURCE_DIR}/port/src/native_write_policy_windows.c

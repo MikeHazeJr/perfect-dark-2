@@ -13,7 +13,7 @@ Every code change must be build-verified before being reported as complete.
 - After all changes are finalized, run a build covering the affected target(s).
 - If build errors occur, fix them before reporting.
 - Do not report "ready to build" or "done" until a clean compile is confirmed.
-- **Use `.\devtools\build-session.ps1 -Session <short-id> -Target <client|tests|all>`** for AI verification, choosing the affected target(s); use `all` when both client and tests need rebuilding. The wrapper routes each session to `.claude/session-builds/<short-session-id>/` so concurrent sessions do not corrupt shared `Build/`.
+- **Use `.\devtools\build-session.ps1 -Session <short-id> -Target <client|tests|all|full>`** for AI verification, choosing the affected target(s); use `full` (client, updater and tests in one ninja call) when both client and tests need rebuilding. `all` is client plus updater only. The wrapper routes each session to `.claude/session-builds/<short-session-id>/` so concurrent sessions do not corrupt shared `Build/`.
 - The wrapper queues by default; sessions get queue position, ETA, and watchdog timeout (120 seconds without output by default; total build duration is not the idle limit).
 - Do not pass `-NoQueue` unless Mike explicitly asks for it.
 - Reuse the same session id only inside the same active session. Parallel sessions must use different ids; the wrapper holds a lock and fails fast on accidental reuse.

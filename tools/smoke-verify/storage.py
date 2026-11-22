@@ -91,6 +91,34 @@ def owner_gone_evidence(install):
     finally:
         kernel.CloseHandle(handle)
 
+def process_alive(pid, creation_ticks):
+    """True while the exact process (id plus creation time) still runs; False
+    once it exited or its id names a different process. Raises when Windows
+    cannot say (fail closed). Used by the prepared-install handoff."""
+    if os.name != "nt": raise StorageError("Prepared handoff needs Windows process evidence")
+    from ctypes import wintypes as w
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.OpenProcess.argtypes = [w.DWORD, w.BOOL, w.DWORD]
+    kernel.OpenProcess.restype = w.HANDLE
+    kernel.GetProcessTimes.argtypes = [w.HANDLE, *([ctypes.POINTER(w.FILETIME)] * 4)]
+    kernel.CloseHandle.argtypes = [w.HANDLE]
+    handle = kernel.OpenProcess(0x1000, False, pid)
+    if not handle:
+        error = ctypes.get_last_error()
+        if error == 87: return False  # ERROR_INVALID_PARAMETER: no process has this id
+        raise StorageError("Cannot read process %d (error %d); it may still run" % (pid, error))
+    try:
+        creation, exit_time, system, user = (w.FILETIME() for _ in range(4))
+        if not kernel.GetProcessTimes(handle, creation, exit_time, system, user):
+            raise StorageError("Cannot read process %d times; it may still run" % pid)
+        if exit_time.dwHighDateTime or exit_time.dwLowDateTime: return False
+        return (creation.dwHighDateTime << 32 | creation.dwLowDateTime) == creation_ticks
+    finally:
+        kernel.CloseHandle(handle)
+
+def content_digest(content):
+    return hashlib.sha256(json.dumps(content, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
 def plain(path):
     path = Path(os.path.abspath(path))
     for ancestor in [*reversed(path.parents), path]:
@@ -1053,6 +1081,7 @@ class Storage:
         self.preflight()
         install.update(status="completed", passed=bool(request["passed"]), pin=bool(request.get("keep")),
                        full_bytes=sum(e["bytes"] for e in files.values()), completed=utc())
+        install.pop("handoff", None)  # a preparer may close its own unexecuted handoff (T-TOOLING-019)
         self.save()
         result = {"Receipt": str(receipt_dir / "recipe.json.gz"), "LogFiles": log_files,
                   "FullInstallRetained": True, "ArchiveBytes": self.archive_used, "NewArchiveBytes": self.new_blob_bytes}
@@ -1128,7 +1157,18 @@ class Storage:
         seed = self.read_seed(install["seed"])
         actual, metadata = self.inspect(directory)
         foreign = sorted(n for n, e in actual.items() if seed.get(n) != e)
-        if foreign:
+        changed = {}
+        prepared = install.get("handoff")
+        if foreign and prepared and content_digest(actual) == prepared["content_sha256"]:
+            # T-TOOLING-019: a prepared install that was never executed holds
+            # its seed plus the fixtures the prepare step staged, exactly as
+            # handed off; no run wrote anything. Its staged files go into the
+            # archive so the recipe reconstructs exactly what is there.
+            captured = self.capture(directory)
+            if self.inspect(directory)[0] != actual or captured != actual:
+                raise StorageError("Prepared workspace changed during its release; preserve and review")
+            changed = {n: captured[n] for n in foreign}
+        elif foreign:
             raise StorageError("Workspace holds files that are not unchanged seed copies; preserve and review: "
                                + ", ".join(foreign[:5]))
         missing = sorted(seed.keys() - actual.keys())
@@ -1139,12 +1179,15 @@ class Storage:
         released = {"by": reviewer.strip(), "reason": reason.strip(), "at": utc(), "owner": owner,
                     "owner_marker": marker_state, "seed_files_present": len(actual),
                     "seed_files_missing": len(missing), "bytes": sum(e["bytes"] for e in actual.values())}
+        if changed:
+            released["prepared_never_executed"] = {"staged_files": len(changed),
+                                                   "content_sha256": prepared["content_sha256"]}
         definition_path = plain(receipt_dir / "release-definition.json")
         with open(definition_path, "x", encoding="utf-8") as f:
             json.dump({"name": "reviewed-release", "id": install["id"]}, f)
         definition_record = self.put(definition_path)
         recipe = {"schema": 1, "complete": True, "id": install["id"], "seed": install["seed"],
-                  "changed": {}, "deleted": missing, "metadata": metadata,
+                  "changed": changed, "deleted": missing, "metadata": metadata,
                   "definition": definition_record, "outcome": {"passed": False, "released": True},
                   "provenance": {"reviewed_release": released}, "completed": utc()}
         serialized = json.dumps(recipe, separators=(",", ":")).encode()
@@ -1154,10 +1197,72 @@ class Storage:
         self.archive_used = self.usage()
         install.update(status="completed", passed=False, pin=False, full_bytes=released["bytes"],
                        completed=utc(), released=released)
+        install.pop("handoff", None)
         self.save()
         return {"Released": install["id"], "Receipt": str(receipt_dir / "release.json.gz"),
                 "Owner": owner, "SeedFilesPresent": len(actual), "SeedFilesMissing": len(missing),
-                "Bytes": released["bytes"], "DeletionPerformed": False}
+                "StagedFiles": len(changed), "Bytes": released["bytes"], "DeletionPerformed": False}
+
+    def _prepared_install(self, request, purpose):
+        install = self.state["installs"].get(request.get("id"))
+        if install is None: raise StorageError("Unknown install for " + purpose)
+        if self.retain_housekeeping or row_retained(install):
+            raise StorageError("Retained housekeeping refuses the prepared-install " + purpose)
+        if install["status"] != "active": raise StorageError("Only an active install can take part in a " + purpose)
+        if install.get("shared"): raise StorageError("A shared workspace cannot be prepared ahead of its run")
+        directory = self.install_path(install)
+        if not directory.is_relative_to(self.root / "installs"):
+            raise StorageError("The prepared-install " + purpose + " is restricted to private installs")
+        marker = json.loads(plain(directory / ".pd-storage-owner.json").read_text())
+        if marker.get("id") != install["id"]: raise StorageError("Workspace owner marker mismatch")
+        return install, directory
+
+    def handoff(self, request):
+        """Prepare/execute boundary (T-TOOLING-019, Mike's order of 2026-11-20
+        step 7): the runner that staged an install outside the game-runtime
+        slot hands it to the later runner that executes it. Records the exact
+        staged content and the sha256 of a one-time token; the executor
+        presents the token (adopt). Launches, copies and deletes nothing."""
+        install, directory = self._prepared_install(request, "handoff")
+        if install.get("owner_pid") != request.get("owner_pid"): raise StorageError("Handoff owner mismatch")
+        if install.get("handoff"): raise StorageError("Install is already handed off")
+        token_sha256 = request.get("token_sha256")
+        if not isinstance(token_sha256, str) or len(token_sha256) != 64 or \
+                any(c not in "0123456789abcdef" for c in token_sha256):
+            raise StorageError("Handoff requires the lowercase sha256 of its one-time token")
+        content, _ = self.inspect(directory)
+        install["handoff"] = {"token_sha256": token_sha256, "content_sha256": content_digest(content),
+                              "files": len(content), "bytes": sum(e["bytes"] for e in content.values()),
+                              "prepared_by": process_identity(install["owner_pid"]), "prepared": utc()}
+        self.save()
+        return {"StorageId": install["id"], "ContentSha256": install["handoff"]["content_sha256"],
+                "Files": len(content), "Bytes": install["handoff"]["bytes"]}
+
+    def adopt(self, request):
+        """The executing runner takes over a handed-off install: the token must
+        match, the preparing process must have exited (or be the adopter
+        itself), and every staged file must be exactly as handed off. Single
+        use: the handoff is consumed and only the adopter can complete it."""
+        install, directory = self._prepared_install(request, "adoption")
+        handoff = install.get("handoff")
+        if not handoff: raise StorageError("Install has no unused prepared handoff (executed or released already)")
+        token = request.get("token")
+        if not isinstance(token, str) or hashlib.sha256(token.encode("utf-8")).hexdigest() != handoff["token_sha256"]:
+            raise StorageError("Prepared handoff token mismatch")
+        adopter = process_identity(request.get("owner_pid"))
+        preparer = handoff["prepared_by"]
+        if adopter != preparer and process_alive(preparer["pid"], preparer["creation_ticks"]):
+            raise StorageError("The preparing runner (pid %d) is still running; adopt after it exits" % preparer["pid"])
+        content, _ = self.inspect(directory)
+        if content_digest(content) != handoff["content_sha256"]:
+            raise StorageError("Prepared install changed between prepare and execute; preserve and review: "
+                               + str(directory))
+        install["owner_pid"] = adopter["pid"]
+        install["adopted"] = {"by": adopter, "at": utc(), "content_sha256": handoff["content_sha256"],
+                              "prepared": handoff["prepared"], "prepared_by": preparer}
+        del install["handoff"]
+        self.save()
+        return {"StorageId": install["id"], "InstallDir": str(directory), "ContentSha256": handoff["content_sha256"]}
 
     def restore(self, identifier, destination):
         install = self.state["installs"][identifier]
@@ -1189,7 +1294,7 @@ def re_safe(name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run", "reuse-plan", "reuse-acquire", "reuse-release", "release-interrupted", "compact"])
+    parser.add_argument("action", choices=["seed", "complete", "preflight", "status", "restore", "dry-run", "reuse-plan", "reuse-acquire", "reuse-release", "release-interrupted", "compact", "handoff", "adopt"])
     args = parser.parse_args()
     # Storage-Harness sends UTF-8 bytes. Windows' locale text decoder can
     # corrupt Unicode paths and read a PowerShell UTF-8 BOM as mojibake.
@@ -1219,6 +1324,8 @@ def main():
         elif args.action == "reuse-release": result = storage.release_reuse(request)
         elif args.action == "release-interrupted": result = storage.release_interrupted(request)
         elif args.action == "compact": result = storage.compact(request)
+        elif args.action == "handoff": result = storage.handoff(request)
+        elif args.action == "adopt": result = storage.adopt(request)
         elif args.action == "preflight": result = storage.preflight(request.get("pending_bytes", 0), request.get("archive_pending_bytes", 0), request.get("build", False) is True)
         else:
             rows = list(storage.state["installs"].values())

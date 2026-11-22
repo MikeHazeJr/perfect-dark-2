@@ -45,7 +45,7 @@
 #>
 
 param(
-    [ValidateSet("client", "updater", "tests", "settings-tests", "probe", "all")]
+    [ValidateSet("client", "updater", "tests", "settings-tests", "probe", "all", "full")]
     [string]$Target = "all",
 
     # Version override in "X.Y.Z" format. If omitted, reads VERSION_SEM_* from CMakeLists.txt
@@ -1279,6 +1279,7 @@ $targets = switch ($Target) {
     "settings-tests" { @("settings-tests") }
     "probe"   { @("probe") }
     "all"     { @("client", "updater") }
+    "full"    { @("client", "updater", "tests") }
 }
 
 $cmakeTargetMap = @{ "client" = "pd"; "updater" = "pd-updater"; "tests" = "pd-tests"; "settings-tests" = "pd-settings-save-tests"; "probe" = "scenario-scene-probe" }
@@ -1288,14 +1289,41 @@ $results  = @{}
 $anyFail  = $false
 
 $script:StepStart = [DateTime]::Now
+# Build queue M0 (2026-11-22): this step ran with -j1, 18 s of serial work in
+# every clean build; the generators write separate files and ran in parallel
+# in every full-graph timing build.
 $headersOk = Invoke-BuildStep -StepName "Generate Headers [pd_headers]" `
                                -Exe $NinjaExe `
-                               -ArgList "-C `"$BuildDir`" -j1 -v pd_headers" `
+                               -ArgList "-C `"$BuildDir`" -v pd_headers" `
                                -ShowAll $Verbose.IsPresent
 if (-not $headersOk) {
     Write-Err ""
     Write-Err "Generated-header step failed. Check the step stdout/stderr/heartbeat logs above."
     exit 1
+}
+
+# Build queue M0 (T-TOOLING-020, 2026-11-22): -Target full builds client,
+# updater and tests in ONE ninja call, so the long test sources overlap the
+# game's. Two calls (-Target all, then -Target tests) cost 45 s of a 202 s
+# cold clean build (C:\PD2\reports\m0-build-timing.md). Each target's
+# post-build steps below still run as before.
+$combined = $null
+if ($Target -eq "full") {
+    $combinedTargets = (@($targets | ForEach-Object { $cmakeTargetMap[$_] })) -join " "
+    $combinedArgs = "-C `"$BuildDir`" -v $combinedTargets"
+    if ($Jobs -gt 0) { $combinedArgs += " -j$Jobs" }
+    Write-Host ""
+    Write-Host "============================================================" -ForegroundColor DarkCyan
+    Write-Host "  Building: $combinedTargets  (one ninja call)" -ForegroundColor White
+    Write-Host "  Dir:      $BuildDir" -ForegroundColor DarkGray
+    Write-Host "============================================================" -ForegroundColor DarkCyan
+    $combinedStart = [DateTime]::Now
+    $script:StepStart = [DateTime]::Now
+    $combinedOk = Invoke-BuildStep -StepName "Compile [Full]" `
+                                    -Exe $NinjaExe `
+                                    -ArgList $combinedArgs `
+                                    -ShowAll $Verbose.IsPresent
+    $combined = @{ Ok = $combinedOk; Elapsed = [math]::Floor(([DateTime]::Now - $combinedStart).TotalSeconds) }
 }
 
 foreach ($t in $targets) {
@@ -1304,6 +1332,11 @@ foreach ($t in $targets) {
     $buildArgs   = "-C `"$BuildDir`" -v $cmakeTarget"
     if ($Jobs -gt 0) { $buildArgs += " -j$Jobs" }
 
+    if ($combined) {
+        # -Target full built every target in the one call above.
+        $buildOk  = $combined.Ok
+        $tElapsed = $combined.Elapsed
+    } else {
     Write-Host ""
     Write-Host "============================================================" -ForegroundColor DarkCyan
     Write-Host "  Building: $label  (target: $cmakeTarget)" -ForegroundColor White
@@ -1317,6 +1350,7 @@ foreach ($t in $targets) {
                                  -ArgList $buildArgs `
                                  -ShowAll $Verbose.IsPresent
     $tElapsed = [math]::Floor(([DateTime]::Now - $tStart).TotalSeconds)
+    }
     $results[$t] = @{ Ok = $buildOk; Elapsed = $tElapsed }
     if (-not $buildOk) { $anyFail = $true }
 

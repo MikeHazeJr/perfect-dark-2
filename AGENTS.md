@@ -36,10 +36,10 @@ AI verification uses the queued isolated wrapper below. It sets the canonical en
 ### Isolated queued verification builds
 
 If more than one AI/code session may build at the same time, **do not use shared `Build/`**.
-Use an isolated session build directory for AI verification. Choose the affected target(s); `all` remains appropriate when client and tests both need rebuilding:
+Use an isolated session build directory for AI verification. Choose the affected target(s). `full` builds client, updater and tests in one ninja call, the fastest way to rebuild client and tests together; `all` is client plus updater only:
 
 ```powershell
-.\devtools\build-session.ps1 -Session <short-session-id> -Target <client|tests|all>
+.\devtools\build-session.ps1 -Session <short-session-id> -Target <client|tests|all|full>
 ```
 
 Outputs go to `.claude/session-builds/<short-session-id>/`. Reuse the same
