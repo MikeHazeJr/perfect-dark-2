@@ -894,3 +894,29 @@ TEST_CASE("Stage text banks: a stage names its own language bank in its archive"
 	REQUIRE(extractor.find("_ruleevents_liftglass_textbank\"") != std::string::npos);
 	REQUIRE(conformance.find("SCENARIO_TEXT_BANK_RE") != std::string::npos);
 }
+
+TEST_CASE("stage text banks: the bank is bounded, and a level's own scenario reads its manifest",
+	"[stage-rules][text-bank][static]")
+{
+	const std::string lang = readSource("src/game/lang.c");
+	const std::string scanner = readSource("port/src/assetcatalog_scanner.c");
+
+	// Review of PR 28: a named bank must index g_LangBanks (registration does
+	// not bound an INI entry's bank_id), and clearing a bank outside the array
+	// is refused, so stage teardown cannot write past it.
+	REQUIRE(lang.find("&& bank->ext.lang.bank_id < (s32)ARRAYCOUNT(g_LangBanks)) {") != std::string::npos);
+	const size_t clear = lang.find("void langClearBank(s32 bank)");
+	REQUIRE(clear != std::string::npos);
+	const std::string clear_body = lang.substr(clear, 260);
+	REQUIRE(clear_body.find("if (bank < 0 || bank >= (s32)ARRAYCOUNT(g_LangBanks)) {") != std::string::npos);
+
+	// A scenario that exists only inside a mod level is registered through its
+	// scenario.ini; its bank comes from the archive's manifest, as the walker
+	// reads it for every other scenario.
+	REQUIRE(scanner.find("loaderWalkerEnvelopeStrCopy(manifest, manifest_size, \"text_bank\", out, out_n)")
+		!= std::string::npos);
+	const size_t embedded = scanner.find("static s32 registerArenaEmbeddedScenario(");
+	REQUIRE(embedded != std::string::npos);
+	REQUIRE(scanner.find("scenarioArchiveManifestTextBank(bytes, size, text_bank, sizeof(text_bank))", embedded)
+		!= std::string::npos);
+}

@@ -1285,6 +1285,27 @@ static bool roomQuickStartModeHasSims(int mode)
         || mode == ROOM_QS_PLAYER_SIM_TEAMS;
 }
 
+/* Review of PR 27: Players vs. Simulants and Player-Simulant Teams set every
+ * human's team, and a listen host cannot set a remote player's: each client
+ * sends its own team (CLC_SETTINGS) and the match start takes it from there,
+ * while a remote player has no match-config slot here. In a room with remote
+ * players those two choices wait for decision D-056; offline they play as the
+ * original. */
+static bool roomQuickStartModeSetsHumanTeams(int mode)
+{
+    return mode == ROOM_QS_PLAYERS_VS_SIMS || mode == ROOM_QS_PLAYER_SIM_TEAMS;
+}
+
+static bool roomQuickStartRoomHasRemoteHumans(void)
+{
+    return netGetMode() == NETMODE_SERVER && lobbyRoomGetPlayerCount() > 1;
+}
+
+static bool roomQuickStartModeAvailable(int mode)
+{
+    return !(roomQuickStartModeSetsHumanTeams(mode) && roomQuickStartRoomHasRemoteHumans());
+}
+
 /* Quick Start: the original's Quick Team rules (mpConfigureQuickTeamPlayers and
  * mpConfigureQuickTeamSimulants, setup.c) applied to the Room's match. The
  * simulants are replaced; Teams goes off for Players Only and Players and
@@ -1349,9 +1370,12 @@ static int roomQuickStartApply(int mode, int sims, int difficulty)
     matchConfigApplyScenarioRules("quick-start");
     s_PresetSelected = -1;
     s_RoomSettingsDirty = true;
+    /* Online the room's remote players have no slot here: count them too. */
+    const int roomHumans = roomQuickStartRoomHasRemoteHumans()
+        ? (int)lobbyRoomGetPlayerCount() : human;
     sysLogPrintf(LOG_NOTE,
                  "ROOM: Quick Start mode='%s' humans=%d sims=%d of %d difficulty=%d teams=%d",
-                 s_QuickStartModeNames[mode], human, added, wanted, difficulty, teams ? 1 : 0);
+                 s_QuickStartModeNames[mode], roomHumans, added, wanted, difficulty, teams ? 1 : 0);
     return (wanted > 0 && added == 0) ? -1 : added;
 }
 
@@ -1372,6 +1396,16 @@ static int roomQuickStartMaxSims(int mode)
  * Match fires two frames later (the footer counts s_QuickStartFireFrames down). */
 static bool roomQuickStartBegin(int mode, int sims, int difficulty)
 {
+    if (!roomQuickStartModeAvailable(mode)) {
+        snprintf(s_PresetStatusMsg, sizeof(s_PresetStatusMsg),
+                 "%s sets every player's team: offline only for now.",
+                 s_QuickStartModeNames[mode]);
+        sysLogPrintf(LOG_WARNING,
+                     "ROOM: Quick Start mode='%s' refused: the room has remote players, whose teams the host cannot set",
+                     s_QuickStartModeNames[mode]);
+        pdguiPlaySound(PDGUI_SND_KBCANCEL);
+        return false;
+    }
     if (roomQuickStartApply(mode, roomQuickStartModeHasSims(mode) ? sims : 0, difficulty) >= 0) {
         snprintf(s_PresetStatusMsg, sizeof(s_PresetStatusMsg), "Quick Start: %s",
                  s_QuickStartModeNames[mode]);
@@ -5890,14 +5924,25 @@ extern "C" void pdguiRoomScreenRender(s32 winW, s32 winH)
         ImGui::Separator();
         ImGui::Spacing();
 
+        /* Choices that set every player's team wait online (D-056). */
+        if (!roomQuickStartModeAvailable(s_QuickStartMode)) {
+            s_QuickStartMode = ROOM_QS_PLAYERS_AND_SIMS;
+        }
         for (int m = 0; m < ROOM_QS_MODE_COUNT; m++) {
+            const bool available = roomQuickStartModeAvailable(m);
+            if (!available) ImGui::BeginDisabled();
             if (ImGui::RadioButton(s_QuickStartModeNames[m], s_QuickStartMode == m)) {
                 s_QuickStartMode = m;
                 pdguiPlaySound(PDGUI_SND_SUBFOCUS);
             }
+            if (!available) ImGui::EndDisabled();
             if (m == ROOM_QS_PLAYERS_AND_SIMS) {
                 ImGui::Separator();
             }
+        }
+        if (roomQuickStartRoomHasRemoteHumans()) {
+            ImGui::TextDisabled("Players vs. Simulants and Player-Simulant Teams set every");
+            ImGui::TextDisabled("player's team, which the host cannot do online yet.");
         }
 
         if (roomQuickStartModeHasSims(s_QuickStartMode)) {

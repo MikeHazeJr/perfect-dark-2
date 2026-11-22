@@ -52,6 +52,13 @@ each time the branch took dev with no file in common, and PR 38's build change w
 bot.c's simulant Mauler charge on `weaponWeaponCharge` and netmsg.c's drop-handler cloak on
 `weaponCloakToggle` (Workbench N-1191; the base Mauler's numbers are the original's, so nothing changes
 in the base game). Next, besides D-055: D-054 (a custom level's own text) is also Mike's.
+Then (2026-11-22, Auto-fix) the Codex reviews of the merged PRs 25, 27, 28, 30 and 39, fixed on
+`week-pd/mp-rules` in one PR: B-1292 (refused mod modes leave the legacy picker), B-1296 (a stage's text bank
+bounded; `langClearBank` guarded), B-1297 (a level's own scenario reads its manifest's `text_bank`; Grid's detached
+binder has the same gap, left to the Grid lane), B-1298 (`token_picked_up` only on an acquisition), B-1299 (Load
+Preset and Load Scenario on a listen host with remote humans), B-1300 (online Quick Start's two team-setting
+choices held back; **decision D-056** for Mike) and B-1301 (a simulant's program charge reaches its shot,
+`chraction.c`, with Core Weapons told). PR 39's per-step charge comment was already fixed in `8c8502f8`.
 The shared tree's runner and validator copies carry my hunks beside Core Weapons' (they commit by
 hunk). Mistakes to avoid next time: a full SHA typed by hand for `--match-head-commit` (use `git
 rev-parse`), and heredocs for anything with doubled backslashes (Write or Edit instead). Finalization smokes for Integration

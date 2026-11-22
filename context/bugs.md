@@ -34,6 +34,67 @@ folder by its type.
 A machine setting for Mike, not changed by any session: `HKCR\.` = `PhotonWorkShop` makes every extensionless
 file open in the slicer. Removing that default makes Windows ask instead.
 
+## 2026-11-22 B-1296 A stage's named text bank was not bounded, so stage teardown could write past the language banks (T-MODDING-027, fixed on week-pd/mp-rules, found by the Codex review of PRs 28 and 30, not seen in a game)
+
+`langGetStageBank` (`src/game/lang.c`) accepted any `bank_id > 0` of the language entry a scenario names, and
+the INI scanner registers an `ASSET_LANG` entry's `bank_id` with no upper bound. `langLoad` refuses a bank of 69
+or more, but `lvStop` then hands the same number to `langClearBank`, which wrote `g_LangBanks[bank]` with no
+check: a mod's malformed language entry named by a stage was an out-of-bounds write at every stage end. Fix:
+the stage's bank must be below `ARRAYCOUNT(g_LangBanks)`, else the existing loud failure and the stage table
+answer; `langClearBank` refuses a bank outside the array (logged), as `langLoad` and `langIsBankLoaded`
+already did. Tests: `[text-bank]` in `tests/test_stage_rules.cpp`. Severity medium.
+
+## 2026-11-22 B-1297 A scenario inside a mod level ignored its manifest's text bank (T-MODDING-027, fixed on week-pd/mp-rules, found by the Codex review of PR 28, not seen in a game)
+
+The extractor writes `text_bank` into a scenario archive's `_meta/manifest.json` and the scenario walker reads it
+there, but a scenario that exists only inside a `.pdarena` (`registerArenaEmbeddedScenario`,
+`port/src/assetcatalog_scanner.c`) is registered through its `scenario.ini`, whose binder read `text_bank` from
+the INI alone. Such a level got no bank and `langGetStageBank` fell back to the stage table without a word. Fix:
+the embedded registration reads the archive's manifest (`scenarioArchiveManifestTextBank`, the same manifest
+lookup and fallback as `bodyHeadArchiveSlotHint`); the manifest wins, an INI field answers when it names none,
+and `PDARENA.SCENARIO` logs the bank. Propagation, open: Grid's detached binder
+(`assetCatalogBindGridScenarioDescriptor`) also gets only the descriptor text from its three callers in
+`port/src/grid_match_runtime.c`, so a Grid match's scenario has the same gap; that file is the Grid lane's.
+Tests: `[text-bank]` in `tests/test_stage_rules.cpp`. Severity medium.
+
+## 2026-11-22 B-1298 MODE.EVENT token_picked_up counted touches that took nothing (T-MODDING-026, fixed on week-pd/mp-rules, found by the Codex review of PR 25, not seen in a game)
+
+`scenarioPlanPickUpToken` recorded `token_picked_up` before the mode's pickup module ran. In Capture the Case,
+touching your own case without an enemy case, or a second enemy case while carrying one, takes nothing, and
+bringing an enemy case home scores instead; all three were counted, so the first-pickup witness and the match
+totals could report acquisitions that never happened. Fix: the event is recorded only when the character holds
+the mode's token after the module and did not before (`scenarioTokenHeldBy`: the Hold the Briefcase token, a
+Capture the Case case, the uplink). Tests: `tests/test_mode_graph_program.cpp`. Severity low.
+
+## 2026-11-22 B-1299 In a listen host's room, Load Preset and Load Scenario were refused (T-MENUS-009, fixed on week-pd/mp-rules, found by the Codex review of PR 27, not seen in a game)
+
+The Room passes the room's human count (`lobbyRoomGetPlayerCount`) to the saved-setup planner, which keeps the
+match config's human slots and demanded that they equal that count (B-1068). A listen host's remote humans have
+no match-config slot: `netLobbyStartPreparePlayers` builds them from their own client settings at the start. So
+with two or more humans online every preset and every saved setup was refused ("live human slots do not match
+declared human count"). Fix: on a listen host the room may count more humans than the plan keeps; offline, and in
+the V-006 harness, the counts must still agree exactly; the room's count sets the capacity (and a preset's
+simulant difficulty). Tests: `[network]` in `tests/test_scenario_save_transaction_static.cpp`. Severity medium.
+
+## 2026-11-22 B-1300 Online Quick Start could not set the remote players' teams (T-MENUS-009, mitigated on week-pd/mp-rules, decision D-056, found by the Codex review of PR 27, not seen in a game)
+
+Players vs. Simulants and Player-Simulant Teams set every human's team in `g_MatchConfig`, but a listen host's
+remote players have no slot there and each client sends its own team (`CLC_SETTINGS`), which the match start
+uses; the per-human simulants of Player-Simulant Teams also went only to the local player. Nothing lets a host
+set another player's team. Mitigation: in a room with remote players those two choices are disabled in the
+Quick Start popup (with the reason shown) and refused by `roomQuickStartBegin` (the smoke hook too); offline
+they play as the original, and the other three choices work online. The real fix needs a host-set team path
+(decision D-056). Tests: `[network]` in `tests/test_scenario_save_transaction_static.cpp`. Severity medium.
+
+## 2026-11-22 B-1301 A simulant's program-driven charge was not handed to its shot (T-MODDING-025, fixed on week-pd/mp-rules, found by the Codex review of PR 39, not seen in a game)
+
+PR 39 let `bot.c` charge any weapon whose program has a `while_selected` `og.weapon.charge`, but `chrTickShoot`
+(`src/game/chraction.c`) still copied the charge into the shot (`gset.unk063a`, tenths of a step) and emptied it
+only for `WEAPON_MAULER` on `FUNC_SECONDARY`: another such weapon spent its rounds charging, did no extra damage
+and kept the charge after firing. Fix: the handoff keys on the program's charging function
+(`weaponWeaponCharge(...) == weaponfunc + 1`); the Mauler's is its secondary, as before. Tests:
+`tests/test_mode_graph_program.cpp`. Severity low (base weapons unchanged).
+
 ## 2026-11-21 B-1295 The Room's preset names carry the language file's line feed into its logs and the preset's setup name (T-MENUS-009, fixed on week-pd/mp-rules, found in review, not seen in a game)
 
 Found while writing the finalization smoke for the Room's Load Preset (claude-pd-mp-rules-20261121).
@@ -51,7 +112,7 @@ batch) requires both lines whole.
 
 Severity low.
 
-## 2026-11-21 B-1292 A refused mod game mode stays in the legacy mode picker, whose ASSET.CHAIN check would stop the game (T-MODDING-026, open, found in review, not seen in a game)
+## 2026-11-21 B-1292 A refused mod game mode stays in the legacy mode picker, whose ASSET.CHAIN check would stop the game (T-MODDING-026, fixed on week-pd/mp-rules 2026-11-22, found in review and again by the Codex review of PR 30, not seen in a game)
 
 Found while writing gamemode-graphs slice 2 (claude-pd-mp-rules-20261121). When a `.pdgamemode` does not
 hydrate (its `rules.json` is refused, or since slice 2 its `mode.graph.json` is missing or refused),
@@ -64,8 +125,10 @@ programs and conformance holds them to the original table. The Room lists the si
 (`catalogGameModeIdByScenarioIndex`), and no mod mode can be chosen anywhere yet, so only a broken mod mode met by
 the legacy picker reaches it.
 
-Severity low. Fix to make with slice 6 (a mod's mode, the picker): selectors skip a mode whose activation was
-refused and the mod manager shows why; a base mode without a binding stays fatal, as the ASSET.CHAIN policy wants.
+Severity low. Fixed 2026-11-22 (the Codex review of PR 30 asked for it now rather than with slice 6): the
+selectors skip a mod mode whose activation was refused, logging it once (`MODE.PICKER: skipping gamemode ...`,
+`scenarioEntryActivationRefused` in `scenarioCtxAccepts`); a base mode without a binding still stops the game, as
+the ASSET.CHAIN policy wants. Showing the reason in the mod manager stays with slice 6.
 
 ## 2026-11-20 B-1282 The Crystal Pistol ammo smoke fails when one frame stalls during its reload steps (T-MODDING-008, open, test only)
 

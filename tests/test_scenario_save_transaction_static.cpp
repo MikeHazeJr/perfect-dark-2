@@ -423,3 +423,40 @@ TEST_CASE("Room smoke hooks press Load Preset and Quick Start through the Room's
 	REQUIRE(hooks != std::string::npos);
 	REQUIRE(button < hooks);
 }
+
+TEST_CASE("Room plans keep a listen host's remote humans; team-setting Quick Start waits online",
+	"[scenario][room][preset][quick-start][network][static]")
+{
+	const std::string source = readSource("port/src/scenario_save.c");
+	const std::string room = readSource("port/fast3d/pdgui_menu_room.cpp");
+
+	/* Review of PR 27: a listen host's remote humans have no match-config
+	 * slot until the start, so online the room may count more humans than the
+	 * plan keeps; offline the two agree exactly (B-1068, the V-006 harness).
+	 * The room's count sets the capacity. */
+	REQUIRE(source.find("return g_NetMode == NETMODE_SERVER;") != std::string::npos);
+	const std::string candidate = functionBody(source, "static s32 scenarioBuildPlanCandidate(",
+		"static s32 scenarioBuildPlan(");
+	const auto exact = candidate.find("if (actual_humans != human_count) {");
+	const auto online = candidate.find("if (!scenarioRoomHasRemoteHumans()) {");
+	REQUIRE(exact != std::string::npos);
+	REQUIRE(online != std::string::npos);
+	REQUIRE(exact < online);
+	REQUIRE(candidate.find("|| human_count + document->bot_count > MATCH_PARTICIPANT_CAP) {")
+		!= std::string::npos);
+
+	/* Players vs. Simulants and Player-Simulant Teams set every human's team,
+	 * which a host cannot do for a remote player: they wait online (D-056). */
+	const std::string begin = functionBody(room, "static bool roomQuickStartBegin(",
+		"/* Smoke hooks for the Room's Load Preset");
+	const auto refuse = begin.find("if (!roomQuickStartModeAvailable(mode)) {");
+	const auto apply = begin.find("roomQuickStartApply(");
+	REQUIRE(refuse != std::string::npos);
+	REQUIRE(apply != std::string::npos);
+	REQUIRE(refuse < apply);
+	REQUIRE(room.find("return mode == ROOM_QS_PLAYERS_VS_SIMS || mode == ROOM_QS_PLAYER_SIM_TEAMS;")
+		!= std::string::npos);
+	REQUIRE(room.find("return netGetMode() == NETMODE_SERVER && lobbyRoomGetPlayerCount() > 1;")
+		!= std::string::npos);
+	REQUIRE(room.find("if (!available) ImGui::BeginDisabled();") != std::string::npos);
+}
