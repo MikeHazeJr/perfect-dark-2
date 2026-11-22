@@ -87,6 +87,7 @@
 #include "mission_graph_runner.h"
 #include "weapon_rules.h"
 #include "weapon_events.h"
+#include "weapondata_authored.h" /* the cloak log's weapon id */
 
 #define GUNLOADSTATE_FLUX     0
 #define GUNLOADSTATE_MODEL    1
@@ -2036,6 +2037,69 @@ static void bgunRuleFunctionOf(struct hand *hand, struct weaponfunc *func, weapo
 		out->decel = graph && graph->has_turret_decel ? graph->turret_decel
 			: (autofunc ? autofunc->turretdecel : 0);
 	}
+
+	/* held-weapon-events.md slice 7a: its recoil, the held graph's first,
+	 * as bgun0f09aba4, the slide and the jitter read it. */
+	if ((functype & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+		const struct weaponfunc_shoot *shoot = func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT
+			? (const struct weaponfunc_shoot *) func : NULL;
+		const struct weaponfunc_shootauto *autoshoot = shoot && (func->type & 0xff00) == 0x100
+			? (const struct weaponfunc_shootauto *) func : NULL;
+
+		out->recoil_kick = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : (shoot ? shoot->unk24 : 0);
+		out->recoil_return = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : (shoot ? shoot->unk25 : 0);
+		out->recoil_cut_after = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : (shoot ? shoot->unk26 : 0);
+		out->recoil_cut_return = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : (shoot ? shoot->unk27 : 0);
+		out->recoil_recovery = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60
+			: (shoot ? shoot->recoverytime60 : 0);
+		out->recoil_distance = graph && graph->has_recoildist ? graph->recoildist : (shoot ? shoot->recoildist : 0.0f);
+		out->recoil_angle = graph && graph->has_recoilangle ? graph->recoilangle : (shoot ? shoot->recoilangle : 0.0f);
+		out->recoil_slide = graph && graph->has_slidemax ? graph->slidemax : (shoot ? shoot->slidemax : 0.0f);
+		if (graph && graph->has_recoil_shake) {
+			out->recoil_has_shake = 1;
+			out->recoil_shake[0] = graph->recoil_shake[0];
+			out->recoil_shake[1] = graph->recoil_shake[1];
+			out->recoil_shake[2] = graph->recoil_shake[2];
+		} else if (shoot && shoot->recoilsettings) {
+			out->recoil_has_shake = 1;
+			out->recoil_shake[0] = shoot->recoilsettings->xrange;
+			out->recoil_shake[1] = shoot->recoilsettings->yrange;
+			out->recoil_shake[2] = shoot->recoilsettings->zrange;
+		}
+		if (graph && graph->has_spin_shake) {
+			out->recoil_has_spin_shake = 1;
+			out->recoil_spin_from = graph->spin_shake_from;
+			out->recoil_spin_to = graph->spin_shake_to;
+		} else if (autoshoot && autoshoot->vibrationstart && autoshoot->vibrationmax) {
+			out->recoil_has_spin_shake = 1;
+			out->recoil_spin_from = autoshoot->vibrationstart[0];
+			out->recoil_spin_to = autoshoot->vibrationmax[0];
+		}
+
+		/* slice 7b: its ammo's casing, as the casing code read it. */
+		if (out->ammo_slot == 0 || out->ammo_slot == 1) {
+			struct weapon *def = wgV2RuntimeIsWeapon(hand->gset.weaponnum)
+				? (struct weapon *) wgV2RuntimeGsetWeapon(&hand->gset) : weaponFindById(hand->gset.weaponnum);
+
+			if (def && def->ammos[out->ammo_slot] && (s32) def->ammos[out->ammo_slot]->casingeject >= 0) {
+				out->casing = (s32) def->ammos[out->ammo_slot]->casingeject + 1;
+			}
+		}
+	}
+
+	/* slice 7b: its shot sound and the frames a fire slot keeps it, as
+	 * gsetGetSingleShootSound and gsetGetFireslotDuration read them (the held
+	 * graph's first, else the shooting function's). */
+	{
+		const struct weaponfunc_shoot *shot = func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT
+			? (const struct weaponfunc_shoot *) func : NULL;
+
+		out->shoot_sound = graph && graph->has_shootsound ? graph->shootsound : (shot ? shot->shootsound : 0);
+		out->shot_duration = graph && graph->has_duration_ticks60 ? graph->duration_ticks60
+			: (shot ? shot->duration60 : 0);
+	}
+	/* slice 7c: its fire animation. */
+	out->fire_animation = func ? (const void *) func->fire_animation : NULL;
 }
 
 static const weapon_graph_projectile_runtime_t *bgunGetProjectileGraph(
@@ -2322,6 +2386,46 @@ const struct weapon_rule_trigger *bgunHandPlan(s32 handnum)
 	return weaponHandTrigger(hand, &record);
 }
 
+/* held-weapon-events.md slice 7b: the sound a hand's attack plays and the
+ * frames its fire slot keeps it: its plan's og.weapon.shot_sound (the
+ * function's own with no program). A profile weapon keeps its accessors. */
+static void bgunPlanShotSound(struct hand *hand, const weapon_rule_trigger_t *plan, u16 *sound, u8 *slotframes)
+{
+	if (wgV2RuntimeIsWeapon(hand->gset.weaponnum)) {
+		*sound = gsetGetSingleShootSound(&hand->gset);
+		*slotframes = gsetGetFireslotDuration(&hand->gset);
+		return;
+	}
+	*sound = plan->shot_sound <= 0 ? 0 : plan->shot_sound > 0xffff ? 0xffff : (u16) plan->shot_sound;
+	*slotframes = gsetFireslotTicks(plan->shot_duration);
+}
+
+/* held-weapon-events.md slice 7c: the fire animation an attack plays: its
+ * plan's og.weapon.play_animation (the function's own with no program). One
+ * the function does not have plays only on a held model with a skeleton: a
+ * generated mesh has none, and an animation would move all of it by its
+ * first part's channel. The attack then goes on as one with no animation. */
+static s32 s_BgunFireAnimationSkips = 0;
+
+static struct guncmd *bgunPlanFireAnimation(struct hand *hand, struct weaponfunc *func,
+		const weapon_rule_trigger_t *plan)
+{
+	struct guncmd *cmds = (struct guncmd *) plan->fire_animation;
+
+	if (cmds && (func == NULL || cmds != func->fire_animation)
+			&& (hand->gunmodel.definition == NULL || hand->gunmodel.definition->skel == NULL)) {
+		if (s_BgunFireAnimationSkips < 8) {
+			s_BgunFireAnimationSkips++;
+			sysLogPrintf(LOG_NOTE, "BONDGUN.ANIM: weapon=%s plays no fire animation: its held model has no skeleton",
+				hand->gset.weaponnum >= 0 && hand->gset.weaponnum < g_WeaponDataCount
+					&& g_WeaponDataCatalogIds[hand->gset.weaponnum]
+					? g_WeaponDataCatalogIds[hand->gset.weaponnum] : "?");
+		}
+		return NULL;
+	}
+	return cmds;
+}
+
 /*
  * held-weapon-events.md slice 3: one tick of the attack's trigger. The
  * attack's plan (weaponHandTrigger: the trigger its program chose with its
@@ -2416,7 +2520,9 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 	hand->burstbullets += hand->shotstotake;
 
-	if (funcflags & FUNCFLAG_NOMUZZLEFLASH) {
+	/* held-weapon-events.md slice 7b: the attack's flash
+	 * (og.weapon.muzzle_flash, else the function's NOMUZZLEFLASH flag). */
+	if (!plan->flash) {
 		hand->flashon = false;
 	} else {
 		if (g_BgunGeMuzzleFlashes) {
@@ -2461,11 +2567,15 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 	if (hand->firing) {
 		bool playsound = false;
+		u16 shotsound;
+		u8 slotframes;
 
-		if (gsetGetFireslotDuration(&hand->gset) > 0) {
+		bgunPlanShotSound(hand, plan, &shotsound, &slotframes);
+
+		if (slotframes > 0) {
 			if (g_Vars.lvframe60 != g_Vars.currentplayer->hands[1 - handnum].lastshootframe60
 					&& g_Vars.lvframe60 > hand->allowshootframe) {
-				hand->allowshootframe = g_Vars.lvframe60 + gsetGetFireslotDuration(&hand->gset);
+				hand->allowshootframe = g_Vars.lvframe60 + slotframes;
 				playsound = true;
 			}
 		} else {
@@ -2488,13 +2598,13 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 				audioStop(hand->audiohandle3);
 			}
 
-			if (gsetGetSingleShootSound(&hand->gset)) {
+			if (shotsound) {
 				struct sndstate *handle = NULL;
 
 				if (hand->audiohandle2 == NULL) {
-					handle = sndStart(var80095200, gsetGetSingleShootSound(&hand->gset), &hand->audiohandle2, -1, -1, -1, -1, -1);
+					handle = sndStart(var80095200, shotsound, &hand->audiohandle2, -1, -1, -1, -1, -1);
 				} else if (hand->audiohandle3 == NULL) {
-					handle = sndStart(var80095200, gsetGetSingleShootSound(&hand->gset), &hand->audiohandle3, -1, -1, -1, -1, -1);
+					handle = sndStart(var80095200, shotsound, &hand->audiohandle3, -1, -1, -1, -1, -1);
 				}
 
 				hand->lastshootframe60 = g_Vars.lvframe60;
@@ -2537,14 +2647,16 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 	f32 recoilangle;
 	f32 mult2;
 	u32 stack;
-	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	/* held-weapon-events.md slice 7a: the attack's recoil (og.weapon.recoil,
+	 * else the function's own, graph first). */
+	const weapon_rule_trigger_t *plan = bgunHandPlan(handnum);
 
 #if PAL
-	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
-	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
-	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
-	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
-	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
+	unk24 = plan->recoil_kick;
+	unk25 = plan->recoil_return;
+	unk26 = weaponRulesRecoilCutAfter(plan);
+	unk27 = weaponRulesRecoilCutReturn(plan);
+	recoverytime60 = plan->recoil_recovery;
 	weapondef = info->definition;
 
 	if (unk24 >= 4) {
@@ -2569,20 +2681,20 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 
 	sum = unk24 + unk25;
 #elif VERSION >= VERSION_JPN_FINAL
-	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
-	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
-	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
-	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
-	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
+	unk24 = plan->recoil_kick;
+	unk25 = plan->recoil_return;
+	unk26 = weaponRulesRecoilCutAfter(plan);
+	unk27 = weaponRulesRecoilCutReturn(plan);
+	recoverytime60 = plan->recoil_recovery;
 	weapondef = info->definition;
 	sum = unk24 + unk25;
 #else
-	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
-	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
+	unk24 = plan->recoil_kick;
+	unk25 = plan->recoil_return;
 	sum = unk24 + unk25;
-	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
-	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
-	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
+	unk26 = weaponRulesRecoilCutAfter(plan);
+	unk27 = weaponRulesRecoilCutReturn(plan);
+	recoverytime60 = plan->recoil_recovery;
 	weapondef = info->definition;
 #endif
 
@@ -2634,8 +2746,8 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 		}
 
 		if (frames < sum && (hand->stateflags & HANDSTATEFLAG_00000040) == 0) {
-			recoildist = graph && graph->has_recoildist ? graph->recoildist : func->recoildist;
-			recoilangle = graph && graph->has_recoilangle ? graph->recoilangle : func->recoilangle;
+			recoildist = plan->recoil_distance;
+			recoilangle = plan->recoil_angle;
 
 			if ((hand->stateflags & HANDSTATEFLAG_00000080) == 0) {
 				hand->stateflags |= HANDSTATEFLAG_00000080;
@@ -2699,10 +2811,13 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 		mainOverrideVariable("gkef", &var80070128);
 
 		if (hand->statecycles == 0) {
+			/* slice 7c: the attack's fire animation. */
+			struct guncmd *fireanim = bgunPlanFireAnimation(hand, func, bgunHandPlan(handnum));
+
 			hand->gs_float1 = 0;
 
-			if (func->fire_animation) {
-				bgunStartAnimation(func->fire_animation, handnum, hand);
+			if (fireanim) {
+				bgunStartAnimation(fireanim, handnum, hand);
 				hand->unk0cc8_01 = true;
 			}
 
@@ -2727,8 +2842,15 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
 			f32 floats[12];
 
-			if (autofunc->vibrationstart != NULL && autofunc->vibrationmax != NULL) {
-				func0f097b64(autofunc->vibrationstart, autofunc->vibrationmax, hand->gs_float1, floats);
+			/* slice 7a: the jitter's multiplier from no spin to full
+			 * (og.weapon.recoil spin_shake_from/to; the Reaper's
+			 * vibration arrays, whose element 0 is the only one read). */
+			const weapon_rule_trigger_t *spinplan = bgunHandPlan(handnum);
+
+			(void)autofunc;
+			if (spinplan->recoil_has_spin_shake) {
+				floats[0] = floats[1] = (spinplan->recoil_spin_to - spinplan->recoil_spin_from) * hand->gs_float1
+					+ spinplan->recoil_spin_from;
 				func0f097b40(hand->upgrademult, floats, hand->finalmult);
 			}
 		}
@@ -2788,6 +2910,7 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
 	weapon_rule_function_t record;
 	const weapon_rule_trigger_t *plan;
+	struct guncmd *fireanim;
 	u32 funcflags;
 	s32 ammoindex;
 	s32 activationtime60;
@@ -2803,6 +2926,7 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	 * (og.weapon.use_ammo; 1 for a base throw with a clip). */
 	bgunRuleFunctionOf(hand, &func->base, &record);
 	plan = weaponHandTrigger(hand, &record);
+	fireanim = bgunPlanFireAnimation(hand, &func->base, plan); /* slice 7c */
 	activationtime60 = graph && graph->has_activation_time_ticks60 ?
 		graph->activation_time_ticks60 : func->activatetime60;
 	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
@@ -2822,13 +2946,13 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 				return true;
 			}
 
-			if (func->base.fire_animation) {
-				bgunStartAnimation(func->base.fire_animation, handnum, hand);
+			if (fireanim) {
+				bgunStartAnimation(fireanim, handnum, hand);
 				hand->unk0cc8_01 = true;
 			}
 		}
 
-		if (func->base.fire_animation) {
+		if (fireanim) {
 			if (hand->triggerreleased) {
 				hand->unk0cc8_01 = false;
 			}
@@ -2924,6 +3048,7 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
 	weapon_rule_function_t record;
 	const weapon_rule_trigger_t *plan;
+	struct guncmd *fireanim;
 	s32 ammoindex;
 
 	if (func == NULL) {
@@ -2935,6 +3060,7 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 	 * (og.weapon.use_ammo; the Tranquilizer's sedative strike 4). */
 	bgunRuleFunctionOf(hand, func, &record);
 	plan = weaponHandTrigger(hand, &record);
+	fireanim = bgunPlanFireAnimation(hand, func, plan); /* slice 7c */
 
 	if (hand->gset.weaponnum == WEAPON_REAPER) {
 		if (hand->statecycles == 0) {
@@ -2965,13 +3091,13 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 			hand->firing = true;
 			hand->attacktype = HANDATTACKTYPE_MELEENOUNCLOAK;
 
-			if (func->fire_animation) {
-				bgunStartAnimation(func->fire_animation, handnum, hand);
+			if (fireanim) {
+				bgunStartAnimation(fireanim, handnum, hand);
 				hand->unk0cc8_01 = true;
 			}
 		}
 
-		if (func->fire_animation) {
+		if (fireanim) {
 			if (hand->triggerreleased) {
 				hand->unk0cc8_01 = false;
 			}
@@ -2998,8 +3124,8 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 			weaponRulesSpendRounds(plan->rounds, &hand->loadedammo[ammoindex]);
 		}
 
-		if (func->fire_animation) {
-			if (func->fire_animation && !bgun0f098a44(hand, 3)) {
+		if (fireanim) {
+			if (!bgun0f098a44(hand, 3)) {
 				hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_3;
 			} else {
 				hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_2;
@@ -5245,6 +5371,77 @@ const char var7f1ac0ec[] = "Gun   : TotalUsed %d, Free %d\n";
 const char var7f1ac10c[] = "BriGun: Set Master State: MASTER_GUN_LOADSTATE_LOADED\n";
 const char var7f1ac144[] = "GunLockTimer: %d\n";
 
+/* held-weapon-events.md slice 7b (PR 49 review): the casing models a held
+ * weapon's attacks can eject. cartmodeldef holds the selected function's
+ * press casing (or, when that ejects none, the other function's), loaded
+ * first; every other casing either function can eject (weaponFunctionCasings:
+ * each og.weapon.casing its program holds, a state gate's other branch
+ * included, and the function's own) gets a model here, one a type, so each
+ * attack ejects its own type's model whatever the hand's states and
+ * whichever function was selected when the gun was equipped.
+ * s_BgunCartType is cartmodeldef's CASING_* plus one, 0 for none (as the
+ * plan keeps a casing). */
+static struct modeldef *s_BgunCartModeldefs[MAX_PLAYERS][ARRAYCOUNT(g_CartFileNums)];
+static s8 s_BgunCartType[MAX_PLAYERS];
+
+/* The casing cartmodeldef holds: the selected function's press plan's, else
+ * the other function's. */
+static s32 bgunCartFirstCasing(struct player *player)
+{
+	const s32 weaponnum = player->gunctrl.weaponnum;
+	const s32 selected = player->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY ? FUNC_SECONDARY : FUNC_PRIMARY;
+	const s32 first = weaponFunctionCasing(weaponnum, selected);
+
+	return first >= 0 ? first
+		: weaponFunctionCasing(weaponnum, selected == FUNC_PRIMARY ? FUNC_SECONDARY : FUNC_PRIMARY);
+}
+
+/* Whether a model is one of the other casing models (not cartmodeldef). */
+static bool bgunCartModeldefIsOther(struct modeldef **carts, const struct modeldef *modeldef)
+{
+	s32 type;
+
+	for (type = 0; carts != NULL && modeldef != NULL && type < ARRAYCOUNT(g_CartFileNums); type++) {
+		if (carts[type] == modeldef) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/* Queues the next casing model the weapon still needs; true when one was
+ * queued. */
+static bool bgunQueueCartModels(struct player *player)
+{
+	const s32 p = g_Vars.currentplayernum;
+	const s32 weaponnum = player->gunctrl.weaponnum;
+	s32 first;
+	u32 casings;
+	s32 type;
+
+	if (p < 0 || p >= MAX_PLAYERS) return false;
+	first = bgunCartFirstCasing(player);
+	if (player->gunctrl.cartmodeldef == NULL && first >= 0 && first < ARRAYCOUNT(g_CartFileNums)) {
+		s_BgunCartType[p] = (s8)(first + 1);
+		player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
+		bgunQueueModelLoad(player, g_CartFileNums[first], &player->gunctrl.cartmodeldef,
+			&player->gunctrl.memloadptr, &player->gunctrl.memloadremaining);
+		return true;
+	}
+	casings = weaponFunctionCasings(weaponnum, FUNC_PRIMARY) | weaponFunctionCasings(weaponnum, FUNC_SECONDARY);
+	for (type = 0; type < ARRAYCOUNT(g_CartFileNums); type++) {
+		if (!(casings & (1u << type)) || s_BgunCartModeldefs[p][type] != NULL
+				|| (player->gunctrl.cartmodeldef != NULL && s_BgunCartType[p] == type + 1)) {
+			continue;
+		}
+		player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
+		bgunQueueModelLoad(player, g_CartFileNums[type], &s_BgunCartModeldefs[p][type],
+			&player->gunctrl.memloadptr, &player->gunctrl.memloadremaining);
+		return true;
+	}
+	return false;
+}
+
 void bgunTickMasterLoad(void)
 {
 	s32 newweaponnum;
@@ -5342,10 +5539,14 @@ void bgunTickMasterLoad(void)
 					}
 
 					if (player->gunctrl.masterloadstate == MASTERLOADSTATE_FLUX) {
+						struct modeldef **carts = g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS
+							? s_BgunCartModeldefs[g_Vars.currentplayernum] : NULL;
+
 						casing = g_Casings;
 
 						while (casing < &g_Casings[ARRAYCOUNT(g_Casings)]) {
-							if (casing->modeldef == player->gunctrl.cartmodeldef) {
+							if (casing->modeldef == player->gunctrl.cartmodeldef
+									|| bgunCartModeldefIsOther(carts, casing->modeldef)) {
 								casing->modeldef = NULL;
 							}
 
@@ -5365,6 +5566,12 @@ void bgunTickMasterLoad(void)
 						}
 
 						player->gunctrl.cartmodeldef = NULL;
+						if (g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS) {
+							/* slice 7b (PR 49 review): and the other casing models. */
+							memset(s_BgunCartModeldefs[g_Vars.currentplayernum], 0,
+								sizeof(s_BgunCartModeldefs[g_Vars.currentplayernum]));
+							s_BgunCartType[g_Vars.currentplayernum] = 0;
+						}
 						player->gunctrl.masterloadstate = MASTERLOADSTATE_HANDS;
 
 						if (g_Vars.currentplayernum == 0) {
@@ -5458,7 +5665,13 @@ void bgunTickMasterLoad(void)
 							player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
 						}
 
-						if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX && player->gunctrl.cartmodeldef == NULL && PLAYERCOUNT() == 1) {
+						if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX && PLAYERCOUNT() == 1
+								&& !wgV2RuntimeIsWeapon(player->gunctrl.weaponnum)) {
+							/* held-weapon-events.md slice 7b (PR 49 review): the
+							 * casing models the weapon's functions name, one a
+							 * pass (bgunQueueCartModels). */
+							bgunQueueCartModels(player);
+						} else if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX && player->gunctrl.cartmodeldef == NULL && PLAYERCOUNT() == 1) {
 							for (i = 0; i < 2; i++) {
 								hand = player->hands + i;
 								func = gsetGetWeaponFunction2(&hand->gset);
@@ -5471,6 +5684,8 @@ void bgunTickMasterLoad(void)
 										shootfunc = func;
 									}
 
+									/* The profile executor's weapons: the
+									 * selected function's ammo's casing. */
 									if (weapondef && shootfunc) {
 										ammodef = func->ammoindex >= 0 ? weapondef->ammos[func->ammoindex] : NULL;
 
@@ -5669,6 +5884,22 @@ bool bgunLoadAll(void)
 struct modeldef *bgunGetCartModeldef(void)
 {
 	return g_Vars.currentplayer->gunctrl.cartmodeldef;
+}
+
+/* slice 7b (PR 49 review): the loaded model of a casing type (CASING_*),
+ * NULL when none is loaded for it: never another type's. */
+struct modeldef *bgunGetCartModeldefForCasing(s32 casingtype)
+{
+	const s32 p = g_Vars.currentplayernum;
+
+	if (p < 0 || p >= MAX_PLAYERS || casingtype < 0) return NULL;
+	if (g_Vars.currentplayer->gunctrl.cartmodeldef && s_BgunCartType[p] == casingtype + 1) {
+		return g_Vars.currentplayer->gunctrl.cartmodeldef;
+	}
+	if (casingtype < ARRAYCOUNT(g_CartFileNums) && s_BgunCartModeldefs[p][casingtype] != NULL) {
+		return s_BgunCartModeldefs[p][casingtype];
+	}
+	return NULL;
 }
 
 void bgun0f09ebcc(struct defaultobj *obj, struct coord *coord, RoomNum *rooms, Mtxf *matrix1, struct coord *velocity, Mtxf *matrix2, struct prop *prop, struct coord *pos)
@@ -7755,8 +7986,9 @@ void bgunUpdateSlide(s32 handnum)
 	struct player *player = g_Vars.currentplayer;
 
 	if (funcdef && ((funcdef->type & 0xff) == INVENTORYFUNCTYPE_SHOOT)) {
-		struct weaponfunc_shoot *shootfunc = (struct weaponfunc_shoot *)funcdef;
-		slidemax = shootfunc->slidemax;
+		/* held-weapon-events.md slice 7a: the attack's slide
+		 * (og.weapon.recoil slide, else the function's own). */
+		slidemax = bgunHandPlan(handnum)->recoil_slide;
 	}
 
 	if (player->hands[handnum].slideinc) {
@@ -9424,10 +9656,14 @@ void bgun0f0a5550(s32 handnum)
 	sp274.y -= bgunGetFovOffsetY();
 	sp274.z += bgunGetFovOffsetZ();
 
-	if (hand->firing && shootfunc && g_Vars.lvupdate240 != 0 && shootfunc->recoilsettings != NULL) {
-		sp274.x += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->xrange * hand->finalmult[0];
-		sp274.y += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->yrange * hand->finalmult[0];
-		sp274.z += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->zrange * hand->finalmult[0];
+	/* held-weapon-events.md slice 7a: the attack's jitter (og.weapon.recoil
+	 * shake_x/y/z, else the function's recoilsettings, graph first). */
+	if (hand->firing && shootfunc && g_Vars.lvupdate240 != 0 && bgunHandPlan(handnum)->recoil_has_shake) {
+		const f32 *shake = bgunHandPlan(handnum)->recoil_shake;
+
+		sp274.x += (RANDOMFRAC() - 0.5f) * shake[0] * hand->finalmult[0];
+		sp274.y += (RANDOMFRAC() - 0.5f) * shake[1] * hand->finalmult[0];
+		sp274.z += (RANDOMFRAC() - 0.5f) * shake[2] * hand->finalmult[0];
 	}
 
 	hand->fspare1 = (player->crosspos2[0] - camGetScreenLeft() - camGetScreenWidth() * 0.5f) * weapondef->aimsettings->guntransside / (camGetScreenWidth() * 0.5f);
@@ -10320,6 +10556,29 @@ void bgunTickGameplay2(void)
 				/* PR 31 review: no reserve to settle from (ammotypes -1). */
 				hand->matmot1 = 0;
 			}
+		}
+	}
+
+	/* PR 46 follow-up: the cloak's changes are logged, whichever way it was
+	 * toggled (the alt button's own toggle under extended controls, or a
+	 * mode_toggle shot), with the drain its weapon's program names. */
+	if (g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS) {
+		static u8 s_CloakOn[MAX_PLAYERS];
+		const u8 on = (g_Vars.currentplayer->devicesactive & ~g_Vars.currentplayer->devicesinhibit
+			& DEVICE_CLOAKRCP120) ? 1 : 0;
+
+		if (on != s_CloakOn[g_Vars.currentplayernum]) {
+			const s32 weaponnum = player->gunctrl.weaponnum;
+			f32 drain = 0.0f;
+			s32 slot = -1;
+			const s32 toggles = weaponCloakToggle(weaponnum, &drain, &slot);
+
+			s_CloakOn[g_Vars.currentplayernum] = on;
+			sysLogPrintf(LOG_NOTE, "BONDGUN.CLOAK: %s player=%d weapon=%s drain=%.9g slot=%d",
+				on ? "on" : "off", g_Vars.currentplayernum,
+				weaponnum >= 0 && weaponnum < g_WeaponDataCount && g_WeaponDataCatalogIds[weaponnum]
+					? g_WeaponDataCatalogIds[weaponnum] : "?",
+				toggles ? (double)drain : 0.0, toggles ? slot : -1);
 		}
 	}
 

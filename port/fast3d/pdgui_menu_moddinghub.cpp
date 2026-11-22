@@ -61,6 +61,7 @@
 #include "mod_author.h"
 #include "mod_author_runtime.h"
 #include "weapon_graph_editor_io.h"
+#include "crude_json.h" /* slice 8b: a projectile program's nodes */
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
 #include "../external/stb_image.h"
@@ -460,6 +461,19 @@ static char s_WeaponTemplateEntityRef[CATALOG_ID_LEN] = "";
 static char s_WeaponGraphLoadError[192] = "";
 static char s_WeaponEditGraph[HUB_WEAPON_TEXT_PREVIEW_LEN] = "";
 static char s_WeaponEditNested[4096] = "";
+/* held-weapon-events.md slice 8b: the template's projectiles' programs,
+ * edited by their nodes' settings (the vehicle rocket's home filter) and
+ * saved into the mod's copy of each projectile (an override of its
+ * behavior.graph.json). */
+struct WeaponProjectileProgram {
+    std::string entry;   /* dependencies/assets/projectiles/homing_rocket.pdprojectile */
+    std::string graph;   /* its behavior.graph.json as edited */
+    bool changed;
+    bool valid;
+    std::string status;
+};
+static std::vector<WeaponProjectileProgram> s_WeaponProjectilePrograms;
+#define HUB_WEAPON_MAX_PROJECTILE_PROGRAMS 8
 static WeaponImportTarget s_WeaponImportTarget = WEAPON_IMPORT_NONE;
 static bool s_WeaponSaveModalOpen = false;
 static bool s_WeaponSaveComplete = false;
@@ -1291,9 +1305,30 @@ static int weaponGraphScopeCount(void)
     return (int)(sizeof(s_WeaponGraphScopes) / sizeof(s_WeaponGraphScopes[0]));
 }
 
+/* held-weapon-events.md slice 8a: the creator's palette: the designer
+ * nodes of a function's program (weapon_graph_editor_io.cpp, the rule
+ * tables' kinds with their designer names), then the function records. */
+static const std::vector<WeaponGraphModuleDef> &weaponGraphPalette(void)
+{
+    static std::vector<WeaponGraphModuleDef> palette;
+    if (palette.empty()) {
+        for (s32 i = 0; i < weaponGraphDesignerNodeCount(); i++) {
+            const weapon_graph_designer_node_t *designer = weaponGraphDesignerNodeAt(i);
+            WeaponGraphModuleDef row = { designer->label, designer->kind, "{}", designer->group };
+            palette.push_back(row);
+        }
+        for (size_t i = 0; i < sizeof(s_WeaponGraphModules) / sizeof(s_WeaponGraphModules[0]); i++) {
+            WeaponGraphModuleDef row = s_WeaponGraphModules[i];
+            row.group = "Function record";
+            palette.push_back(row);
+        }
+    }
+    return palette;
+}
+
 static int weaponGraphModuleCount(void)
 {
-    return (int)(sizeof(s_WeaponGraphModules) / sizeof(s_WeaponGraphModules[0]));
+    return (int)weaponGraphPalette().size();
 }
 
 static int weaponGraphContextCount(void)
@@ -1660,15 +1695,18 @@ static bool weaponGraphBuilderAddModule(int moduleIndex, bool syncNow)
     node.pos_y = 48.0f + (float)((s_WeaponGraphNodeCount / 3) * 120);
     node.pos_valid = true;
     s_WeaponGraphModel.canvas_layout_seeded = false;
-    weaponGraphBuilderMakeNodeId(s_WeaponGraphModules[moduleIndex].kind,
-                                 node.id, sizeof(node.id));
-    strncpy(node.kind, s_WeaponGraphModules[moduleIndex].kind,
-            sizeof(node.kind) - 1);
+    const WeaponGraphModuleDef &module = weaponGraphPalette()[(size_t)moduleIndex];
+    weaponGraphBuilderMakeNodeId(module.kind, node.id, sizeof(node.id));
+    strncpy(node.kind, module.kind, sizeof(node.kind) - 1);
     strncpy(node.subgraph, weaponGraphBuilderScopeForIndex(s_WeaponGraphScopePick),
             sizeof(node.subgraph) - 1);
-    strncpy(node.params, s_WeaponGraphModules[moduleIndex].default_params,
-            sizeof(node.params) - 1);
-    weaponGraphBuilderApplyNodeMode(&node);
+    strncpy(node.params, module.default_params, sizeof(node.params) - 1);
+    /* slice 8a: a program node's settings are its own members, each left
+     * out until it is set (the function's own); only a record's params name
+     * their mode. */
+    if (!weaponGraphNodeIsProgram(node.kind)) {
+        weaponGraphBuilderApplyNodeMode(&node);
+    }
     if (s_WeaponGraphPrimaryExport < 0) {
         s_WeaponGraphPrimaryExport = s_WeaponGraphNodeCount;
     }
@@ -1683,7 +1721,7 @@ static int weaponGraphModuleIndexByKind(const char *kind)
 {
     if (!kind) return 0;
     for (int i = 0; i < weaponGraphModuleCount(); i++) {
-        if (strcmp(s_WeaponGraphModules[i].kind, kind) == 0) return i;
+        if (strcmp(weaponGraphPalette()[(size_t)i].kind, kind) == 0) return i;
     }
     return 0;
 }
@@ -1702,7 +1740,7 @@ static int weaponGraphBuilderAddModuleInScope(const char *kind,
     return addedIndex;
 }
 
-static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow);
+static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow, const char *port = NULL);
 
 static int weaponGraphBuilderAddTriggeredModuleInScope(const char *eventKind,
                                                        const char *actionKind,
@@ -1716,7 +1754,7 @@ static int weaponGraphBuilderAddTriggeredModuleInScope(const char *eventKind,
     return action;
 }
 
-static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow)
+static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow, const char *port)
 {
     if (from < 0 || from >= s_WeaponGraphNodeCount ||
             to < 0 || to >= s_WeaponGraphNodeCount) {
@@ -1743,6 +1781,17 @@ static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow)
         s_WeaponGraphModel.next_editor_id++;
     s_WeaponGraphEdges[s_WeaponGraphEdgeCount].from = from;
     s_WeaponGraphEdges[s_WeaponGraphEdgeCount].to = to;
+    s_WeaponGraphEdges[s_WeaponGraphEdgeCount].output[0] = '\0';
+    s_WeaponGraphEdges[s_WeaponGraphEdgeCount].input[0] = '\0';
+    if (weaponGraphNodeIsProgram(s_WeaponGraphNodes[from].kind)) {
+        /* slice 8a: an execution edge of a function's program leaves by its
+         * port (a gate's pass or fail) into the next node's input. */
+        const char *out = port && port[0] ? port : weaponGraphNodeOutputName(s_WeaponGraphNodes[from].kind, 0);
+        snprintf(s_WeaponGraphEdges[s_WeaponGraphEdgeCount].output,
+                 sizeof(s_WeaponGraphEdges[s_WeaponGraphEdgeCount].output), "%s", out ? out : "out");
+        snprintf(s_WeaponGraphEdges[s_WeaponGraphEdgeCount].input,
+                 sizeof(s_WeaponGraphEdges[s_WeaponGraphEdgeCount].input), "exec");
+    }
     s_WeaponGraphEdgeCount++;
     if (syncNow) {
         weaponGraphBuilderSyncJson();
@@ -1812,6 +1861,7 @@ static void weaponGraphBuilderDuplicateNode(int index)
     strncpy(node.kind, src.kind, sizeof(node.kind) - 1);
     strncpy(node.subgraph, src.subgraph, sizeof(node.subgraph) - 1);
     strncpy(node.params, src.params, sizeof(node.params) - 1);
+    strncpy(node.extra, src.extra, sizeof(node.extra) - 1); /* slice 8a: a program node's settings */
     node.pos_x = src.pos_valid ? src.pos_x + 36.0f : 80.0f;
     node.pos_y = src.pos_valid ? src.pos_y + 36.0f : 80.0f;
     node.pos_valid = true;
@@ -1819,6 +1869,38 @@ static void weaponGraphBuilderDuplicateNode(int index)
     s_WeaponGraphModel.canvas_layout_seeded = false;
     s_WeaponGraphNodeCount++;
     weaponGraphBuilderSyncJson();
+}
+
+/* held-weapon-events.md slice 8a: a designer node becomes another of its
+ * group in place: its links, mode and place stay; its settings go, since
+ * they were the old node's. */
+static void weaponGraphBuilderReplaceNode(int index, int moduleIndex)
+{
+    if (index < 0 || index >= s_WeaponGraphNodeCount || moduleIndex < 0 ||
+            moduleIndex >= weaponGraphModuleCount()) {
+        return;
+    }
+    const WeaponGraphModuleDef &module = weaponGraphPalette()[(size_t)moduleIndex];
+    WeaponGraphNodeEdit &node = s_WeaponGraphNodes[index];
+    const weapon_graph_designer_node_t *from = weaponGraphDesignerNodeFor(node.kind);
+    const weapon_graph_designer_node_t *to = weaponGraphDesignerNodeFor(module.kind);
+    if (!from || !to || strcmp(from->group, to->group) != 0) {
+        weaponSetStatus(false, "A node is replaced only by another of its group");
+        return;
+    }
+    char status[160];
+    char id[sizeof(node.id)];
+    snprintf(status, sizeof(status), "Replaced %s with %s", from->label, to->label);
+    /* A new id from the new kind, made apart from the node's own buffer:
+     * the id check compares against every node, this one included. */
+    weaponGraphBuilderMakeNodeId(module.kind, id, sizeof(id));
+    memset(node.kind, 0, sizeof(node.kind));
+    strncpy(node.kind, module.kind, sizeof(node.kind) - 1);
+    snprintf(node.id, sizeof(node.id), "%s", id);
+    snprintf(node.params, sizeof(node.params), "{}");
+    node.extra[0] = '\0';
+    weaponGraphBuilderSyncJson();
+    weaponSetStatus(true, status);
 }
 
 static void weaponGraphBuilderBreakPin(int nodeIndex, int pinKind)
@@ -1830,7 +1912,12 @@ static void weaponGraphBuilderBreakPin(int nodeIndex, int pinKind)
         if (pinKind == 1) {
             remove = s_WeaponGraphEdges[i].to == nodeIndex;
         } else if (pinKind == 2) {
-            remove = s_WeaponGraphEdges[i].from == nodeIndex;
+            remove = s_WeaponGraphEdges[i].from == nodeIndex &&
+                strcmp(s_WeaponGraphEdges[i].output, "fail") != 0;
+        } else if (pinKind == 5) {
+            /* slice 8a: a gate's fail branch. */
+            remove = s_WeaponGraphEdges[i].from == nodeIndex &&
+                strcmp(s_WeaponGraphEdges[i].output, "fail") == 0;
         } else {
             remove = s_WeaponGraphEdges[i].from == nodeIndex ||
                 s_WeaponGraphEdges[i].to == nodeIndex;
@@ -1936,7 +2023,7 @@ static bool weaponGraphBuilderLoadEditModelFromJson(bool syncNow)
     char err[192];
     if (!pdguiWeaponGraphModelLoadJson(&s_WeaponGraphModel,
             s_WeaponEditGraph,
-            s_WeaponGraphModules,
+            weaponGraphPalette().data(),
             weaponGraphModuleCount(),
             s_WeaponGraphContextDefs,
             weaponGraphContextCount(),
@@ -1975,7 +2062,7 @@ static void weaponGraphBuilderApplyEditorResult(
             break;
         }
         case PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_EDGE:
-            weaponGraphBuilderAddEdge(result.a, result.b, false);
+            weaponGraphBuilderAddEdge(result.a, result.b, false, result.port);
             needsSync = true;
             break;
         case PD_WEAPON_GRAPH_EDITOR_ACTION_REMOVE_NODE:
@@ -2004,6 +2091,10 @@ static void weaponGraphBuilderApplyEditorResult(
             break;
         case PD_WEAPON_GRAPH_EDITOR_ACTION_BREAK_PIN:
             weaponGraphBuilderBreakPin(result.a, result.b);
+            needsSync = false;
+            break;
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_REPLACE_NODE:
+            weaponGraphBuilderReplaceNode(result.a, result.b);
             needsSync = false;
             break;
         case PD_WEAPON_GRAPH_EDITOR_ACTION_NONE:
@@ -2625,6 +2716,39 @@ static void weaponListEmbeddedArchives(const char *archivePath, char *out, size_
     modArchiveClose(arc);
 }
 
+/* slice 8b: each embedded projectile's program, read from the template. */
+static void weaponLoadProjectilePrograms(const char *archivePath)
+{
+    s_WeaponProjectilePrograms.clear();
+    mod_archive_t *arc = archivePath && archivePath[0] ? modArchiveOpen(archivePath) : NULL;
+    if (!arc) return;
+    const s32 count = modArchiveGetEntryCount(arc);
+    for (s32 i = 0; i < count &&
+            s_WeaponProjectilePrograms.size() < HUB_WEAPON_MAX_PROJECTILE_PROGRAMS; i++) {
+        const char *name = modArchiveGetEntryName(arc, i);
+        const size_t n = name ? strlen(name) : 0;
+        if (!name || strncmp(name, "dependencies/", 13) != 0 || n < 13 ||
+                strcmp(name + n - 13, ".pdprojectile") != 0) {
+            continue;
+        }
+        u32 nestedSize = 0;
+        void *nested = modArchiveExtractAlloc(arc, i, &nestedSize);
+        if (!nested) continue;
+        u32 graphSize = 0;
+        void *graph = modArchiveExtractMemAlloc(nested, nestedSize, "behavior.graph.json", &graphSize);
+        free(nested);
+        if (!graph) continue;
+        WeaponProjectileProgram program;
+        program.entry = name;
+        program.graph.assign((const char *)graph, graphSize);
+        program.changed = false;
+        program.valid = true;
+        free(graph);
+        s_WeaponProjectilePrograms.push_back(program);
+    }
+    modArchiveClose(arc);
+}
+
 static void weaponToolStartTemplate(const asset_entry_t *e)
 {
     if (!e) {
@@ -2713,6 +2837,7 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     }
     weaponListEmbeddedArchives(s_WeaponEditTemplateArchive, s_WeaponEditNested,
                                sizeof(s_WeaponEditNested));
+    weaponLoadProjectilePrograms(s_WeaponEditTemplateArchive); /* slice 8b */
     snprintf(s_WeaponTemplateModelRef, sizeof(s_WeaponTemplateModelRef), "%s",
              s_WeaponEditModelRef);
     snprintf(s_WeaponTemplateTextureRef, sizeof(s_WeaponTemplateTextureRef), "%s",
@@ -2899,7 +3024,20 @@ static bool weaponToolSaveCustom(void)
         }
     }
 
-    asset_archive_clone_override_t overrides[4];
+    /* slice 8b: an edited projectile program must check out before it is
+     * saved into the mod's copy of its projectile. */
+    for (const WeaponProjectileProgram &program : s_WeaponProjectilePrograms) {
+        if (!program.changed) continue;
+        if (weaponGraphValidateJson(ASSET_PROJECTILE, program.graph.c_str(), (u32)program.graph.size(),
+                reason, sizeof(reason)) != 0) {
+            weaponGraphEditorSplitFree(&files);
+            snprintf(msg, sizeof(msg), "Projectile program %s does not check out: %s",
+                     program.entry.c_str(), reason);
+            return weaponSaveFail("PROJECTILE_FAIL", msg);
+        }
+    }
+
+    asset_archive_clone_override_t overrides[4 + HUB_WEAPON_MAX_PROJECTILE_PROGRAMS];
     u32 overrideCount = 0;
     memset(overrides, 0, sizeof(overrides));
     overrides[overrideCount].entry = "behavior/primary.graph.json";
@@ -2926,6 +3064,18 @@ static bool weaponToolSaveCustom(void)
         overrides[overrideCount].entry = s_WeaponEditTemplateModelFile;
         overrides[overrideCount].data = mesh.data();
         overrides[overrideCount++].len = (u32)mesh.size();
+    }
+
+    /* slice 8b: each edited projectile program replaces its projectile's
+     * behavior graph ("<projectile>::behavior.graph.json"). */
+    std::vector<std::string> projectileEntries;
+    projectileEntries.reserve(s_WeaponProjectilePrograms.size());
+    for (const WeaponProjectileProgram &program : s_WeaponProjectilePrograms) {
+        if (!program.changed || overrideCount >= sizeof(overrides) / sizeof(overrides[0])) continue;
+        projectileEntries.push_back(program.entry + "::behavior.graph.json");
+        overrides[overrideCount].entry = projectileEntries.back().c_str();
+        overrides[overrideCount].data = program.graph.data();
+        overrides[overrideCount++].len = (u32)program.graph.size();
     }
 
     mod_author_descriptor_value_t descriptor[1];
@@ -3432,7 +3582,7 @@ static void weaponRenderGraphBuilder(const char *scopeFilter,
     memset(&desc, 0, sizeof(desc));
     desc.model = &s_WeaponGraphModel;
     desc.adapter = &s_WeaponGraphEditorAdapter;
-    desc.modules = s_WeaponGraphModules;
+    desc.modules = weaponGraphPalette().data();
     desc.module_count = weaponGraphModuleCount();
     desc.contexts = s_WeaponGraphContextDefs;
     desc.context_count = weaponGraphContextCount();
@@ -3476,6 +3626,81 @@ static void weaponRenderGraphBuilder(const char *scopeFilter,
                                          s_WeaponEditCatalogId);
             weaponGraphBuilderLoadEditModelFromJson(false);
         }
+    }
+}
+
+/* slice 8b: the template's projectiles' programs, each program node with
+ * settings shown with the inspector's named inputs. */
+static void weaponRenderProjectilePrograms(float scale)
+{
+    (void)scale;
+    if (s_WeaponProjectilePrograms.empty()) {
+        ImGui::TextDisabled("This weapon carries no projectile of its own.");
+        return;
+    }
+    ImGui::TextDisabled("How each projectile arms, flies and lands. Saved into the mod's copy of the projectile.");
+    for (size_t p = 0; p < s_WeaponProjectilePrograms.size(); p++) {
+        WeaponProjectileProgram &program = s_WeaponProjectilePrograms[p];
+        const char *name = strrchr(program.entry.c_str(), '/');
+        name = name ? name + 1 : program.entry.c_str();
+        ImGui::PushID((int)p);
+        if (ImGui::CollapsingHeader(name, ImGuiTreeNodeFlags_DefaultOpen)) {
+            crude_json::value root = crude_json::value::parse(program.graph);
+            if (!root.is_object() || !root.contains("nodes") || !root["nodes"].is_array()) {
+                ImGui::TextDisabled("Its program could not be read.");
+            } else {
+                for (crude_json::value &item : root["nodes"].get<crude_json::array>()) {
+                    if (!item.is_object() || !item.contains("id") || !item.contains("kind") ||
+                            !item["id"].is_string() || !item["kind"].is_string()) {
+                        continue;
+                    }
+                    const std::string id = item["id"].get<crude_json::string>();
+                    const std::string kind = item["kind"].get<crude_json::string>();
+                    if (!weaponGraphNodeIsProgram(kind.c_str()) ||
+                            weaponGraphDesignerSettings(kind.c_str(), NULL, 0) == 0) {
+                        continue;
+                    }
+                    const weapon_graph_designer_node_t *designer = weaponGraphDesignerNodeFor(kind.c_str());
+                    ImGui::PushID(id.c_str());
+                    if (ImGui::TreeNode("##program_node", "%s (%s)",
+                            designer ? designer->label : kind.c_str(), id.c_str())) {
+                        char err[192];
+                        char *settings = weaponGraphEditorNodeSettings(program.graph.c_str(), id.c_str(),
+                            err, sizeof(err));
+                        static char extra[PDGUI_WEAPON_GRAPH_PARAM_LEN];
+                        if (settings && strlen(settings) < sizeof(extra)) {
+                            snprintf(extra, sizeof(extra), "%s", settings);
+                            if (pdguiWeaponGraphRenderNodeSettings(kind.c_str(), extra, sizeof(extra))) {
+                                char *next = weaponGraphEditorSetNodeSettings(program.graph.c_str(),
+                                    id.c_str(), extra, err, sizeof(err));
+                                if (next) {
+                                    program.graph = next;
+                                    program.changed = true;
+                                    program.valid = weaponGraphValidateJson(ASSET_PROJECTILE,
+                                        program.graph.c_str(), (u32)program.graph.size(),
+                                        err, sizeof(err)) == 0;
+                                    program.status = program.valid ? "Program checks out" : err;
+                                    free(next);
+                                } else {
+                                    program.status = err;
+                                }
+                            }
+                        } else if (!settings) {
+                            ImGui::TextDisabled("%s", err);
+                        }
+                        free(settings);
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+            }
+            if (!program.status.empty()) {
+                ImGui::TextColored(program.valid ? ImVec4(0.55f, 0.95f, 0.55f, 1.0f)
+                                                 : ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+                                   "%s", program.status.c_str());
+            }
+        }
+        ImGui::PopID();
     }
 }
 
@@ -3570,6 +3795,11 @@ static void weaponRenderTemplateEditor(float scale)
 
         if (ImGui::BeginTabItem("Secondary Graph")) {
             weaponRenderGraphBuilder("secondary", "Secondary Graph", scale);
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Projectile Programs")) {
+            weaponRenderProjectilePrograms(scale);
             ImGui::EndTabItem();
         }
 

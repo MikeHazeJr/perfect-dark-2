@@ -60,7 +60,14 @@
 /* v22 (projectile-events.md slice 7): projectile archives wire the flight
  * rule (event.projectile.in_flight), which an older one lacks: its object
  * would fly plain (no thrust cap, homing, trail or sounds of its own). */
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v22"
+/* v23 (held-weapon-events.md slice 6b): the rocket launcher's and the
+ * CMP150's held programs carry their lock (event.weapon.aiming,
+ * og.weapon.lock_on), which an older one lacks: its lock would not show as
+ * settings. */
+/* v24 (slice 7): every shooting function's program carries its recoil,
+ * casing and muzzle flash (og.weapon.recoil, casing, muzzle_flash), which an
+ * older one lacks: its feel would not show as settings. */
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v24"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
@@ -68,8 +75,10 @@
  * (held-weapon-events.md slice 2). _heldtriggers: and the programs' trigger
  * and use_ammo nodes (slice 3). _heldshots: and their shot nodes (slice 4). _heldreloads: and their reload
  * styles (slice 4b). _flightrules: projectile archives wire the flight rule
- * (projectile-events.md slice 7). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules"
+ * (projectile-events.md slice 7). _heldlocks: the held programs carry their
+ * weapon's lock (slice 6b). _heldfeel: and a shooting function's recoil,
+ * casing and muzzle flash (slice 7). */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules_heldlocks_heldfeel"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -2696,6 +2705,9 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
 		record.functype = f->type;
 		record.flags = f->flags;
 		record.ammo_slot = f->ammoindex;
+		/* slice 7c: its fire animation, written as its catalog id; an attack's
+		 * only (a shot's, a throw's or a strike's). */
+		record.fire_animation = weaponRulesAnimationFits(f->type) ? (const void *)f->fire_animation : NULL;
 		if ((f->type & 0xff) == INVENTORYFUNCTYPE_SPECIAL) {
 			record.specialfunc = ((const struct weaponfunc_special *)f)->specialfunc;
 		}
@@ -2710,6 +2722,32 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
 			record.max_rpm = sa->maxrpm;
 			record.accel = sa->turretaccel;
 			record.decel = sa->turretdecel;
+			if (sa->vibrationstart && sa->vibrationmax) {
+				record.recoil_has_spin_shake = 1;
+				record.recoil_spin_from = sa->vibrationstart[0];
+				record.recoil_spin_to = sa->vibrationmax[0];
+			}
+		}
+		if ((f->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+			/* slice 7a: its recoil, as the record's params write it. */
+			const struct weaponfunc_shoot *sh = (const struct weaponfunc_shoot *)f;
+
+			record.recoil_kick = sh->unk24;
+			record.recoil_return = sh->unk25;
+			record.recoil_cut_after = sh->unk26;
+			record.recoil_cut_return = sh->unk27;
+			record.recoil_recovery = sh->recoverytime60;
+			record.recoil_distance = sh->recoildist;
+			record.recoil_angle = sh->recoilangle;
+			record.recoil_slide = sh->slidemax;
+			record.shoot_sound = sh->shootsound; /* slice 7b: its sound, written as its catalog id */
+			record.shot_duration = sh->duration60;
+			if (sh->recoilsettings) {
+				record.recoil_has_shake = 1;
+				record.recoil_shake[0] = sh->recoilsettings->xrange;
+				record.recoil_shake[1] = sh->recoilsettings->yrange;
+				record.recoil_shake[2] = sh->recoilsettings->zrange;
+			}
 		}
 	}
 	weaponRulesNativeTrigger(&record, out);
@@ -2752,21 +2790,107 @@ static void s_emitHeldReloadNode(jw_t *w, const char *id, const weapon_rule_relo
  * the table for every hand state, so a base program and the original agree
  * by construction.
  */
-#define PDWEAPON_HELD_PROGRAM_NODES 10
+/* held-weapon-events.md slice 7a: og.weapon.recoil with every setting of
+ * the function's own recoil, its floats as the record's params are written
+ * (%.7g), so the held graph reads both alike. */
+static void s_emitHeldRecoilNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s\", \"kind\": \"%s\", \"" WEAPON_RULE_KICK_PARAM "\": %d, \"" WEAPON_RULE_RETURN_PARAM
+		"\": %d, \"" WEAPON_RULE_RECOVERY_PARAM "\": %d, \"" WEAPON_RULE_REFIRE_EARLY_PARAM "\": %s, \""
+		WEAPON_RULE_CUT_AFTER_PARAM "\": %d, \"" WEAPON_RULE_CUT_RETURN_PARAM "\": %d, \"" WEAPON_RULE_DISTANCE_PARAM
+		"\": %.7g, \"" WEAPON_RULE_ANGLE_PARAM "\": %.7g, \"" WEAPON_RULE_SLIDE_PARAM "\": %.7g",
+		id, weaponRulesModuleKind(WEAPON_MODULE_RECOIL), plan->recoil_kick, plan->recoil_return,
+		plan->recoil_recovery, plan->recoil_refire ? "true" : "false", plan->recoil_cut_after,
+		plan->recoil_cut_return, (double)plan->recoil_distance, (double)plan->recoil_angle,
+		(double)plan->recoil_slide);
+	if (plan->recoil_has_shake) {
+		fprintf(w->fp, ", \"" WEAPON_RULE_SHAKE_X_PARAM "\": %.7g, \"" WEAPON_RULE_SHAKE_Y_PARAM "\": %.7g, \""
+			WEAPON_RULE_SHAKE_Z_PARAM "\": %.7g", (double)plan->recoil_shake[0], (double)plan->recoil_shake[1],
+			(double)plan->recoil_shake[2]);
+	}
+	if (plan->recoil_has_spin_shake) {
+		fprintf(w->fp, ", \"" WEAPON_RULE_SPIN_SHAKE_FROM_PARAM "\": %.7g, \"" WEAPON_RULE_SPIN_SHAKE_TO_PARAM
+			"\": %.7g", (double)plan->recoil_spin_from, (double)plan->recoil_spin_to);
+	}
+	fputs(last ? " }\n" : " },\n", w->fp);
+}
+
+/* held-weapon-events.md slice 7b: og.weapon.casing and og.weapon.muzzle_flash
+ * with the function's own. */
+static void s_emitHeldCasingNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s\", \"kind\": \"%s\", \"" WEAPON_RULE_CASING_TYPE_PARAM "\": \"%s\" }%s\n", id,
+		weaponRulesModuleKind(WEAPON_MODULE_CASING), weaponRulesCasingName(plan->casing), last ? "" : ",");
+}
+
+static void s_emitHeldFlashNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s\", \"kind\": \"%s\", \"" WEAPON_RULE_FLASH_ON_PARAM "\": %s }%s\n", id,
+		weaponRulesModuleKind(WEAPON_MODULE_MUZZLE_FLASH), plan->flash ? "true" : "false", last ? "" : ",");
+}
+
+/* og.weapon.shot_sound with the function's own: its sound as the record's
+ * shoot_sound_catalog_id names it (none for no sound), and its duration60. */
+static void s_emitHeldSoundNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	char sound[128];
+
+	sound[0] = '\0';
+	if (plan->shot_sound > 0) {
+		s_sfxCatalogIdForWeapon(plan->shot_sound, sound, sizeof(sound));
+	}
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s\", \"kind\": \"%s\", \"" WEAPON_RULE_SOUND_PARAM "\": \"%s\", \""
+		WEAPON_RULE_DURATION_PARAM "\": %d }%s\n", id, weaponRulesModuleKind(WEAPON_MODULE_SHOT_SOUND),
+		sound[0] ? sound : "none", plan->shot_duration, last ? "" : ",");
+}
+
+/* slice 7c: the catalog name of the attack's fire animation, NULL for none
+ * (or one with no name, which the program then leaves to the function). */
+static const char *s_heldAnimationName(const weapon_rule_trigger_t *plan)
+{
+	const char *name = plan->fire_animation ? s_animNameForCmds((const struct guncmd *)plan->fire_animation) : NULL;
+
+	return name && name[0] ? name : NULL;
+}
+
+/* og.weapon.play_animation with the function's own fire animation, by the
+ * catalog id the record's fire_animation names. */
+static void s_emitHeldAnimationNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s\", \"kind\": \"%s\", \"" WEAPON_RULE_ANIMATION_PARAM "\": \"base:%s\" }%s\n",
+		id, weaponRulesModuleKind(WEAPON_MODULE_PLAY_ANIMATION), s_heldAnimationName(plan), last ? "" : ",");
+}
+
+/* slice 7b: the casing a function's ammo ejects, plus one (0 none). */
+static s32 s_functionCasing(const struct weapon *wpn, const struct weaponfunc *f)
+{
+	if (!wpn || !f || (f->type & 0xff) != INVENTORYFUNCTYPE_SHOOT || f->ammoindex < 0 || f->ammoindex > 1
+			|| !wpn->ammos[f->ammoindex] || (s32)wpn->ammos[f->ammoindex]->casingeject < 0) {
+		return 0;
+	}
+	return (s32)wpn->ammos[f->ammoindex]->casingeject + 1;
+}
+
+#define PDWEAPON_HELD_PROGRAM_NODES 15
 static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
                                    const weapon_rule_trigger_t *plan, const weapon_rule_reload_t *reload)
 {
 	char ids[PDWEAPON_HELD_PROGRAM_NODES][48];
 	static const char *const suffix[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"pressed", "held", "has_ammo", "has_reserve", "attack", "dry_fire", "clip_empty", "reload",
-		"use_ammo", "shot",
+		"use_ammo", "shot", "recoil", "casing", "flash", "sound", "animation",
 	};
 	static const char *const kind[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"event.weapon.trigger_pressed", "event.weapon.ready_while_held",
 		WEAPON_GATE_HAS_AMMO_KIND, WEAPON_GATE_HAS_RESERVE_KIND,
 		NULL, "og.weapon.dry_fire",
 		"event.weapon.clip_empty", "og.weapon.reload",
-		"og.weapon.use_ammo", NULL,
+		"og.weapon.use_ammo", NULL, NULL, NULL, NULL, NULL, NULL,
 	};
 	s32 emit[PDWEAPON_HELD_PROGRAM_NODES];
 	s32 count = 0;
@@ -2774,7 +2898,8 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 	/* use_ammo only where the attack spends, the shot only where the
 	 * function has one (a device has none). */
 	for (s32 i = 0; i < PDWEAPON_HELD_PROGRAM_NODES; i++) {
-		if ((i == 8 && plan->rounds <= 0) || (i == 9 && !plan->shot)) continue;
+		if ((i == 8 && plan->rounds <= 0) || (i == 9 && !plan->shot) || (i >= 10 && i <= 13 && !plan->recoil)
+				|| (i == 14 && !s_heldAnimationName(plan))) continue;
 		emit[count++] = i;
 	}
 	for (s32 n = 0; n < count; n++) {
@@ -2788,6 +2913,16 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 			s_emitHeldReloadNode(w, ids[i], reload, last);
 		} else if (i == 9) {
 			s_emitHeldShotNode(w, ids[i], plan, last);
+		} else if (i == 10) {
+			s_emitHeldRecoilNode(w, ids[i], plan, last);
+		} else if (i == 11) {
+			s_emitHeldCasingNode(w, ids[i], plan, last);
+		} else if (i == 12) {
+			s_emitHeldFlashNode(w, ids[i], plan, last);
+		} else if (i == 13) {
+			s_emitHeldSoundNode(w, ids[i], plan, last);
+		} else if (i == 14) {
+			s_emitHeldAnimationNode(w, ids[i], plan, last);
 		} else {
 			s_emitHeldProgramNode(w, ids[i], kind[i], i == 2 ? rounds : i == 8 ? plan->rounds : 0, last);
 		}
@@ -2809,6 +2944,36 @@ static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name, const weapon_
 	snprintf(reload, sizeof(reload), "%s_reload", mode_name);
 	snprintf(use_ammo, sizeof(use_ammo), "%s_use_ammo", mode_name);
 	snprintf(shot, sizeof(shot), "%s_shot", mode_name);
+	if (plan->recoil) {
+		/* slice 7a: the recoil after the attack's shot. */
+		char recoil[48];
+
+		snprintf(recoil, sizeof(recoil), "%s_recoil", mode_name);
+		s_emitHeldProgramEdge(w, plan->shot ? shot : plan->rounds > 0 ? use_ammo : attack, "out", recoil, 0);
+		/* slice 7b: then its casing, its flash and its sound. */
+		{
+			char casing[48];
+			char flash[48];
+			char sound[48];
+
+			snprintf(casing, sizeof(casing), "%s_casing", mode_name);
+			snprintf(flash, sizeof(flash), "%s_flash", mode_name);
+			snprintf(sound, sizeof(sound), "%s_sound", mode_name);
+			s_emitHeldProgramEdge(w, recoil, "out", casing, 0);
+			s_emitHeldProgramEdge(w, casing, "out", flash, 0);
+			s_emitHeldProgramEdge(w, flash, "out", sound, 0);
+		}
+	}
+	if (s_heldAnimationName(plan)) {
+		/* slice 7c: the attack's fire animation, last in its chain. */
+		char animation[48];
+		char sound[48];
+
+		snprintf(animation, sizeof(animation), "%s_animation", mode_name);
+		snprintf(sound, sizeof(sound), "%s_sound", mode_name);
+		s_emitHeldProgramEdge(w, plan->recoil ? sound : plan->shot ? shot : plan->rounds > 0 ? use_ammo : attack,
+			"out", animation, 0);
+	}
 	s_emitHeldProgramEdge(w, pressed, "out", has_ammo, 0);
 	s_emitHeldProgramEdge(w, held, "out", has_ammo, 0);
 	s_emitHeldProgramEdge(w, has_ammo, "pass", attack, 0);
@@ -2823,6 +2988,45 @@ static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name, const weapon_
 	s_emitHeldProgramEdge(w, clip_empty, "out", reload, 1);
 }
 
+/* held-weapon-events.md slice 6b: a weapon's aim settings' track type (the
+ * default for none). */
+static s32 s_weaponTrackType(const struct weapon *wpn)
+{
+	return wpn && wpn->aimsettings ? (s32)wpn->aimsettings->tracktype : SIGHTTRACKTYPE_DEFAULT;
+}
+
+/* held-weapon-events.md slice 6b: the original's lock (weaponRulesNativeLock)
+ * for a function whose weapon has one, the rocket launcher's and the
+ * CMP150's: event.weapon.aiming and og.weapon.lock_on with every setting.
+ * Written before the idle wiring's nodes, so never the last. -1 when the
+ * settings do not fit. */
+static s32 s_emitHeldLockNodes(jw_t *w, const char *mode_name, const weapon_rule_lock_t *lock)
+{
+	char settings[512];
+
+	if (!lock->locks) return 0;
+	if (weaponRulesLockSettingsText(lock, settings, (s32)sizeof(settings)) < 0) return -1;
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s_aiming\", \"kind\": \"%s\" },\n", mode_name,
+		weaponRulesEventName(MISSION_GRAPH_EVENT_WEAPON_AIMING));
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s_lock\", \"kind\": \"%s\"%s },\n", mode_name,
+		weaponRulesModuleKind(WEAPON_MODULE_LOCK_ON), settings);
+	return 0;
+}
+
+/* Its edge, before the idle wiring's edges. */
+static void s_emitHeldLockEdge(jw_t *w, const char *mode_name, const weapon_rule_lock_t *lock)
+{
+	char aiming[48];
+	char lock_node[48];
+
+	if (!lock->locks) return;
+	snprintf(aiming, sizeof(aiming), "%s_aiming", mode_name);
+	snprintf(lock_node, sizeof(lock_node), "%s_lock", mode_name);
+	s_emitHeldProgramEdge(w, aiming, "out", lock_node, 0);
+}
+
 static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
                                      const char *catalog_id,
                                      const struct weaponfunc *func,
@@ -2830,7 +3034,9 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
                                      const char *projectile_ref,
                                      const char *entity_ref,
                                      s32 weapon_id,
-                                     s32 incremental)
+                                     s32 incremental,
+                                     s32 tracktype,
+                                     s32 casing)
 {
 	FILE *fp = fsFileOpenWrite(graph_tmp_relpath);
 	if (!fp) return -1;
@@ -2850,8 +3056,13 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	const s32 program = func != NULL && func->type != INVENTORYFUNCTYPE_NONE;
 	weapon_rule_trigger_t plan;
 	weapon_rule_reload_t reload;
+	weapon_rule_lock_t lock;
 
 	s_heldNativeTrigger(func, weapon_id, mode, incremental, &plan, &reload);
+	weaponRulesNativeLock(weapon_id, mode, tracktype, &lock);
+	if (plan.recoil) {
+		plan.casing = casing; /* slice 7b: its ammo's (the record the native trigger read has no ammo) */
+	}
 
 	fputs("{\n", fp);
 	w.indent = 1;
@@ -2867,6 +3078,7 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	s_emitWeaponGraphNode(&w, action_node, catalog_id, mode, func,
 		projectile_ref, entity_ref, !program);
 	if (program) {
+		if (s_emitHeldLockNodes(&w, mode_name, &lock) != 0) w.error = 1;
 		s_emitHeldProgramNodes(&w, mode_name, weaponRulesNativeRounds(weapon_id, mode), &plan, &reload);
 	}
 	jw_close_array(&w, 0);
@@ -2877,6 +3089,7 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	jw_field_str(&w, "to", action_node, 1);
 	jw_close_object(&w, !program);
 	if (program) {
+		s_emitHeldLockEdge(&w, mode_name, &lock);
 		s_emitHeldProgramEdges(&w, mode_name, &plan);
 	}
 	jw_close_array(&w, 0);
@@ -2887,7 +3100,7 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 	w.indent = 0;
 	fputs("}\n", fp);
 
-	s32 ok = ferror(fp) == 0;
+	s32 ok = ferror(fp) == 0 && !w.error;
 	if (fclose(fp) != 0) ok = 0;
 	return ok ? 0 : -1;
 }
@@ -3167,7 +3380,8 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	if (s_emitWeaponModeGraphFile(primary_tmp_relpath, catalog_id,
 			(const struct weaponfunc *)wpn->functions[0], 0,
 			projectile_refs[0], entity_refs[0], weapon_id,
-			s_functionReloadsIncrementally(wpn, (const struct weaponfunc *)wpn->functions[0])) != 0) {
+			s_functionReloadsIncrementally(wpn, (const struct weaponfunc *)wpn->functions[0]),
+			s_weaponTrackType(wpn), s_functionCasing(wpn, (const struct weaponfunc *)wpn->functions[0])) != 0) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
 		s_removeRelpathIfExists(primary_tmp_relpath);
 		sysMemFree(manifest_bytes);
@@ -3179,7 +3393,8 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 	if (s_emitWeaponModeGraphFile(secondary_tmp_relpath, catalog_id,
 			(const struct weaponfunc *)wpn->functions[1], 1,
 			projectile_refs[1], entity_refs[1], weapon_id,
-			s_functionReloadsIncrementally(wpn, (const struct weaponfunc *)wpn->functions[1])) != 0) {
+			s_functionReloadsIncrementally(wpn, (const struct weaponfunc *)wpn->functions[1]),
+			s_weaponTrackType(wpn), s_functionCasing(wpn, (const struct weaponfunc *)wpn->functions[1])) != 0) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
 		s_removeRelpathIfExists(primary_tmp_relpath);
 		s_removeRelpathIfExists(secondary_tmp_relpath);

@@ -662,7 +662,428 @@ gun has none, so the Farsight's number is the table's), with the facts
 gaining the relation (owner, friend through `chrCompareTeams`, else enemy),
 alive, drugged and unexplodable; compared over 576 combinations. Homing's
 native filter takes anything (it never re-checks), so it waits for 6b.
-Next: auto-aim, the bot Slayer, proximity and sentries.
+Then the bot Slayer (`rocketTickFbw`): what sets off a bot's rocket asks its
+native filter (an enemy of the bot, alive, not invisible to bots) over the
+facts as the bot reads them (`rocketFbwTargetFacts`: `COMPARE_ENEMIES`,
+`chrIsDead`, `botIsTargetInvisible` as the cloak; the distance and the
+re-route stay the picker's). Each picker builds the facts as it reads them,
+and the filter is one. Then sentries (`autogunTick`, an autogun with a
+team mask): its search still picks the team (the mask, the owner left out in
+a match, a model, an enabled prop), and its take asks the native filter (a
+character, alive, neither hidden nor cloaked) over `autogunTargetFacts`; the
+re-checks of a held target and the aim distance are next with the laptop's
+filters. Then auto-aim (`autoaimTick`'s standard auto-aim): its candidates ask
+the native filter (a character or another player who is not a friend and is
+armed: holding or carrying a gun, or flagged for auto-aim), and
+`chrCalculateAutoAim` keeps testing the state, the cloak and the screen (its
+state and cloak tests join the filter with the CMP150's lock-on branch).
+Proximity stays as it is in 6a: a base mine already decides through its
+program's gates (`trigger_close`, `trigger_character`, projectile slice 4),
+and a mod mine's filters (`bgunModProxyDecision`) are its record's (owner
+excluded or only, enemies only, objects ignored), not weapon numbers, with
+three answers (trigger, ignore, or the rule's) and one quirk to keep (with
+"enemies only" and no owner filter, the owner sets off its own mine). They
+move with 6b, when the proximity event carries its candidate and a program
+chooses its filter. So 6a ends with six of the eight on the filter: look,
+lock, the Farsight, the bot Slayer, sentries and auto-aim; homing and
+proximity are 6b's.
+
+**6b, as planned now.** No new module bits are needed: the filter is
+settings. `og.projectile.home` takes the filter's settings (`kinds`,
+`vehicles` any or occupied, `relation`, `alive`, `cloaked`, `line_of_sight`,
+`range`) and `lost` (fly straight, as Mike's example; the original never
+re-checks, so a base program's home writes none and keeps that), parsed by
+one function in `target_filter.h` that the held lock uses too; a held
+`og.weapon.lock_on` (weapon module bit 16: `style` rocket or follow, `locks`,
+the filter) replaces the aim settings' track type and the rocket
+launcher's number; the launch hands the lock to its object as today.
+
+**6b part 1 as written (2026-11-22, `week-pd/core-weapons-w6b`):** the filter
+as settings (`target_filter.h`: `kinds` as names with commas, `vehicles`,
+`relation`, `alive`, `cloaked`; parsed by `targetFilterFromSettings`, written
+by `targetFilterSettingsText`, a setting left out takes the "anything"
+filter's). `og.projectile.home` takes them and `lost: straight`
+(`projectile_flight_t.home_filter`, `home_filtered`), and `projectileTick`
+re-checks a filtered home's target each tick it homes, with the facts as the
+rocket's owner reads them (`sightTargetFactsFor`, the IR scanner not
+counted for a rocket); a target that fails is dropped and the rocket flies
+straight. The original's home names no filter and writes none, so base
+rockets and their archives are unchanged (no marker bump). Registration and
+conformance refuse a malformed setting with what it takes. Mike's "Enemy
+vehicles" passes an occupied enemy bike and refuses its rider; vehicles
+cannot be locked until 6c.
+
+**6b part 2 as written (2026-11-22, `week-pd/core-weapons-w6b`): the held
+lock.** A new held event, `event.weapon.aiming` (kind 41, numbered after the
+flight event; `weaponRulesEventAt` and `weaponRulesEventIndex` keep the six
+weapon events in one order), walked for the right hand each tick the sight is
+on (`weaponSightLock`, from `sightTick`), applies one module,
+`og.weapon.lock_on` (weapon module bit 16): `locks` (1 to 4, the targets the
+sight holds; with more than one each box shows its number), `aim_follows`
+(the aim follows the held targets, the CMP150 secondary's follow lock-on) and
+the target filter's settings, which gain `sight_targets_only` (a vehicle,
+sentry or object only if the stage marks it for the sight; the CMP150's).
+Gates work there too (a scope that locks only while a state is on). The hand
+keeps the lock while it holds the function, for the sight between walks and
+for auto-aim (`autoaimTick` reads `aim_follows` instead of the CMP150's
+number); a program that handles the event and reaches no lock has none (the
+box follows the aim). A function with no program, or whose program does not
+handle the event, has the original's (`weaponRulesNativeLock`): its weapon's
+aim settings' track type (the rocket launcher's one target, the CMP150's
+four), with the rocket launcher's "whatever the player looks at" and the
+CMP150 secondary's follow kept by number in the table, so a mod weapon whose
+descriptor names `rocket_launcher` keeps today's filter. The extractor writes
+the rocket launcher's and the CMP150's lock into their base programs with
+every setting (`embedded.v23`, cache kind `_heldlocks`: installs re-extract
+base weapons once), and the parity probe compares each walked base lock with
+the original's (`rules.compared`, `rules.differ`; `WEAPON.EVENTS` ends with
+`aiming=N`). `targetFilterSame` now ignores the CI training targets when a
+filter's things need not react (they cannot matter then). Bots have no sight:
+a simulant's rocket homes on its own target, checked in flight by the home's
+filter (part 1).
+
+**6b part 3 as written (2026-11-22, `week-pd/core-weapons-w6b`): what sets a
+mine off.** A filter on what came near needs no new gate (the projectile word
+is full, and widening it is D-057's option B): it is the arm's setting,
+because the arm already chooses what a mine listens for.
+`og.projectile.arm_proximity` takes the target filter's settings
+(`projectile_arm_t`, `projectileRulesArmSettings`; kept with the object's arm
+in its projectile record, `projectileArmProximityFilter`), and the proximity
+sweep (`coordTriggerProxiesFor`) now names the candidate prop (a character,
+a moving object, an eyespy or a firing-range target: `coordTriggerProxiesBy`)
+and judges it as the mine's owner sees it (`sightTargetFactsFor`) before the
+proximity rule's gates; a candidate the sweep cannot name does not set off a
+filtered mine. The filter's relations gain `not_owner` and `not_friend`. A
+mod mine's record filters (owner excluded or only, hostile only, objects
+ignored) are its native filter (`targetFilterModMine`, over the facts as the
+record reads them: the owner by player number, a friend by
+`COMPARE_ENEMIES`), compared with a copy of the record's inline tests over
+every combination; the record's quirk stays (hostile only with no owner
+filter is `not_friend`: the owner still sets off its own mine). When a mod
+mine's program names an arm filter it replaces the record's filters within
+the record's radius. Base programs name none (no re-extract). Slice 6b is
+done; 6c makes vehicles lockable.
+
+**6c part 1 as written (2026-11-22, `week-pd/core-weapons-w6b`): vehicles
+lockable.** A vehicle's facts come from its rider (`sightVehicleRider`: the
+player whose hoverbike it is in bike mode, the driver before the gunner, the
+gunner's seat read through `vehicleGraphRuntimeSeatOfPlayer`): occupied
+while someone rides it (or it is mounted), and its rider's friend or enemy;
+an empty one is nobody's. A thing is alive until it is destroyed. A lock
+seeks vehicles when it holds targets and names its kinds, vehicles among
+them (`weaponRulesLockSeeksVehicles`); for such a lock the look offers a
+vehicle its filter takes, though no vehicle reacts to sight, and sees a
+rider the lock does not take as the vehicle they ride (`sightRiderVehicle`),
+so Mike's "Enemy vehicles" locks the bike when the aim is on its rider. A
+lock that takes every kind (the rocket launcher's, written `kinds: all`)
+takes what the look offers, as the original's did, so no base weapon locks a
+vehicle it could not before.
+
+**6c part 2 as written (2026-11-22): the lock's evidence, and the sample.**
+Each target the sight takes is counted (`WEAPON.EVENTS ... locks=N`) and the
+stage's first sixteen are logged: `SIGHT.LOCK: player=0 weapon=... func=...
+slot=1 of 1 kind=vehicle occupied=1 relation=enemy`. The sample weapon is
+Authored Mods' to package (recipes, `dev-mods.json` and staging are theirs,
+and a sample made from a base weapon may not carry ROM data), to this spec:
+
+- A recipe from the `tri_weapon` template, as `maian_crystal_pistol` is,
+  with descriptor `track_type = default`.
+- Primary (`pd.weapon_graph.v2`): its record (`spawn.fired_projectile`,
+  `shoot_projectile`, its own rocket) and the program
+  `event.weapon.trigger_pressed -> og.weapon.fire_once -> og.weapon.launch
+  {item: own}` and `event.weapon.aiming -> og.weapon.lock_on {locks: 1,
+  kinds: vehicle, vehicles: occupied, relation: enemy, alive: true,
+  cloaked: never}` (Mike's "Enemy vehicles").
+- Secondary: the same with `vehicles: any`, launching
+  `{item: base:homingrocket}`: the base homing rocket never re-checks, so a
+  bike its rider left stays its target.
+- Its rocket (the primary projectile archive, `pd.projectile_graph.v2`):
+  `event.projectile.in_flight -> og.projectile.thrust, og.projectile.home
+  {kinds: vehicle, vehicles: occupied, relation: enemy, alive: true,
+  cloaked: never, lost: straight}, og.projectile.trail`, with the contact
+  and armed rules a rocket needs (the base homing rocket's wiring is the
+  reference).
+
+## Slice 7 plan: feel (Core Weapons, 2026-11-22, before code)
+
+What a gun's shots feel like, from the audit's "Recoil and feel" and
+"Presentation" rows and a survey of the code at `week-pd/core-weapons-w6b`.
+The audit's done-when: mod guns feel like base guns.
+
+| Feel | Where it is decided and runs | What it reads | A mod gun today |
+|---|---|---|---|
+| Recoil kick and return | `bgun0f09aba4`, each frame of the attack's second shoot state (once per attack for an automatic, after its last round) | the held record's `recoil_anim_unk24..27`, recovery time, `recoildist`, `recoilangle`, else the function's | its graph's (the crystal pistol's 4/6/3/0) |
+| Slide | `bgunStartSlide` each shot, `bgunUpdateSlide` each frame (models with `MODELPART_GUN_SLIDE`) | the function's `slidemax` only; the held one is never read | the adapter copies its graph's |
+| Jitter | `bgun0f0a5550`, each firing frame | the function's `recoilsettings` (x, y, z ranges), times the Reaper's spin multiplier (`vibrationstart`/`vibrationmax`, element 0 only) | none (`recoilsettings` NULL) |
+| Casings | `bgunCreateFx` each firing frame; the casing model loaded at equip | the ammo's `casingeject` | none (`CASING_NONE`) |
+| Muzzle flash | `bgun0f09a6f8` each shot | `FUNCFLAG_NOMUZZLEFLASH` (held flags first) | from its flags |
+| Shot sound | each firing tick | the held shot sound and duration, else the function's | from its graph |
+| Fire animation | each attack | the function's `fire_animation` | none (never set; the adapter's weapon lacks the animation flag) |
+
+The recoil's four frame counts: `unk24` frames of kick, `unk25` of return, and
+a press after `unk26` frames cuts the recoil short with an `unk27`-frame
+return (negative: no cut); then `recoverytime60` frames of recovery before the
+attack ends. They also set a semi-automatic's fire rate, and simulants use
+kick plus return as their shot interval (`botactGetShootInterval60`).
+
+**The plan, in the slices' pattern:**
+
+- **7a. `og.weapon.recoil`** (weapon module bit 17), reached on the attack's
+  walk with its shot: `kick`, `return`, `recovery`, `cut_after`,
+  `cut_return` (frames), `distance`, `angle`, `slide`, `shake_x`, `shake_y`,
+  `shake_z`, `spin_shake` (the shake's multiplier at full spin; the Reaper's).
+  A setting left out is the function's own, so a program without the node
+  feels as today; base programs write every one (`embedded.v24`). The plan
+  carries them, and the recoil, the slide and the jitter read the hand's
+  plan. The held record gains `recoilsettings` and the spin shake (base
+  archives already carry both). Mod guns get jitter.
+- **7b. `og.weapon.casing`** (`type`: none, standard, reaper, rifle,
+  shotgun), **`og.weapon.muzzle_flash`** (`on`), **`og.weapon.shot_sound`**
+  (`sound`, `duration`): the plan carries them, and the casing model loads
+  from the press plan when the gun is equipped. Mod guns get casings.
+- **7c. `og.weapon.play_animation`**: the fire animation by name. A mod gun
+  plays one only on a model that animates (the adapter sets the animation
+  flag when its program names one); to be checked against the generated
+  models' static matrices before it is built.
+- Simulants: their shot interval reads the press plan's kick and return
+  (`botact.c`, Multiplayer & Rules' file: an accessor and a note to them).
+- Weapon-number cases stay, as the rule says (guards go last): the Shotgun's
+  hold, the Reaper's eject parts and velocities, the DY357's casings,
+  tracers, smoke, the Falcon 2's laser sight.
+
+**7a as written (2026-11-22, `week-pd/core-weapons-w7`):**
+`og.weapon.recoil` (weapon module bit 17, the first feel module; the idle
+rule events apply the feel modules with the shots) takes `kick`, `return`,
+`recovery`, `cut_after`, `cut_return` (frames, 0 to 127), `refire_early`,
+`distance`, `slide` (0 to 1000), `angle` (0 to 360), `shake_x`, `shake_y`,
+`shake_z`, `spin_shake_from`, `spin_shake_to` (0 to 100). The attack's plan
+carries the recoil; the original's comes from the record
+(`weaponRulesNativeRecoil`): `unk26` at or below 0 is no cut, `unk27` below 0
+no early refire, read back as the seam read them
+(`weaponRulesRecoilCutAfter`, `weaponRulesRecoilCutReturn`). The seams read
+the hand's plan: `bgun0f09aba4` (kick, return, cut, recovery, distance,
+angle), `bgunUpdateSlide`, the jitter and the spin multiplier. The held
+record now reads the jitter (`recoilsettings`) and the Reaper's spin
+(`vibration_start`, `vibration_max`), which base archives always carried, so
+a mod gun's graph gives it jitter. Base programs write every recoil setting
+after their shot (`embedded.v24`, cache `_heldfeel` since 7b); the parity probe
+compares the recoil as part of the plan, and the first `WEAPON.RULE` line
+ends with it (` recoil=6/18/0 refire=yes cut=2/8 ...`). Registration and
+conformance refuse a recoil on a function that does not shoot, and
+malformed settings. A number setting from 0 now reads `0.0` too, the
+charge's `damage_per_step` included. Simulants' shot interval has an
+accessor for Multiplayer & Rules' `botact.c` (`weaponProgramRecoilFrames`:
+the press plan's kick plus return, the original's with no program).
+
+**7b as written (2026-11-22, `week-pd/core-weapons-w7`):** `og.weapon.casing`
+(bit 18, `type`: none, standard, reaper, rifle, shotgun) and
+`og.weapon.muzzle_flash` (bit 19, `on`). The attack's plan carries both, the
+casing as its `CASING_*` value plus one so a zeroed plan ejects none; the
+original's casing is the function's ammo's `casingeject`, its flash on unless
+the function is flagged `FUNCFLAG_NOMUZZLEFLASH`. The per-shot hub reads the
+plan's flash; the casing spawn (`casingCreateForHand`) reads the plan's
+casing, and a function with no clip ejects one too when its program names
+one; when the gun is equipped it loads the model of the casing its
+function's press plan names (`weaponFunctionCasing`), so a mod gun with a
+casing node has its casing's model ready. The profile executor's weapons
+keep their own casing path. Base programs write both after the recoil
+(still `embedded.v24`: nothing was extracted at v24 before this). So a mod
+gun gets casings from its program.
+
+**7b part 2 as written (2026-11-22, `week-pd/core-weapons-w7`):**
+`og.weapon.shot_sound` (bit 20, a feel module: `sound`, none or an audio
+catalog id such as `base:sfx_fire_shotgun`; `duration`, the frames a fire
+slot keeps it, 0 to 255). The attack's plan carries both; the original's are
+the record's, which reads them as `gsetGetSingleShootSound` and
+`gsetGetFireslotDuration` do (the held graph's `shoot_sound_catalog_id` and
+`duration_ticks60` first, else the shooting function's `shootsound` and
+`duration60`). A walk resolves the id through the audio catalog
+(`walk.sound_number`, `weaponSoundNumber` at every walk site); an id that
+does not resolve keeps the function's own, and registration refuses one that
+does not resolve when its weapon registers (compile-time validation checks
+only its form, as for the record's audio references). A player's shot plays
+the attack's plan's sound and keeps its fire slot for its frames
+(`bgunPlanShotSound`, with the plan the shot reads for its flash and its
+rounds; PAL still converts 4 frames and up, now in `gsetFireslotTicks`); a simulant's and a guard's shots read their function's
+press plan through the original's two accessors
+(`weaponProgramShotSound`, `weaponProgramShotDuration`), so a program's
+sound reaches every shooter. The profile executor's weapons keep their
+accessors. Base programs write the node after the flash with the same
+catalog id as the record (still `embedded.v24`, cache `_heldfeel`), and the
+first `WEAPON.RULE` line ends with ` sound=N slot=N`.
+
+**7c as written (2026-11-22, `week-pd/core-weapons-w7`):**
+`og.weapon.play_animation` (bit 21, `animation`: none or an animation
+catalog id such as `base:invanim_falcon2_shoot`). It is an attack's, not a
+shot's: it fits a shooting, throwing or melee function (the three attack
+ticks that play a fire animation), so it sits beside the feel modules in
+the idle events' presentation set (`WEAPON_MODULE_PRESENTATION`) rather
+than in the feel set. The attack's plan carries the gun commands; the
+original's is the function's `fire_animation`. A walk resolves the id
+through the loader pool (`walk.animation_ref`, `weaponAnimationRef`, at
+every walk site); one that does not resolve keeps the function's own, and
+registration checks only its form (animation references are not checked
+anywhere else either). The shot, the throw and the strike start the plan's
+animation and wait on that same one (`bgunPlanFireAnimation`). The model
+check from the plan: a generated mesh (a mod gun's `.pdmesh` with no
+`skeleton_symbol`) has no skeleton, and its root node is part 0, so a base
+animation would move the whole gun by that animation's first channel. An
+animation the function does not have therefore plays only on a held model
+with a skeleton; otherwise the attack goes on as one with no animation and
+`BONDGUN.ANIM: weapon=... plays no fire animation: its held model has no
+skeleton` is logged (first 8). A mod gun animates once its mesh names a
+skeleton its animation was made for. The dry fire's weapon-number list
+keeps the function's own animation. Base programs write the node last in
+every attack's chain (after the sound for a shot, after the throw or the
+strike otherwise) with the record's catalog id (still `embedded.v24`, cache
+`_heldfeel`), and the first `WEAPON.RULE` line ends with
+` animation=<name>`.
+
+## Slice 8 plan: value nodes and the creator (Core Weapons, 2026-11-22, before code)
+
+The audit's slice 8: "Value nodes and the creator: palette shows designer
+nodes with named inputs, writes v2", done when "a modder builds both
+examples in-game with no raw JSON" (the pistol that fires like a machine
+gun, and the rocket that tracks vehicles but not players). Mike's rule for
+the vocabulary: base nodes more abstract than "int + int", while still
+allowing those.
+
+**What the creator has today** (Modding Hub, Weapons tool,
+`pdgui_menu_moddinghub.cpp` and `pdgui_weapon_graph_node_editor.cpp`): a
+node canvas (imgui-node-editor) with a palette, an inspector and templates
+(open any weapon, a base one included, and save a mod in the clean layout,
+T-MODINFRASTRUCTURE-002). It already round-trips v2 programs: a program
+node's settings ride in `extra`, execution edges keep their ports, and the
+writer (`weapon_graph_editor_io.cpp`) names `pd.weapon_graph.v2` when a
+program node is present. What it lacks: the palette lists only the v1 record
+modules (`fire.hitscan` with record params), the inspector edits only record
+params (a program node's settings are not editable outside raw JSON), and a
+weapon's projectile is picked by catalog id, never edited.
+
+- **8a. Designer palette and named inputs.** The palette gains the program
+  nodes, generated from the rule tables (weapon events, gates, modules;
+  `weapon_rules.h`), with designer labels ("On trigger pressed", "Has ammo",
+  "Automatic", "Hitscan shot", "Recoil", ...). The inspector shows a program
+  node's settings as named, typed inputs from `weaponRulesSettingAt` (whole
+  numbers within their range, rates, numbers, switches, the named choices:
+  casing types, reload styles, charge start and release, special actions,
+  the cloak; items, sounds and animations as catalog pickers) and the
+  target filter's settings for the lock. A setting left out shows the
+  function's own value and stays out until it is edited; a Reset puts it
+  back. Registration's own refusal text shows under the node. Done when the
+  machine-gun pistol is built from the Falcon 2 template by swapping Fire
+  once for Automatic (rate 600, spin-up 0) and saved, with no raw JSON.
+- **8b. The weapon's projectile in the creator.** The rocket example needs
+  the rocket's own program (its home filter, slice 6b). The Weapons tool
+  opens the weapon's projectile dependency (a base one as a template) with
+  the same canvas, a palette from `projectile_rules.h` and named inputs, and
+  saves it in the mod beside the weapon. Done when the vehicle rocket is
+  built: the lock (rocket style, one lock, Enemy vehicles), the launch, and
+  the rocket's home with the same filter.
+- **8c. Value nodes.** A setting read at a seam can take a value input from
+  value nodes, evaluated each shot from the hand's live state, so the
+  audit's "wilder the longer you hold it" spread is one wire. Designer value
+  nodes: Per shot (start, step, limit: over the shots of the attack), With
+  spin (from, to: over the automatic's spin), With charge (from, to),
+  Random between (from, to; the game's seeded random, so replays and peers
+  agree); and the plain ones (add, multiply, min, max, clamp). First
+  settings that take an input: the hitscan's spread and damage, the
+  automatic's rate, the recoil's kick. The plan keeps a compiled expression
+  per wired setting; the seam evaluates it; registration and conformance
+  check the data edges; the creator draws data pins. Base programs wire
+  none, so parity is unchanged.
+
+Order: 8a, 8c, 8b. Files: the Weapons tool's part of
+`pdgui_menu_moddinghub.cpp` (shared with other tools: claimed in the
+Workbench before editing), the node editor, the editor IO, the rule
+headers, the runtime seams for 8c.
+
+**8a as written (2026-11-22, `week-pd/core-weapons-w8`):** the designer
+list lives in `weapon_graph_editor_io.cpp` (`weaponGraphDesignerNodeAt`,
+`weaponGraphDesignerNodeFor`; a test holds it to exactly the rule tables'
+events, gates and modules), with the node ports
+(`weaponGraphNodeTakesExec`, `weaponGraphNodeOutputName`: an event has no
+input, a gate leaves by pass or fail, a module by out, a record node keeps
+its one unnamed link). The palette lists the designer nodes by group, then
+the function records under "Function record"; the canvas draws each node's
+own pins (a gate's fail has its own), carries a new link's port to the hub,
+and refuses a link between a program node and a record node. The inspector
+shows a program node's settings as named inputs from
+`weaponGraphDesignerSettings` (the rule table's settings with designer
+labels, has_ammo's rounds, state_is's and set_state's key and value, the
+lock's target filter); a test checks every bound and choice against the
+runtime's own validator. A setting left out reads "the function's own" with
+Set; Reset leaves it out; "$name" settings stay text. Replace With swaps a
+designer node for another of its group, keeping its links and place and
+dropping its settings; Duplicate keeps a program node's settings. Mike's
+first example is a pd-tests case: the Falcon-like program with Fire once
+replaced by Automatic (rate 600, spin-up 0), as the hub writes it,
+validates, splits into a v2 primary file and compiles.
+
+**PR 49 review (2026-11-22):** the homing rocket's re-check and the proximity
+arm's filter now read the owner's IR scanner (`sightOwnerUsesIr`: a living
+player, not in a cutscene or an eyespy, using the scanner; anyone else
+none), so `"cloaked": "with_ir"` there means what it means for the sight;
+they had built their facts with it off. The inspector's kinds checkboxes
+start from `weaponGraphDesignerKindsMask`, which expands `characters`,
+`things` and `all` as the filter reads them, so an edit keeps a group.
+
+**PR 49 review, casings (2026-11-22):** a program weapon now loads a casing
+model for each casing its two functions name (`bgunQueueCartModels`: the
+selected function's, or the other's when it names none, and a second when
+they differ), and each attack ejects its own type's model
+(`bgunGetCartModeldefForCasing`, never another type's). Before, the model
+was the selected function's at equip only, so a second casing type ejected
+the first's model, and a gun equipped on a function with none ejected no
+casings after a switch. The base guns' own quirk of that kind is fixed with
+it: the Super Dragon equipped in grenade mode now ejects its rifle casings
+once switched to its primary. The profile executor's weapons keep their
+path.
+
+**PR 49 review, casings by state (2026-11-22):** one function can also eject
+more than one casing type: its program can hold `og.weapon.casing` nodes on
+the two branches of a `gate.weapon.state_is`, and the press plan the gun
+took its models from is walked with no states, so it named only the casing
+of the branch taken with none set; a hand with the state set asked for the
+other and found no model. The gun now loads a model for every casing either
+function can eject (`weaponFunctionCasings`: each casing node the program
+holds, wherever it sits, plus the function's own, which a branch with no
+casing node ejects; one node's casings are `weaponRulesCasingNodeMask`), one
+model a type and at most the four casing models, with `cartmodeldef` still
+the selected function's press casing, loaded first. Casings still load in
+one-player games only, as in the original.
+
+**PR 49 review, locks (2026-11-22):** a weapon whose lock takes targets
+(`weaponSightLock(0)->locks > 0`) now picks them in multiplayer and has
+their bounds and deaths refreshed, as the aim-tracking base weapons do;
+those (the CMP150 and the rocket launchers) are the only base weapons with
+`WEAPONFLAG_AIMTRACK` and the only ones with a lock, and a mod weapon's
+adapter never sets the flag. And what a weapon's authored lock takes
+(`weaponSightLockAuthored`: its lock is not the original's for the weapon)
+passes the look's native filter too, so a lock that sees through cloaks or
+takes objects that do not react to sight can acquire them; an unmodified
+weapon keeps the native look.
+
+**8b as written (2026-11-22, `week-pd/core-weapons-w8`):** done before 8c,
+since it completes the done-when (8c's value nodes are the advanced
+extra). The rocket example needs only settings on nodes the base rocket
+launcher already has (the secondary's `og.weapon.lock_on`, the homing
+rocket's `og.projectile.home`), so the creator edits a projectile's program
+by its nodes' settings rather than on a second canvas. The template
+editor's Projectile Programs tab lists each projectile the template carries
+(the rocket launcher's rocket and homing rocket) with its program nodes that
+have settings, each with the inspector's named inputs
+(`pdguiWeaponGraphRenderNodeSettings`). An edit rewrites that node's
+settings in the program's text (`weaponGraphEditorSetNodeSettings`; the
+rest is kept), the program is checked as the game checks it, and Save
+writes it over the mod's copy of the projectile
+(`<projectile>::behavior.graph.json`), refusing with the reason while it
+does not check out. The projectile designer nodes (17 events, 4 gates, 27
+modules; Events, Checks, Arm, Flight, Impact) and the projectile settings
+(thrust, trail, hit sound, bounce smoke, the explosion, the home's and the
+proximity arm's target filter) are tested against the projectile rule
+tables and parsers. Adding or rewiring a projectile's nodes in the creator
+is not in this part.
 
 ## Smokes for Integration's finalization batch
 
@@ -685,13 +1106,27 @@ Listed as each slice lands; none is run by Core Weapons.
 | 4 | `boot_smoke` on a freshly extracted install | `embedded.v20`; every base program registers with its shot node and its reload's style |
 | 4b | any smoke that empties a Shotgun's or crossbow's clip | the clip_empty `WEAPON.RULE` line shows `reload=one_at_a_time native_reload=one_at_a_time`; no `WEAPON.RULE differs` |
 | 4b | `crystal_pistol_bot_charge_smoke` | the crystal pistol (a v1 graph, its record's regrow) still regrows its crystals (`BONDGUN.REGROW` lines) |
-| 5 | any smoke that charges the Mauler and fires it (none written yet: give `base:mauler`, switch to the secondary, wait two seconds, fire) | the press's `WEAPON.RULE` line shows `plan=charge start=while_selected time=100 steps=5 ... damage_per_step=3.33333325`; no `WEAPON.RULE differs` |
+| 5 | `held_weapon_charge_smoke` (written 2026-11-22, `tools/smoke-verify/tests/`: gives `base:mauler`, fires the primary, switches to the secondary, waits 3.5 s while it charges, fires) | the press's `WEAPON.RULE` line shows `plan=charge start=while_selected time=100 steps=5 ... damage_per_step=3.33333325`; no `WEAPON.RULE differs` |
 | 5 | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the crystal pistol's committed charge still waits its time and launches (`BONDGUN.CHARGE: start ... release_in=`) |
 | 5 | `projectile_events_smoke` | the timed grenade still cooks and throws (its fuse lines unchanged) |
 | 5 (review) | the Mauler smoke above | the gun's tint and the shot's pitch still follow the charge (now `chargelevel`); a weapon change clears it |
 | 5 (review) | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the player's and the bot's `BONDGUN.CHARGE: start ... release_in=` both equal the function's plan time; the glow ramps over it |
 | 5 (review) | `projectile_events_smoke` | a cooked grenade's fuse lines unchanged (a base grenade's fuse is its activation time) |
 | 4 (review) | any Laser stream smoke (`held_weapon_cadence_smoke`) | the stream still hits at up to 300 |
+| 6b | `boot_smoke` on a freshly extracted install | `embedded.v23`: every base weapon re-extracts once; no `program refused` line (the rocket launcher's and the CMP150's programs register with `event.weapon.aiming`) |
+| 6b | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their `WEAPON.EVENTS` lines end with `aiming=N`; `rules.differ=0` as before |
+| 6b | `projectile_events_smoke` | the proximity mine, the Dragon and the proximity grenade go off as before (their proximity lines unchanged) |
+| 6b | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the crystal pistol's mine keeps its record's radius and filters (`BONDGUN.CRYSTAL: mine triggered` as before; the owner still sets off its own mine) |
+| 7a | `boot_smoke` on a freshly extracted install | `embedded.v24`: every base weapon re-extracts once; no `program refused` line (every shooting function's program carries `og.weapon.recoil`) |
+| 7a | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their first `WEAPON.RULE` lines end with ` recoil=...`; `rules.differ=0`; the guns kick, slide and jitter as before (the Falcon 2's slide, the Reaper's shake rising with its spin) |
+| 7b | `held_weapon_cadence_smoke` (or any smoke that fires a Falcon 2, a CMP150 and a Shotgun) | casings fly as before (standard, rifle, shotgun) and the flash shows; no `WEAPON.RULE differs` line |
+| 7b (sound) | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | the guns sound as before (the Falcon 2, the CMP150's stream, the Shotgun); their first `WEAPON.RULE` lines end with ` sound=N slot=N`, N above 0; no `WEAPON.RULE differs` line; simulants' shots sound as before (any simulant smoke) |
+| 7c | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke`, any smoke that punches or throws a grenade | fire animations play as before (the Falcon 2's, the Shotgun's pump, the punch, a grenade's throw), and the attacks keep their timing; first `WEAPON.RULE` lines end with ` animation=invanim_...`; no `WEAPON.RULE differs` line |
+| 8a | a creator smoke (none written yet: Modding Hub, Weapons, open the base Falcon 2 as a template, right-click Fire once, Replace With, Automatic, Set rate to 600 and spin-up to 0, save the mod; then a match with the saved weapon, holding the trigger). How it runs is Mike's call, **D-059**: (A, Core Weapons' pick) a `graph_edits` step in the `--mod-author` recipe (`port/src/mod_author_recipe.cpp`, Authored Mods' format) that applies the creator's own Replace With and node settings to the install's real template and saves it the way the creator does, with Replace With's rules moved into `port/src/weapon_graph_editor_io.cpp` so the creator and the recipe share them; (B) a hand-written program in a fixture, which drops the extracted record (sounds, fire animation, recoil settings, timings), so it plays a stripped gun and goes stale at the next `embedded.vNN`; or (C) a person makes and plays both examples. | the palette lists the designer groups; the saved weapon's first `WEAPON.RULE: trigger_pressed ... modules=automatic` and a held trigger keeps firing; no `program refused` line |
+| 8b | a creator smoke (none written yet: Modding Hub, Weapons, the base rocket launcher as a template; Secondary Graph, the lock: kinds vehicle, relation enemy, vehicles any; Projectile Programs, homing rocket, Home toward target: the same filter; save; then the 6c vehicle lock smoke with the saved launcher). Under D-059 A, the same recipe step, on the weapon's lock and on its projectile's member (`<projectile>::behavior.graph.json`). | the saved mod's copy of the homing rocket carries the filter; the lock takes the empty bike (`SIGHT.LOCK: ... kind=vehicle`) and never a player; no `program refused` line |
+| 4, 6b (cloak) | `held_weapon_cloak_smoke` (written 2026-11-22, `tools/smoke-verify/tests/`) | the alternate-function button toggles the RCP120's cloak on and off: `BONDGUN.CLOAK: on player=0 weapon=base:rcp120 drain=24 slot=N`, then `off`; no `WEAPON.RULE differs` or `program refused` line |
+| 6c | a vehicle lock smoke with the sample above (none written yet: the Blank Room with a hoverbike, `--debug-forge-level-vehicle`, as `hoverbike_room_flow_smoke`) | aiming the secondary at the empty bike logs `SIGHT.LOCK: ... kind=vehicle occupied=0 relation=none`; the primary takes no lock on it; with a second player riding (split screen or a second client) the primary logs `occupied=1 relation=enemy`, and its rocket flies straight once the rider bails; `rules.differ=0` |
+| 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function; the smoke runner has no aim step yet, and `mouse_move` cannot hold a moving simulant, so this needs a runner aid first) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 
 ## Where to look
 

@@ -6,6 +6,7 @@
 #include <PR/ultratypes.h>
 #include "constants.h"
 #include "mission_graph_runner.h"
+#include "target_filter.h"
 
 /*
  * The modules and gates a held weapon program can run, the events that apply
@@ -53,7 +54,20 @@ extern "C" {
  * primes while the trigger is held. */
 #define WEAPON_MODULE_CHARGE      (1u << 14) /* og.weapon.charge ("start", "time", "steps", "release", ...) */
 #define WEAPON_MODULE_COOK        (1u << 15) /* og.weapon.cook ("fuse") */
-#define WEAPON_MODULE_COUNT 16
+/* Slice 6b: the sight's lock while the player aims (event.weapon.aiming). */
+#define WEAPON_MODULE_LOCK_ON     (1u << 16) /* og.weapon.lock_on ("locks", "aim_follows", the target filter) */
+/* Slice 7: how each shot of the attack feels. */
+#define WEAPON_MODULE_RECOIL      (1u << 17) /* og.weapon.recoil ("kick", "return", "recovery", the cut, travel, shake) */
+#define WEAPON_MODULE_CASING      (1u << 18) /* og.weapon.casing ("type") */
+#define WEAPON_MODULE_MUZZLE_FLASH (1u << 19) /* og.weapon.muzzle_flash ("on") */
+#define WEAPON_MODULE_SHOT_SOUND  (1u << 20) /* og.weapon.shot_sound ("sound", "duration") */
+/* Slice 7c: the attack's fire animation (a shot's, a throw's or a strike's). */
+#define WEAPON_MODULE_PLAY_ANIMATION (1u << 21) /* og.weapon.play_animation ("animation") */
+#define WEAPON_MODULE_COUNT 22
+#define WEAPON_MODULE_FEEL (WEAPON_MODULE_RECOIL | WEAPON_MODULE_CASING | WEAPON_MODULE_MUZZLE_FLASH \
+	| WEAPON_MODULE_SHOT_SOUND)
+/* What the attack shows and sounds like: the feel modules and its animation. */
+#define WEAPON_MODULE_PRESENTATION (WEAPON_MODULE_FEEL | WEAPON_MODULE_PLAY_ANIMATION)
 #define WEAPON_MODULE_ALL ((1u << WEAPON_MODULE_COUNT) - 1)
 #define WEAPON_MODULE_TRIGGERS (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC \
 	| WEAPON_MODULE_CHARGE | WEAPON_MODULE_COOK)
@@ -108,7 +122,8 @@ static inline const char *weaponRulesModuleKind(u32 bit)
 		"og.weapon.burst", "og.weapon.automatic", "og.weapon.use_ammo",
 		"og.weapon.hitscan", "og.weapon.beam", "og.weapon.launch", "og.weapon.throw",
 		"og.weapon.melee", "og.weapon.special", "og.weapon.mode_toggle",
-		"og.weapon.charge", "og.weapon.cook",
+		"og.weapon.charge", "og.weapon.cook", "og.weapon.lock_on", "og.weapon.recoil",
+		"og.weapon.casing", "og.weapon.muzzle_flash", "og.weapon.shot_sound", "og.weapon.play_animation",
 	};
 	for (s32 i = 0; i < WEAPON_MODULE_COUNT; i++) {
 		if (bit == (1u << i)) return kinds[i];
@@ -152,15 +167,28 @@ static inline u32 weaponRulesGateBit(const char *kind)
 	return 0;
 }
 
-/* The weapon events, in kind order (MISSION_GRAPH_EVENT_WEAPON_*). */
-#define WEAPON_RULE_EVENT_COUNT \
-	(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED + 1)
+/* The weapon events, in kind order (MISSION_GRAPH_EVENT_WEAPON_*): the five
+ * numbered together, then the aiming event (slice 6b), numbered after the
+ * projectile flight event. */
+#define WEAPON_RULE_EVENT_COUNT 6
 
 /* The index-th weapon event's kind, or -1 past the end. */
 static inline s32 weaponRulesEventAt(s32 index)
 {
-	return index >= 0 && index < WEAPON_RULE_EVENT_COUNT
-		? MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED + index : -1;
+	if (index >= 0 && index <= MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED) {
+		return MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED + index;
+	}
+	return index == WEAPON_RULE_EVENT_COUNT - 1 ? MISSION_GRAPH_EVENT_WEAPON_AIMING : -1;
+}
+
+/* A weapon event's place in that order, -1 for no weapon event. */
+static inline s32 weaponRulesEventIndex(s32 event_kind)
+{
+	if (event_kind >= MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED
+			&& event_kind <= MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE) {
+		return event_kind - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED;
+	}
+	return event_kind == MISSION_GRAPH_EVENT_WEAPON_AIMING ? WEAPON_RULE_EVENT_COUNT - 1 : -1;
 }
 
 /* "event.weapon.trigger_pressed" for its kind; NULL for no weapon event. */
@@ -169,27 +197,31 @@ static inline const char *weaponRulesEventName(s32 event_kind)
 	static const char *const names[WEAPON_RULE_EVENT_COUNT] = {
 		"event.weapon.trigger_pressed", "event.weapon.ready_while_held",
 		"event.weapon.clip_empty", "event.weapon.trigger_released",
-		"event.weapon.reload_done",
+		"event.weapon.reload_done", "event.weapon.aiming",
 	};
-	const s32 index = event_kind - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED;
+	const s32 index = weaponRulesEventIndex(event_kind);
 
-	return index >= 0 && index < WEAPON_RULE_EVENT_COUNT ? names[index] : NULL;
+	return index >= 0 ? names[index] : NULL;
 }
 
 /* The modules the event's seam applies. The idle seam's three rule events
  * (trigger_pressed, ready_while_held, clip_empty) apply the idle actions,
- * use_ammo and the shot modules (the attack a trigger starts) and set_state;
- * the records (trigger_released, reload_done) apply set_state only. */
+ * use_ammo, the shot, feel and animation modules (the attack a trigger starts) and set_state;
+ * the records (trigger_released, reload_done) apply set_state only; aiming
+ * (slice 6b) the sight's lock. */
 static inline u32 weaponRulesEventModules(s32 event_kind)
 {
 	switch (event_kind) {
 	case MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED:
 	case MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD:
 	case MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY:
-		return WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_SET_STATE;
+		return WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_PRESENTATION
+			| WEAPON_MODULE_SET_STATE;
 	case MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED:
 	case MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE:
 		return WEAPON_MODULE_SET_STATE;
+	case MISSION_GRAPH_EVENT_WEAPON_AIMING:
+		return WEAPON_MODULE_LOCK_ON;
 	}
 	return 0;
 }
@@ -358,6 +390,28 @@ typedef struct weapon_rule_trigger {
 	s32 charge_release;  /* WEAPON_RULE_RELEASE_ON_PRESS or _ON_FULL */
 	f32 charge_damage;   /* each step adds this many times the shot's damage */
 	s32 cook_fuse;       /* cook: 60 Hz ticks the throw may be held before it goes off in the hand */
+	/* slice 7a: og.weapon.recoil, a shooting function's (all 0 for others). */
+	s32 recoil;            /* the attack has a recoil */
+	s32 recoil_kick;       /* 60 Hz frames the gun kicks */
+	s32 recoil_return;     /* frames it returns */
+	s32 recoil_recovery;   /* frames after the recoil before the attack ends */
+	s32 recoil_refire;     /* a new press ends the recovery early (and may cut the recoil short) */
+	s32 recoil_cut_after;  /* a press after this many frames cuts the recoil short; 0 never */
+	s32 recoil_cut_return; /* that cut's return frames */
+	f32 recoil_distance;   /* the kick's distance, thousandths of the gun's offset from the aim */
+	f32 recoil_angle;      /* the kick's angle, degrees */
+	f32 recoil_slide;      /* the slide's travel */
+	s32 recoil_has_shake;  /* the jitter while firing */
+	f32 recoil_shake[3];   /* its x, y and z ranges */
+	s32 recoil_has_spin_shake; /* the jitter's multiplier follows an automatic's spin */
+	f32 recoil_spin_from;  /* at no spin */
+	f32 recoil_spin_to;    /* at full spin */
+	/* slice 7b: og.weapon.casing and og.weapon.muzzle_flash. */
+	s32 casing;            /* 0 none, else the CASING_* each shot ejects plus one */
+	s32 flash;             /* each shot flashes */
+	s32 shot_sound;        /* og.weapon.shot_sound: the sound each shot plays, 0 none */
+	s32 shot_duration;     /* frames a fire slot keeps it before another shot's may play */
+	const void *fire_animation; /* og.weapon.play_animation: the attack's gun commands (struct guncmd), NULL none */
 } weapon_rule_trigger_t;
 
 #define WEAPON_RULE_ITEM_OWN (-1)              /* the function's own projectile object */
@@ -395,12 +449,31 @@ typedef struct weapon_rule_function {
 	f32 max_rpm;
 	s32 accel;
 	s32 decel;
+	/* slice 7a: its recoil as the original keeps it (weaponRulesNativeRecoil). */
+	s32 recoil_kick;       /* unk24 */
+	s32 recoil_return;     /* unk25 */
+	s32 recoil_cut_after;  /* unk26 */
+	s32 recoil_cut_return; /* unk27 */
+	s32 recoil_recovery;   /* recoverytime60 */
+	f32 recoil_distance;   /* recoildist */
+	f32 recoil_angle;      /* recoilangle */
+	f32 recoil_slide;      /* slidemax */
+	s32 recoil_has_shake;  /* recoilsettings */
+	f32 recoil_shake[3];
+	s32 recoil_has_spin_shake; /* vibrationstart and vibrationmax, element 0 */
+	f32 recoil_spin_from;
+	f32 recoil_spin_to;
+	s32 casing;            /* slice 7b: its ammo's casingeject plus one; 0 none */
+	s32 shoot_sound;       /* slice 7b: the held graph's shootsound, else the shot's */
+	s32 shot_duration;     /* its duration_ticks60, else the shot's duration60 */
+	const void *fire_animation; /* slice 7c: the function's fire_animation (struct guncmd), NULL none */
 } weapon_rule_function_t;
 
 #define WEAPON_RULE_FUNCFLAG_BURST3  0x00000002u /* FUNCFLAG_BURST3 */
 #define WEAPON_RULE_FUNCFLAG_BURST50 0x00000020u /* FUNCFLAG_BURST50 */
 #define WEAPON_RULE_FUNCFLAG_BURST2  0x00001000u /* FUNCFLAG_BURST2 */
 #define WEAPON_RULE_FUNCFLAG_BURST5  0x00020000u /* FUNCFLAG_BURST5 */
+#define WEAPON_RULE_FUNCFLAG_NOMUZZLEFLASH 0x00002000u /* FUNCFLAG_NOMUZZLEFLASH (slice 7b) */
 
 static inline s32 weaponRulesFunctionShoots(const weapon_rule_function_t *f)
 {
@@ -629,11 +702,159 @@ static inline void weaponRulesCommittedCharge(const weapon_rule_function_t *f, w
 	out->charge_damage = 0.0f;
 }
 
+/*
+ * held-weapon-events.md slice 7a: the recoil a shooting function's record
+ * gives it (bgun0f09aba4, bgunUpdateSlide, the jitter): `unk24` frames of
+ * kick and `unk25` of return; with `unk27` 0 or more a new press ends the
+ * recovery early, and one after `unk26` frames (above 0) cuts the recoil
+ * short with an `unk27`-frame return; `recoverytime60` frames of recovery;
+ * the kick's distance and angle; the slide's travel; the jitter's ranges
+ * (`recoilsettings`) and, for the Reaper, its multiplier from no spin to full
+ * (`vibrationstart`/`vibrationmax`, element 0). A function that does not
+ * shoot has none.
+ */
+static inline void weaponRulesNativeRecoil(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	out->recoil = 0;
+	out->recoil_kick = 0;
+	out->recoil_return = 0;
+	out->recoil_recovery = 0;
+	out->recoil_refire = 0;
+	out->recoil_cut_after = 0;
+	out->recoil_cut_return = 0;
+	out->recoil_distance = 0.0f;
+	out->recoil_angle = 0.0f;
+	out->recoil_slide = 0.0f;
+	out->recoil_has_shake = 0;
+	out->recoil_shake[0] = out->recoil_shake[1] = out->recoil_shake[2] = 0.0f;
+	out->recoil_has_spin_shake = 0;
+	out->recoil_spin_from = 0.0f;
+	out->recoil_spin_to = 0.0f;
+	if (!f || !weaponRulesFunctionShoots(f)) return;
+	out->recoil = 1;
+	out->recoil_kick = f->recoil_kick;
+	out->recoil_return = f->recoil_return;
+	out->recoil_recovery = f->recoil_recovery;
+	out->recoil_refire = f->recoil_cut_return >= 0;
+	out->recoil_cut_after = f->recoil_cut_after > 0 ? f->recoil_cut_after : 0;
+	out->recoil_cut_return = f->recoil_cut_return >= 0 ? f->recoil_cut_return : 0;
+	out->recoil_distance = f->recoil_distance;
+	out->recoil_angle = f->recoil_angle;
+	out->recoil_slide = f->recoil_slide;
+	out->recoil_has_shake = f->recoil_has_shake;
+	out->recoil_shake[0] = f->recoil_shake[0];
+	out->recoil_shake[1] = f->recoil_shake[1];
+	out->recoil_shake[2] = f->recoil_shake[2];
+	out->recoil_has_spin_shake = f->recoil_has_spin_shake;
+	out->recoil_spin_from = f->recoil_spin_from;
+	out->recoil_spin_to = f->recoil_spin_to;
+}
+
+/*
+ * held-weapon-events.md slice 7b: a shot's casing and muzzle flash. The
+ * casing is the function's ammo's (`casingeject`: none, standard, the
+ * Reaper's, rifle, shotgun), kept as its CASING_* value plus one so a zeroed
+ * plan ejects none; the flash is on unless the function is flagged
+ * FUNCFLAG_NOMUZZLEFLASH. A function that does not shoot has neither.
+ */
+#define WEAPON_RULE_CASING_NAMES 5
+static inline const char *weaponRulesCasingName(s32 casing)
+{
+	static const char *const names[WEAPON_RULE_CASING_NAMES] = { "none", "standard", "reaper", "rifle", "shotgun" };
+
+	return casing >= 0 && casing < WEAPON_RULE_CASING_NAMES ? names[casing] : NULL;
+}
+
+static inline s32 weaponRulesCasingFromText(const char *text)
+{
+	for (s32 i = 0; text && i < WEAPON_RULE_CASING_NAMES; i++) {
+		if (strcmp(text, weaponRulesCasingName(i)) == 0) return i;
+	}
+	return -1;
+}
+
+/* The CASING_* value a plan ejects (-1 none). */
+static inline s32 weaponRulesCasingEject(const weapon_rule_trigger_t *plan)
+{
+	return plan && plan->casing > 0 ? plan->casing - 1 : -1;
+}
+
+/* PR 49 review (slice 7b): what one og.weapon.casing node can make an attack
+ * eject, as (1 << CASING_*): its type's; nothing for "none"; and the
+ * function's own (`native`, CASING_* or -1) when it names no type or one it
+ * does not know, which keeps the default (weaponRulesApplyCasingSettings). */
+static inline u32 weaponRulesCasingNodeMask(const char *type_text, s32 native)
+{
+	const s32 casing = type_text ? weaponRulesCasingFromText(type_text) : -2;
+
+	if (casing > 0) return 1u << (casing - 1);
+	if (casing == 0) return 0;
+	return native >= 0 && native < 32 ? 1u << native : 0;
+}
+
+static inline void weaponRulesNativeCasing(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	out->casing = f && weaponRulesFunctionShoots(f) && f->casing > 0 && f->casing < WEAPON_RULE_CASING_NAMES
+		? f->casing : 0;
+}
+
+static inline void weaponRulesNativeFlash(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	out->flash = f && weaponRulesFunctionShoots(f) && !(f->flags & WEAPON_RULE_FUNCFLAG_NOMUZZLEFLASH) ? 1 : 0;
+}
+
+/* slice 7b: a shot's sound and the frames a fire slot keeps it, as the
+ * record carries them (gsetGetSingleShootSound and gsetGetFireslotDuration:
+ * the held graph's first, else the shooting function's `shootsound` and
+ * `duration60`). */
+static inline void weaponRulesNativeSound(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	out->shot_sound = f ? f->shoot_sound : 0;
+	out->shot_duration = f ? f->shot_duration : 0;
+}
+
+/* slice 7c: the attack's fire animation, the function's own. */
+static inline void weaponRulesNativeAnimation(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	out->fire_animation = f ? f->fire_animation : NULL;
+}
+
+/* What the seam reads: unk26 and unk27 as the original keeps them (unk27
+ * below 0 when no press refires early). */
+static inline s32 weaponRulesRecoilCutAfter(const weapon_rule_trigger_t *plan)
+{
+	return plan->recoil_cut_after;
+}
+
+static inline s32 weaponRulesRecoilCutReturn(const weapon_rule_trigger_t *plan)
+{
+	return plan->recoil_refire ? plan->recoil_cut_return : -1;
+}
+
+static inline s32 weaponRulesRecoilEqual(const weapon_rule_trigger_t *a, const weapon_rule_trigger_t *b)
+{
+	return a->recoil == b->recoil && a->recoil_kick == b->recoil_kick && a->recoil_return == b->recoil_return
+		&& a->recoil_recovery == b->recoil_recovery && a->recoil_refire == b->recoil_refire
+		&& a->recoil_cut_after == b->recoil_cut_after && a->recoil_cut_return == b->recoil_cut_return
+		&& a->recoil_distance == b->recoil_distance && a->recoil_angle == b->recoil_angle
+		&& a->recoil_slide == b->recoil_slide && a->recoil_has_shake == b->recoil_has_shake
+		&& (!a->recoil_has_shake || (a->recoil_shake[0] == b->recoil_shake[0]
+			&& a->recoil_shake[1] == b->recoil_shake[1] && a->recoil_shake[2] == b->recoil_shake[2]))
+		&& a->recoil_has_spin_shake == b->recoil_has_spin_shake
+		&& (!a->recoil_has_spin_shake || (a->recoil_spin_from == b->recoil_spin_from
+			&& a->recoil_spin_to == b->recoil_spin_to));
+}
+
 static inline void weaponRulesNativeTrigger(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
 {
 	memset(out, 0, sizeof(*out));
 	out->aimed_burst = 1;
 	weaponRulesNativeShot(f, out);
+	weaponRulesNativeRecoil(f, out);
+	weaponRulesNativeCasing(f, out);
+	weaponRulesNativeFlash(f, out);
+	weaponRulesNativeSound(f, out);
+	weaponRulesNativeAnimation(f, out);
 	if (f && f->has_charge && f->weaponnum >= WEAPON_CUSTOM_START) {
 		/* slice 5: the committed charge spends its own rounds on release. */
 		weaponRulesCommittedCharge(f, out);
@@ -732,6 +953,9 @@ static inline f32 weaponRulesRateFromText(const char *text, f32 dflt)
 #define WEAPON_RULE_SETTING_CHARGE_START 10 /* "while_selected" or "on_press" */
 #define WEAPON_RULE_SETTING_RELEASE 11      /* "on_press" or "on_full" */
 #define WEAPON_RULE_SETTING_NONNEG 12       /* a number from 0 up to hi */
+#define WEAPON_RULE_SETTING_CASING 13       /* a casing by name (slice 7b) */
+#define WEAPON_RULE_SETTING_SOUND 14        /* none, or an audio catalog id */
+#define WEAPON_RULE_SETTING_ANIMATION 15    /* none, or an animation catalog id */
 #define WEAPON_RULE_START_PARAM "start"
 #define WEAPON_RULE_TIME_PARAM "time"
 #define WEAPON_RULE_STEPS_PARAM "steps"
@@ -753,6 +977,31 @@ static inline f32 weaponRulesRateFromText(const char *text, f32 dflt)
 #define WEAPON_RULE_ACTION_PARAM "action"
 #define WEAPON_RULE_MODE_PARAM "mode"
 #define WEAPON_RULE_DRAIN_PARAM "drain"
+#define WEAPON_RULE_LOCKS_PARAM "locks"             /* og.weapon.lock_on (slice 6b) */
+#define WEAPON_RULE_AIM_FOLLOWS_PARAM "aim_follows"
+#define WEAPON_RULE_MAX_LOCKS 4                     /* the player's tracked props */
+#define WEAPON_RULE_KICK_PARAM "kick"               /* og.weapon.recoil (slice 7a) */
+#define WEAPON_RULE_RETURN_PARAM "return"
+#define WEAPON_RULE_RECOVERY_PARAM "recovery"
+#define WEAPON_RULE_REFIRE_EARLY_PARAM "refire_early"
+#define WEAPON_RULE_CUT_AFTER_PARAM "cut_after"
+#define WEAPON_RULE_CUT_RETURN_PARAM "cut_return"
+#define WEAPON_RULE_DISTANCE_PARAM "distance"
+#define WEAPON_RULE_ANGLE_PARAM "angle"
+#define WEAPON_RULE_SLIDE_PARAM "slide"
+#define WEAPON_RULE_SHAKE_X_PARAM "shake_x"
+#define WEAPON_RULE_SHAKE_Y_PARAM "shake_y"
+#define WEAPON_RULE_SHAKE_Z_PARAM "shake_z"
+#define WEAPON_RULE_SPIN_SHAKE_FROM_PARAM "spin_shake_from"
+#define WEAPON_RULE_SPIN_SHAKE_TO_PARAM "spin_shake_to"
+#define WEAPON_RULE_MAX_RECOIL_FRAMES 127           /* the record's signed bytes */
+#define WEAPON_RULE_MAX_RECOIL_TRAVEL 1000.0f
+#define WEAPON_RULE_MAX_SHAKE 100.0f
+#define WEAPON_RULE_CASING_TYPE_PARAM "type"        /* og.weapon.casing (slice 7b) */
+#define WEAPON_RULE_FLASH_ON_PARAM "on"             /* og.weapon.muzzle_flash */
+#define WEAPON_RULE_SOUND_PARAM "sound"             /* og.weapon.shot_sound */
+#define WEAPON_RULE_DURATION_PARAM "duration"
+#define WEAPON_RULE_ANIMATION_PARAM "animation"     /* og.weapon.play_animation */
 typedef struct weapon_rule_setting {
 	u32 module;
 	const char *key;
@@ -760,7 +1009,7 @@ typedef struct weapon_rule_setting {
 	s32 lo;
 	s32 hi;
 } weapon_rule_setting_t;
-#define WEAPON_RULE_SETTING_COUNT 30
+#define WEAPON_RULE_SETTING_COUNT 51
 
 static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 {
@@ -797,6 +1046,27 @@ static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_RELEASE_PARAM, WEAPON_RULE_SETTING_RELEASE, 0, 0 },
 		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_DAMAGE_PER_STEP_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, 100 },
 		{ WEAPON_MODULE_COOK, WEAPON_RULE_FUSE_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_SPIN },
+		{ WEAPON_MODULE_LOCK_ON, WEAPON_RULE_LOCKS_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_LOCKS },
+		{ WEAPON_MODULE_LOCK_ON, WEAPON_RULE_AIM_FOLLOWS_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_KICK_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_RECOIL_FRAMES },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_RETURN_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_RECOIL_FRAMES },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_RECOVERY_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_RECOIL_FRAMES },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_REFIRE_EARLY_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_CUT_AFTER_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_RECOIL_FRAMES },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_CUT_RETURN_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_RECOIL_FRAMES },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_DISTANCE_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_RECOIL_TRAVEL },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_ANGLE_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, 360 },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SLIDE_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_RECOIL_TRAVEL },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SHAKE_X_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SHAKE_Y_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SHAKE_Z_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SPIN_SHAKE_FROM_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SPIN_SHAKE_TO_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
+		{ WEAPON_MODULE_CASING, WEAPON_RULE_CASING_TYPE_PARAM, WEAPON_RULE_SETTING_CASING, 0, 0 },
+		{ WEAPON_MODULE_MUZZLE_FLASH, WEAPON_RULE_FLASH_ON_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
+		{ WEAPON_MODULE_SHOT_SOUND, WEAPON_RULE_SOUND_PARAM, WEAPON_RULE_SETTING_SOUND, 0, 0 },
+		{ WEAPON_MODULE_SHOT_SOUND, WEAPON_RULE_DURATION_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, 255 },
+		{ WEAPON_MODULE_PLAY_ANIMATION, WEAPON_RULE_ANIMATION_PARAM, WEAPON_RULE_SETTING_ANIMATION, 0, 0 },
 	};
 	return index >= 0 && index < WEAPON_RULE_SETTING_COUNT ? &settings[index] : NULL;
 }
@@ -812,6 +1082,20 @@ static inline f32 weaponRulesNumberFromText(const char *text, f32 hi, f32 dflt)
 	if (!text[0] || text[0] == '+' || text[0] == '-' || text[0] == ' ') return -1.0f;
 	value = strtod(text, &end);
 	if (!end || *end || !(value > 0.0) || value > hi) return -1.0f;
+	return (f32)value;
+}
+
+/* A number of 0 or more, up to hi: the number, `dflt` for NULL, -1 for
+ * anything else. */
+static inline f32 weaponRulesNonNegFromText(const char *text, f32 hi, f32 dflt)
+{
+	char *end = NULL;
+	double value;
+
+	if (!text) return dflt;
+	if (!text[0] || text[0] == '+' || text[0] == '-' || text[0] == ' ') return -1.0f;
+	value = strtod(text, &end);
+	if (!end || *end || !(value >= 0.0) || value > hi) return -1.0f;
 	return (f32)value;
 }
 
@@ -970,7 +1254,12 @@ static inline s32 weaponRulesSettingValid(const weapon_rule_setting_t *setting, 
 	case WEAPON_RULE_SETTING_RELEASE:
 		return strcmp(text, "on_press") == 0 || strcmp(text, "on_full") == 0;
 	case WEAPON_RULE_SETTING_NONNEG:
-		return strcmp(text, "0") == 0 || weaponRulesNumberFromText(text, (f32)setting->hi, -1.0f) > 0.0f;
+		return weaponRulesNonNegFromText(text, (f32)setting->hi, -1.0f) >= 0.0f;
+	case WEAPON_RULE_SETTING_CASING:
+		return weaponRulesCasingFromText(text) >= 0;
+	case WEAPON_RULE_SETTING_SOUND:
+	case WEAPON_RULE_SETTING_ANIMATION:
+		return strcmp(text, "none") == 0 || weaponRulesItemIdValid(text);
 	}
 	return 0;
 }
@@ -1065,12 +1354,11 @@ static inline s32 weaponRulesApplySettings(u32 module, weapon_rule_text_fn get, 
 		if (v < 0) ok = 0; else plan->charge_fall = v;
 		damage_text = get(WEAPON_RULE_DAMAGE_PER_STEP_PARAM, user);
 		if (damage_text) {
-			if (strcmp(damage_text, "0") == 0) {
-				plan->charge_damage = 0.0f;
-			} else {
-				const f32 d = weaponRulesNumberFromText(damage_text, 100.0f, -1.0f);
+			{
+				/* slice 7a: any number from 0, as registration reads it. */
+				const f32 d = weaponRulesNonNegFromText(damage_text, 100.0f, -1.0f);
 
-				if (d > 0.0f) plan->charge_damage = d;
+				if (d >= 0.0f) plan->charge_damage = d;
 				else ok = 0;
 			}
 		}
@@ -1126,12 +1414,195 @@ static inline s32 weaponRulesTriggerEqual(const weapon_rule_trigger_t *a, const 
 		&& a->charge_steps == b->charge_steps && a->charge_ammo == b->charge_ammo
 		&& a->charge_min_clip == b->charge_min_clip && a->charge_fall == b->charge_fall
 		&& a->charge_release == b->charge_release && a->charge_damage == b->charge_damage
-		&& a->cook_fuse == b->cook_fuse;
+		&& a->cook_fuse == b->cook_fuse && weaponRulesRecoilEqual(a, b)
+		&& a->casing == b->casing && a->flash == b->flash
+		&& a->shot_sound == b->shot_sound && a->shot_duration == b->shot_duration
+		&& a->fire_animation == b->fire_animation;
+}
+
+/*
+ * held-weapon-events.md slice 7a: og.weapon.recoil's settings, read by
+ * `get`, over the function's own recoil (a setting left out is the
+ * record's). Frames: "kick", "return", "recovery", "cut_after", "cut_return"
+ * (0 to WEAPON_RULE_MAX_RECOIL_FRAMES); "refire_early" (true: a new press
+ * ends the recovery early, and one after cut_after frames, above 0, cuts the
+ * recoil short with a cut_return-frame return); "distance" and "slide"
+ * (0 to WEAPON_RULE_MAX_RECOIL_TRAVEL); "angle" (degrees, 0 to 360);
+ * "shake_x", "shake_y", "shake_z" (the jitter's ranges, 0 to
+ * WEAPON_RULE_MAX_SHAKE; naming one gives the function a jitter); and
+ * "spin_shake_from", "spin_shake_to" (the jitter's multiplier from no spin to
+ * full spin, an automatic's; naming one gives it the spin's). Returns 1, or
+ * 0 when a setting is malformed (it then keeps its default).
+ */
+static inline s32 weaponRulesApplyRecoilSettings(weapon_rule_text_fn get, void *user,
+	const weapon_rule_function_t *record, weapon_rule_trigger_t *plan)
+{
+	static const char *const shake_keys[3] = {
+		WEAPON_RULE_SHAKE_X_PARAM, WEAPON_RULE_SHAKE_Y_PARAM, WEAPON_RULE_SHAKE_Z_PARAM,
+	};
+	const char *text;
+	s32 ok = 1;
+	s32 v;
+	f32 f;
+
+	weaponRulesNativeRecoil(record, plan);
+	plan->recoil = 1;
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_KICK_PARAM, user), 0, WEAPON_RULE_MAX_RECOIL_FRAMES, plan->recoil_kick);
+	if (v < 0) ok = 0; else plan->recoil_kick = v;
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_RETURN_PARAM, user), 0, WEAPON_RULE_MAX_RECOIL_FRAMES, plan->recoil_return);
+	if (v < 0) ok = 0; else plan->recoil_return = v;
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_RECOVERY_PARAM, user), 0, WEAPON_RULE_MAX_RECOIL_FRAMES,
+		plan->recoil_recovery);
+	if (v < 0) ok = 0; else plan->recoil_recovery = v;
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_CUT_AFTER_PARAM, user), 0, WEAPON_RULE_MAX_RECOIL_FRAMES,
+		plan->recoil_cut_after);
+	if (v < 0) ok = 0; else plan->recoil_cut_after = v;
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_CUT_RETURN_PARAM, user), 0, WEAPON_RULE_MAX_RECOIL_FRAMES,
+		plan->recoil_cut_return);
+	if (v < 0) ok = 0; else plan->recoil_cut_return = v;
+	if ((text = get(WEAPON_RULE_REFIRE_EARLY_PARAM, user)) != NULL) {
+		v = weaponRulesBoolFromText(text);
+		if (v < 0) ok = 0; else plan->recoil_refire = v;
+	}
+	f = weaponRulesNonNegFromText(get(WEAPON_RULE_DISTANCE_PARAM, user), WEAPON_RULE_MAX_RECOIL_TRAVEL,
+		plan->recoil_distance);
+	if (f < 0.0f) ok = 0; else plan->recoil_distance = f;
+	f = weaponRulesNonNegFromText(get(WEAPON_RULE_ANGLE_PARAM, user), 360.0f, plan->recoil_angle);
+	if (f < 0.0f) ok = 0; else plan->recoil_angle = f;
+	f = weaponRulesNonNegFromText(get(WEAPON_RULE_SLIDE_PARAM, user), WEAPON_RULE_MAX_RECOIL_TRAVEL, plan->recoil_slide);
+	if (f < 0.0f) ok = 0; else plan->recoil_slide = f;
+	for (s32 i = 0; i < 3; i++) {
+		if ((text = get(shake_keys[i], user)) != NULL) {
+			f = weaponRulesNonNegFromText(text, WEAPON_RULE_MAX_SHAKE, -1.0f);
+			if (f < 0.0f) {
+				ok = 0;
+			} else {
+				plan->recoil_shake[i] = f;
+				plan->recoil_has_shake = 1;
+			}
+		}
+	}
+	if ((text = get(WEAPON_RULE_SPIN_SHAKE_FROM_PARAM, user)) != NULL) {
+		f = weaponRulesNonNegFromText(text, WEAPON_RULE_MAX_SHAKE, -1.0f);
+		if (f < 0.0f) {
+			ok = 0;
+		} else {
+			if (!plan->recoil_has_spin_shake) plan->recoil_spin_to = 1.0f;
+			plan->recoil_spin_from = f;
+			plan->recoil_has_spin_shake = 1;
+		}
+	}
+	if ((text = get(WEAPON_RULE_SPIN_SHAKE_TO_PARAM, user)) != NULL) {
+		f = weaponRulesNonNegFromText(text, WEAPON_RULE_MAX_SHAKE, -1.0f);
+		if (f < 0.0f) {
+			ok = 0;
+		} else {
+			if (!plan->recoil_has_spin_shake) plan->recoil_spin_from = 1.0f;
+			plan->recoil_spin_to = f;
+			plan->recoil_has_spin_shake = 1;
+		}
+	}
+	return ok;
+}
+
+/* og.weapon.casing's "type" (none, standard, reaper, rifle, shotgun) and
+ * og.weapon.muzzle_flash's "on", over the function's own. Returns 1, or 0
+ * when the setting is malformed (it then keeps its default). */
+static inline s32 weaponRulesApplyCasingSettings(weapon_rule_text_fn get, void *user,
+	const weapon_rule_function_t *record, weapon_rule_trigger_t *plan)
+{
+	const char *text = get(WEAPON_RULE_CASING_TYPE_PARAM, user);
+	const s32 casing = text ? weaponRulesCasingFromText(text) : -2;
+
+	weaponRulesNativeCasing(record, plan);
+	if (casing == -1) return 0;
+	if (casing >= 0) plan->casing = casing;
+	return 1;
+}
+
+static inline s32 weaponRulesApplyFlashSettings(weapon_rule_text_fn get, void *user,
+	const weapon_rule_function_t *record, weapon_rule_trigger_t *plan)
+{
+	const char *text = get(WEAPON_RULE_FLASH_ON_PARAM, user);
+	const s32 on = text ? weaponRulesBoolFromText(text) : -2;
+
+	weaponRulesNativeFlash(record, plan);
+	if (on == -1) return 0;
+	if (on >= 0) plan->flash = on;
+	return 1;
+}
+
+/* Whether a feel module (slice 7) fits a function: one that shoots. */
+static inline s32 weaponRulesRecoilFits(s32 functype)
+{
+	return (functype & 0xff) == 1;
 }
 
 /* A catalog id's weapon number, -1 for none (the game reads its weapon
  * table; pd-tests pass their own). */
 typedef s32 (*weapon_rule_item_fn)(const char *catalog_id);
+
+/* og.weapon.shot_sound's "sound" (none, or an audio catalog id that
+ * `sound_number` resolves) and "duration" (the frames a fire slot keeps it, 0
+ * to 255), over the function's own. Returns 1, or 0 when a setting is
+ * malformed or its sound resolves to none (it then keeps its default). */
+static inline s32 weaponRulesApplySoundSettings(weapon_rule_text_fn get, void *user,
+	weapon_rule_item_fn sound_number, const weapon_rule_function_t *record, weapon_rule_trigger_t *plan)
+{
+	const char *text = get(WEAPON_RULE_SOUND_PARAM, user);
+	s32 ok = 1;
+	s32 v;
+
+	weaponRulesNativeSound(record, plan);
+	if (text) {
+		if (strcmp(text, "none") == 0) {
+			plan->shot_sound = 0;
+		} else if (weaponRulesItemIdValid(text) && sound_number && (v = sound_number(text)) > 0) {
+			plan->shot_sound = v;
+		} else {
+			ok = 0;
+		}
+	}
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_DURATION_PARAM, user), 0, 255, plan->shot_duration);
+	if (v < 0) ok = 0; else plan->shot_duration = v;
+	return ok;
+}
+
+/* A catalog id's runtime object, NULL for none (slice 7c: a fire animation's
+ * gun commands; the game reads its loader pool, pd-tests pass their own). */
+typedef const void *(*weapon_rule_ref_fn)(const char *catalog_id);
+
+/* og.weapon.play_animation's "animation" (none, or an animation catalog id
+ * that `animation_ref` resolves to its gun commands) over the function's own.
+ * Returns 1, or 0 when it is malformed or does not resolve (it then keeps
+ * its default). */
+static inline s32 weaponRulesApplyAnimationSettings(weapon_rule_text_fn get, void *user,
+	weapon_rule_ref_fn animation_ref, const weapon_rule_function_t *record, weapon_rule_trigger_t *plan)
+{
+	const char *text = get(WEAPON_RULE_ANIMATION_PARAM, user);
+	const void *ref;
+
+	weaponRulesNativeAnimation(record, plan);
+	if (!text) return 1;
+	if (strcmp(text, "none") == 0) {
+		plan->fire_animation = NULL;
+		return 1;
+	}
+	if (weaponRulesItemIdValid(text) && animation_ref && (ref = animation_ref(text)) != NULL) {
+		plan->fire_animation = ref;
+		return 1;
+	}
+	return 0;
+}
+
+/* Whether og.weapon.play_animation fits a function: one whose attack plays
+ * its fire animation (a shot, a throw or a strike). */
+static inline s32 weaponRulesAnimationFits(s32 functype)
+{
+	const s32 family = functype & 0xff;
+
+	return family == 1 || family == 2 || family == 3;
+}
 
 /*
  * The settings of one shot module (slice 4), read by `get` on top of the
@@ -1412,6 +1883,115 @@ static inline s32 weaponRulesTicksPerShot(const weapon_rule_trigger_t *plan)
 }
 
 /*
+ * held-weapon-events.md slice 6b: the sight's lock (og.weapon.lock_on, at
+ * event.weapon.aiming). While the player aims, the sight holds up to "locks"
+ * targets (1 to WEAPON_RULE_MAX_LOCKS) that its filter takes from what the
+ * player looks at, each until it is lost; with more than one, each box
+ * shows its number. "aim_follows": the aim follows the held targets (the
+ * CMP150's follow lock-on). The filter's settings are target_filter.h's; a
+ * setting left out takes the "anything" filter's. A launch hands the first
+ * held target to its projectile, as the original's does.
+ *
+ * The original's lock is its weapon's aim settings' track type: the rocket
+ * launcher's one target (whatever the player looks at), the CMP150's four
+ * (things only if the stage marks them for the sight), which the CMP150's
+ * secondary aims at; every other weapon has none (the box follows the aim).
+ * The base programs write it, so those quirks are settings.
+ */
+typedef struct weapon_rule_lock {
+	s32 locks;       /* targets held: 0 none (the box follows the aim), 1 to WEAPON_RULE_MAX_LOCKS */
+	s32 aim_follows; /* the aim follows the held targets */
+	s32 tracktype;   /* the sight's SIGHTTRACKTYPE_* for it (weaponRulesLockTrackType) */
+	target_filter_t filter;
+} weapon_rule_lock_t;
+
+/* The sight's track type for a lock: a lock's (the rocket launcher's for one
+ * target, the follow lock-on's numbered boxes for more), else the weapon's
+ * own when it is no lock (none, default, the beta scanner, the threat
+ * detector), else the default. */
+static inline s32 weaponRulesLockTrackType(const weapon_rule_lock_t *lock, s32 weapon_tracktype)
+{
+	if (lock && lock->locks > 1) return SIGHTTRACKTYPE_FOLLOWLOCKON;
+	if (lock && lock->locks == 1) return SIGHTTRACKTYPE_ROCKETLAUNCHER;
+	if (weapon_tracktype == SIGHTTRACKTYPE_ROCKETLAUNCHER || weapon_tracktype == SIGHTTRACKTYPE_FOLLOWLOCKON) {
+		return SIGHTTRACKTYPE_DEFAULT;
+	}
+	return weapon_tracktype;
+}
+
+/* The original's lock for a weapon function: its weapon's aim settings'
+ * track type (sightTick) and, as the original keys them by weapon number,
+ * the rocket launcher's filter (sightCanTargetProp) and the CMP150's
+ * secondary's follow (autoaimTick). */
+static inline void weaponRulesNativeLock(s32 weaponnum, s32 func, s32 tracktype, weapon_rule_lock_t *out)
+{
+	memset(out, 0, sizeof(*out));
+	targetFilterNative(TARGET_PICKER_LOCK, weaponnum, &out->filter);
+	if (tracktype == SIGHTTRACKTYPE_ROCKETLAUNCHER) {
+		out->locks = 1;
+	} else if (tracktype == SIGHTTRACKTYPE_FOLLOWLOCKON) {
+		out->locks = WEAPON_RULE_MAX_LOCKS;
+	}
+	out->aim_follows = weaponnum == WEAPON_CMP150 && func == FUNC_SECONDARY;
+	out->tracktype = weaponRulesLockTrackType(out, tracktype);
+}
+
+/* The lock an og.weapon.lock_on node sets: its settings, read by `get` (a
+ * node's text for a key, NULL for none), over one target, no follow and the
+ * "anything" filter. Returns 1, or 0 when a setting is malformed (which
+ * then keeps its default). */
+static inline s32 weaponRulesApplyLockSettings(weapon_rule_text_fn get, void *user, weapon_rule_lock_t *out)
+{
+	const char *bad = NULL;
+	const s32 locks = weaponRulesWholeFromText(get(WEAPON_RULE_LOCKS_PARAM, user), 1, WEAPON_RULE_MAX_LOCKS, 1);
+	const char *follows = get(WEAPON_RULE_AIM_FOLLOWS_PARAM, user);
+	const s32 follow = follows ? weaponRulesBoolFromText(follows) : 0;
+	s32 ok = locks >= 0 && follow >= 0;
+
+	memset(out, 0, sizeof(*out));
+	out->locks = locks < 0 ? 1 : locks;
+	out->aim_follows = follow > 0;
+	if (targetFilterFromSettings(get, user, &out->filter, &bad) < 0) ok = 0;
+	out->tracktype = weaponRulesLockTrackType(out, SIGHTTRACKTYPE_DEFAULT);
+	return ok;
+}
+
+/* held-weapon-events.md slice 6c: whether a lock seeks vehicles: it holds
+ * targets and names its kinds, vehicles among them. The look then offers a
+ * vehicle its filter takes, though no vehicle reacts to sight, and a rider
+ * it does not take as the vehicle they ride. A lock that takes every kind
+ * (the rocket launcher's) takes what the look offers, as the original's
+ * did. */
+static inline s32 weaponRulesLockSeeksVehicles(const weapon_rule_lock_t *lock)
+{
+	return lock && lock->locks > 0 && (lock->filter.kinds & TARGET_KIND_VEHICLE)
+		&& lock->filter.kinds != TARGET_KINDS_ALL;
+}
+
+/* Whether two locks hold the same targets the same way (the parity probe). */
+static inline s32 weaponRulesLockEqual(const weapon_rule_lock_t *a, const weapon_rule_lock_t *b)
+{
+	return a->locks == b->locks && a->aim_follows == b->aim_follows && a->tracktype == b->tracktype
+		&& (a->locks == 0 || targetFilterSame(&a->filter, &b->filter));
+}
+
+/* A lock as og.weapon.lock_on's settings, JSON members (", \"locks\": 4,
+ * ..."), every one written, as the extractor writes a base program's lock;
+ * the length, or -1 when it does not fit. */
+static inline s32 weaponRulesLockSettingsText(const weapon_rule_lock_t *lock, char *buf, s32 cap)
+{
+	char filter[320];
+	s32 n;
+
+	if (!lock || !buf || cap <= 0 || targetFilterSettingsText(&lock->filter, filter, (s32)sizeof(filter)) < 0) {
+		return -1;
+	}
+	n = snprintf(buf, (size_t)cap, ", \"" WEAPON_RULE_LOCKS_PARAM "\": %d, \"" WEAPON_RULE_AIM_FOLLOWS_PARAM "\": %s%s",
+		lock->locks, lock->aim_follows ? "true" : "false", filter);
+	return n < 0 || n >= cap ? -1 : n;
+}
+
+/*
  * One walk of a held program for one weapon event, shared by the game's
  * seams (weapon_events.c) and pd-tests, so what a program chooses is
  * decided by one piece of code:
@@ -1454,9 +2034,12 @@ typedef struct weapon_rule_walk {
 	const weapon_rule_function_t *function; /* the function's record: its settings' defaults */
 	weapon_rule_param_fn param_text;
 	weapon_rule_item_fn item_number;        /* a launch's item by catalog id; NULL: none is known */
+	weapon_rule_item_fn sound_number;       /* slice 7b: a shot sound by audio catalog id; NULL: none */
+	weapon_rule_ref_fn animation_ref;       /* slice 7c: a fire animation by catalog id; NULL: none */
 	u32 modules;                            /* what the walk chose */
 	weapon_rule_trigger_t plan;             /* the first trigger reached, with use_ammo's rounds */
 	weapon_rule_reload_t reload;            /* the first reload reached (slice 4b) */
+	weapon_rule_lock_t lock;                /* the first lock reached (slice 6b); locks 0 for none */
 } weapon_rule_walk_t;
 
 /* A node's settings as one module reads them: each read gets a buffer of
@@ -1555,6 +2138,77 @@ static inline s32 weaponRulesWalkModule(const char *kind, const char *node_id,
 		walk->modules |= bit;
 		return 1;
 	}
+	if (bit == WEAPON_MODULE_LOCK_ON) {
+		/* slice 6b: the first lock reached is the sight's. */
+		if (!(walk->modules & WEAPON_MODULE_LOCK_ON)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			read.next = 0;
+			weaponRulesApplyLockSettings(weaponRulesWalkSettingText, &read, &walk->lock);
+		}
+		walk->modules |= bit;
+		return 1;
+	}
+	if (bit == WEAPON_MODULE_PLAY_ANIMATION) {
+		/* slice 7c: the first animation reached is the attack's. */
+		if (!(walk->modules & bit)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			read.next = 0;
+			weaponRulesApplyAnimationSettings(weaponRulesWalkSettingText, &read, walk->animation_ref, walk->function,
+				&walk->plan);
+		}
+		walk->modules |= bit;
+		return 1;
+	}
+	if (bit == WEAPON_MODULE_SHOT_SOUND) {
+		/* slice 7b: the first sound reached is the attack's. */
+		if (!(walk->modules & bit)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			read.next = 0;
+			weaponRulesApplySoundSettings(weaponRulesWalkSettingText, &read, walk->sound_number, walk->function,
+				&walk->plan);
+		}
+		walk->modules |= bit;
+		return 1;
+	}
+	if (bit == WEAPON_MODULE_CASING || bit == WEAPON_MODULE_MUZZLE_FLASH) {
+		/* slice 7b: the first of each reached is the attack's. */
+		if (!(walk->modules & bit)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			read.next = 0;
+			if (bit == WEAPON_MODULE_CASING) {
+				weaponRulesApplyCasingSettings(weaponRulesWalkSettingText, &read, walk->function, &walk->plan);
+			} else {
+				weaponRulesApplyFlashSettings(weaponRulesWalkSettingText, &read, walk->function, &walk->plan);
+			}
+		}
+		walk->modules |= bit;
+		return 1;
+	}
+	if (bit == WEAPON_MODULE_RECOIL) {
+		/* slice 7a: the first recoil reached is the attack's. */
+		if (!(walk->modules & WEAPON_MODULE_RECOIL)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			read.next = 0;
+			weaponRulesApplyRecoilSettings(weaponRulesWalkSettingText, &read, walk->function, &walk->plan);
+		}
+		walk->modules |= bit;
+		return 1;
+	}
 	if (bit & WEAPON_MODULE_SHOTS) {
 		/* slice 4: the first shot reached is the attack's. */
 		if (!(walk->modules & WEAPON_MODULE_SHOTS)) {
@@ -1602,6 +2256,7 @@ static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 ev
 	walk->modules = 0;
 	memset(&walk->plan, 0, sizeof(walk->plan));
 	memset(&walk->reload, 0, sizeof(walk->reload));
+	memset(&walk->lock, 0, sizeof(walk->lock));
 	walk->plan.aimed_burst = 1;
 	if (!program || !missionGraphProgramHandlesEvent(program, event_kind)) {
 		return 0;
@@ -1618,6 +2273,9 @@ static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 ev
 	if (!(walk->modules & WEAPON_MODULE_RELOAD)) {
 		memset(&walk->reload, 0, sizeof(walk->reload));
 	}
+	if (!(walk->modules & WEAPON_MODULE_LOCK_ON)) {
+		memset(&walk->lock, 0, sizeof(walk->lock));
+	}
 	if (!(walk->modules & WEAPON_MODULE_TRIGGERS)) {
 		memset(&walk->plan, 0, sizeof(walk->plan));
 		walk->plan.aimed_burst = 1;
@@ -1628,6 +2286,22 @@ static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 ev
 		if (!(walk->modules & WEAPON_MODULE_SHOTS)) {
 			/* A shot left out is the function's own. */
 			weaponRulesNativeShot(walk->function, &walk->plan);
+		}
+		if (!(walk->modules & WEAPON_MODULE_RECOIL)) {
+			/* slice 7a: and so is a recoil. */
+			weaponRulesNativeRecoil(walk->function, &walk->plan);
+		}
+		if (!(walk->modules & WEAPON_MODULE_CASING)) {
+			weaponRulesNativeCasing(walk->function, &walk->plan); /* slice 7b */
+		}
+		if (!(walk->modules & WEAPON_MODULE_MUZZLE_FLASH)) {
+			weaponRulesNativeFlash(walk->function, &walk->plan);
+		}
+		if (!(walk->modules & WEAPON_MODULE_SHOT_SOUND)) {
+			weaponRulesNativeSound(walk->function, &walk->plan);
+		}
+		if (!(walk->modules & WEAPON_MODULE_PLAY_ANIMATION)) {
+			weaponRulesNativeAnimation(walk->function, &walk->plan); /* slice 7c */
 		}
 	}
 	return 1;

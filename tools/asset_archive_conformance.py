@@ -2209,6 +2209,39 @@ PROJECTILE_GRAPH_GATE_EVENTS = {
 # (EXPLOSIONTYPE_BASE_COUNT rows; 0 is "none") with a whole number.
 PROJECTILE_GRAPH_EXPLOSION_PARAM = "explosion_type"
 PROJECTILE_GRAPH_EXPLOSION_TYPES = 26
+# Held slice 6b: the target filter's settings (port/include/target_filter.h,
+# targetFilterFromSettings), on og.projectile.home and og.weapon.lock_on; a
+# setting left out takes the "anything" filter's.
+PROJECTILE_GRAPH_TARGET_KINDS = ("player", "simulant", "guard", "vehicle", "sentry", "object",
+                                 "characters", "things", "all")
+TARGET_FILTER_SETTINGS = {
+    "kinds": ("kinds", "player, simulant, guard, vehicle, sentry, object, characters, "
+                       "things or all, separated by commas"),
+    "sight_targets_only": ((True, False), "true or false"),
+    "vehicles": (("any", "occupied"), "any or occupied"),
+    "relation": (("anyone", "enemy", "friend", "owner", "not_owner", "not_friend"),
+                 "anyone, enemy, friend, owner, not_owner or not_friend"),
+    "alive": ((True, False), "true or false"),
+    "cloaked": (("never", "with_ir", "always"), "never, with_ir or always"),
+}
+
+
+def _target_kinds_valid(value: object) -> bool:
+    """A "kinds" setting: names separated by commas or spaces, each a kind or
+    a group (targetFilterKindsFromText)."""
+    names = [n for n in re.split(r"[ ,]", value) if n] if isinstance(value, str) else []
+    return bool(names) and all(n in PROJECTILE_GRAPH_TARGET_KINDS for n in names)
+
+
+def _target_setting_valid(allowed: object, value: object) -> bool:
+    """Whether a target filter setting is a value of its kind."""
+    if allowed == "kinds":
+        return _target_kinds_valid(value)
+    if isinstance(allowed, tuple) and allowed and isinstance(allowed[0], bool):
+        return isinstance(value, bool)
+    return isinstance(value, str) and value in allowed
+
+
 # Slice 7: the flight modules' settings (projectileRulesFlightSettings).
 PROJECTILE_GRAPH_SMOKES = ("rocket", "homing", "grenade", "pinball")
 PROJECTILE_GRAPH_FLIGHT_SETTINGS = {
@@ -2219,6 +2252,11 @@ PROJECTILE_GRAPH_FLIGHT_SETTINGS = {
                             "while": (("flying", "moving"), "flying or moving")},
     "og.projectile.hit_sound": {"sound": (("knife", "pinball"), "knife or pinball")},
     "og.projectile.bounce_smoke": {"smoke": (PROJECTILE_GRAPH_SMOKES, "rocket, homing, grenade or pinball")},
+    # Held slice 6b: the homing rocket's target filter, re-checked while it flies.
+    "og.projectile.home": {**TARGET_FILTER_SETTINGS, "lost": (("straight",), "straight")},
+    # Held slice 6b: what sets a mine off (an arm's settings, kept here with
+    # the other modules' settings).
+    "og.projectile.arm_proximity": dict(TARGET_FILTER_SETTINGS),
 }
 PROJECTILE_GRAPH_MAX_NODES = 4096
 PROJECTILE_GRAPH_MAX_EDGES = 16384
@@ -2272,6 +2310,8 @@ def validate_projectile_graph_program(where: str, graph: dict, entity: bool = Fa
                 value = node[key]
                 if allowed == "speed":
                     good = not isinstance(value, bool) and isinstance(value, (int, float)) and 0 < value <= 10000
+                elif allowed == "kinds" or (isinstance(allowed, tuple) and allowed and isinstance(allowed[0], bool)):
+                    good = _target_setting_valid(allowed, value)
                 else:
                     good = value in allowed
                 if not good:
@@ -2373,7 +2413,9 @@ WEAPON_GRAPH_SCHEMAS = ("pd.weapon_graph.v1", "pd.weapon_graph.v2")
 WEAPON_GRAPH_PROFILE = "held_single_shot.v1"
 WEAPON_GRAPH_EVENTS = ("event.weapon.trigger_pressed", "event.weapon.ready_while_held",
                        "event.weapon.clip_empty", "event.weapon.trigger_released",
-                       "event.weapon.reload_done")
+                       "event.weapon.reload_done",
+                       # Slice 6b: the player aims with the function.
+                       "event.weapon.aiming")
 # Slice 3: the attack is one of three trigger modules, and use_ammo names the
 # rounds each of its shots takes.
 WEAPON_GRAPH_TRIGGERS = ("og.weapon.fire_once", "og.weapon.burst", "og.weapon.automatic",
@@ -2391,16 +2433,27 @@ WEAPON_GRAPH_SHOT_FAMILIES = {
     "og.weapon.mode_toggle": ("special",),
 }
 WEAPON_GRAPH_SHOTS = tuple(WEAPON_GRAPH_SHOT_FAMILIES)
-WEAPON_GRAPH_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state", "og.weapon.use_ammo") + WEAPON_GRAPH_SHOTS
+# Slice 7: how each shot of the attack feels; a shooting function's.
+WEAPON_GRAPH_FEEL = ("og.weapon.recoil", "og.weapon.casing", "og.weapon.muzzle_flash", "og.weapon.shot_sound")
+WEAPON_GRAPH_FEEL_FAMILIES = ("shoot_single", "shoot_automatic", "shoot_projectile")
+# Slice 7c: the attack's fire animation; a shot's, a throw's or a strike's.
+WEAPON_GRAPH_ANIMATION = "og.weapon.play_animation"
+WEAPON_GRAPH_ANIMATION_FAMILIES = WEAPON_GRAPH_FEEL_FAMILIES + ("throw", "melee")
+WEAPON_GRAPH_IDLE_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state", "og.weapon.use_ammo") \
+    + WEAPON_GRAPH_SHOTS + WEAPON_GRAPH_FEEL + (WEAPON_GRAPH_ANIMATION,)
+# Slice 6b: the sight's lock, chosen while the player aims.
+WEAPON_GRAPH_LOCK = "og.weapon.lock_on"
+WEAPON_GRAPH_MODULES = WEAPON_GRAPH_IDLE_MODULES + (WEAPON_GRAPH_LOCK,)
 # A module is a choice the seam of its event acts on: the idle seam's three
 # rule events apply the idle actions, use_ammo, the shots and set_state, the
-# records set_state.
+# records set_state, aiming the lock.
 WEAPON_GRAPH_EVENT_MODULES = {
-    "event.weapon.trigger_pressed": WEAPON_GRAPH_MODULES,
-    "event.weapon.ready_while_held": WEAPON_GRAPH_MODULES,
-    "event.weapon.clip_empty": WEAPON_GRAPH_MODULES,
+    "event.weapon.trigger_pressed": WEAPON_GRAPH_IDLE_MODULES,
+    "event.weapon.ready_while_held": WEAPON_GRAPH_IDLE_MODULES,
+    "event.weapon.clip_empty": WEAPON_GRAPH_IDLE_MODULES,
     "event.weapon.trigger_released": ("og.weapon.set_state",),
     "event.weapon.reload_done": ("og.weapon.set_state",),
+    "event.weapon.aiming": (WEAPON_GRAPH_LOCK,),
 }
 WEAPON_GRAPH_GATES = ("gate.weapon.has_ammo", "gate.weapon.has_reserve",
                       "gate.weapon.ready_to_fire", "gate.weapon.state_is")
@@ -2435,6 +2488,19 @@ WEAPON_GRAPH_SETTINGS = {
     # Slice 4b: how og.weapon.reload fills the clip.
     "og.weapon.reload": {"style": ("choice", ("magazine", "one_at_a_time", "regrow")),
                          "regrow_time": ("whole", 1, 10000)},
+    # Slice 6b: the sight's lock; its target filter is TARGET_FILTER_SETTINGS.
+    "og.weapon.lock_on": {"locks": ("whole", 1, 4), "aim_follows": ("bool",)},
+    # Slice 7a: the recoil (frames, travel, the jitter and its spin).
+    "og.weapon.recoil": {"kick": ("whole", 0, 127), "return": ("whole", 0, 127), "recovery": ("whole", 0, 127),
+                         "refire_early": ("bool",), "cut_after": ("whole", 0, 127), "cut_return": ("whole", 0, 127),
+                         "distance": ("nonneg", 1000), "angle": ("nonneg", 360), "slide": ("nonneg", 1000),
+                         "shake_x": ("nonneg", 100), "shake_y": ("nonneg", 100), "shake_z": ("nonneg", 100),
+                         "spin_shake_from": ("nonneg", 100), "spin_shake_to": ("nonneg", 100)},
+    # Slice 7b: a shot's casing and muzzle flash.
+    "og.weapon.casing": {"type": ("choice", ("none", "standard", "reaper", "rifle", "shotgun"))},
+    "og.weapon.muzzle_flash": {"on": ("bool",)},
+    "og.weapon.shot_sound": {"sound": ("sound",), "duration": ("whole", 0, 255)},
+    "og.weapon.play_animation": {"animation": ("animation",)},
 }
 WEAPON_GRAPH_ITEM_RE = re.compile(r"[a-z0-9_]+:[a-z0-9_]+")
 
@@ -2458,6 +2524,14 @@ def _weapon_setting_error(kind: str, key: str, spec: tuple, value: object) -> st
         if not isinstance(value, str) or (value != "own" and (len(value) >= 64
                                                              or WEAPON_GRAPH_ITEM_RE.fullmatch(value) is None)):
             return f"needs {key} own or an item's catalog id such as base:rocket"
+    elif spec[0] == "sound":
+        if not isinstance(value, str) or (value != "none" and (len(value) >= 64
+                                                              or WEAPON_GRAPH_ITEM_RE.fullmatch(value) is None)):
+            return f"needs {key} none or an audio catalog id such as base:sfx_fire_shotgun"
+    elif spec[0] == "animation":
+        if not isinstance(value, str) or (value != "none" and (len(value) >= 64
+                                                              or WEAPON_GRAPH_ITEM_RE.fullmatch(value) is None)):
+            return f"needs {key} none or an animation catalog id such as base:invanim_falcon2_shoot"
     elif spec[0] == "item_function":
         if value != "gun" and (isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 2):
             return f"needs {key} gun, 0, 1 or 2"
@@ -2597,11 +2671,22 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
         if kind in WEAPON_GRAPH_SHOT_FAMILIES and record_type is not None \
                 and record_type not in WEAPON_GRAPH_SHOT_FAMILIES[kind]:
             errors.append(f"{where} {kind} {node_id!r} does not fit this function (its record is {record_type})")
+        if kind in WEAPON_GRAPH_FEEL and record_type is not None and record_type not in WEAPON_GRAPH_FEEL_FAMILIES:
+            errors.append(f"{where} {kind} {node_id!r} fits only a shooting function (its record is {record_type})")
+        if kind == WEAPON_GRAPH_ANIMATION and record_type is not None \
+                and record_type not in WEAPON_GRAPH_ANIMATION_FAMILIES:
+            errors.append(f"{where} {kind} {node_id!r} fits only a shooting, throwing or melee function "
+                          f"(its record is {record_type})")
         for key, spec in WEAPON_GRAPH_SETTINGS.get(kind, {}).items():
             if key in node and not _weapon_variable_name(node[key]):
                 why = _weapon_setting_error(kind, key, spec, node[key])
                 if why:
                     errors.append(f"{where} {kind} {node_id!r} {why}")
+        if kind == WEAPON_GRAPH_LOCK:
+            for key, (allowed, help_text) in TARGET_FILTER_SETTINGS.items():
+                if key in node and not _weapon_variable_name(node[key]) \
+                        and not _target_setting_valid(allowed, node[key]):
+                    errors.append(f"{where} {kind} {node_id!r} needs {key} {help_text}")
         if kind == "og.weapon.charge":
             why = _weapon_charge_error(node, committed, custom)
             if why:

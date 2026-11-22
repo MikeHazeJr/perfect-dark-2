@@ -18,6 +18,11 @@
 #include "modasset_gltf_document.h"
 #include "weapon_graph_editor_io.h"
 
+extern "C" {
+#include "projectile_rules.h"
+#include "weapon_rules.h"
+}
+
 namespace {
 
 using Json = crude_json::value;
@@ -682,4 +687,506 @@ extern "C" char *weaponGraphEditorCompose(const char *primary_json, const char *
         setError(err, err_cap, "out of memory");
         return nullptr;
     }
+}
+
+/* ---- held-weapon-events.md slice 8a: the designer nodes ---------------- */
+
+static const weapon_graph_designer_node_t s_WeaponGraphDesignerNodes[] = {
+    { "event.weapon.trigger_pressed", "On trigger pressed", "Events" },
+    { "event.weapon.ready_while_held", "On trigger held", "Events" },
+    { "event.weapon.trigger_released", "On trigger released", "Events" },
+    { "event.weapon.clip_empty", "On clip empty", "Events" },
+    { "event.weapon.reload_done", "On reload done", "Events" },
+    { "event.weapon.aiming", "While aiming", "Events" },
+    { "gate.weapon.has_ammo", "Has ammo", "Checks" },
+    { "gate.weapon.has_reserve", "Has reserve ammo", "Checks" },
+    { "gate.weapon.ready_to_fire", "Ready to fire", "Checks" },
+    { "gate.weapon.state_is", "State is", "Checks" },
+    { "og.weapon.fire_once", "Fire once", "Trigger" },
+    { "og.weapon.burst", "Burst", "Trigger" },
+    { "og.weapon.automatic", "Automatic", "Trigger" },
+    { "og.weapon.charge", "Charge then release", "Trigger" },
+    { "og.weapon.cook", "Hold to cook", "Trigger" },
+    { "og.weapon.use_ammo", "Use ammo", "Ammo" },
+    { "og.weapon.reload", "Reload", "Ammo" },
+    { "og.weapon.dry_fire", "Dry fire click", "Ammo" },
+    { "og.weapon.hitscan", "Hitscan shot", "Shot" },
+    { "og.weapon.beam", "Beam", "Shot" },
+    { "og.weapon.launch", "Launch projectile", "Shot" },
+    { "og.weapon.throw", "Throw", "Shot" },
+    { "og.weapon.melee", "Melee strike", "Shot" },
+    { "og.weapon.special", "Special action", "Shot" },
+    { "og.weapon.mode_toggle", "Mode toggle", "Shot" },
+    { "og.weapon.lock_on", "Lock-on", "Aim" },
+    { "og.weapon.recoil", "Recoil", "Feel" },
+    { "og.weapon.casing", "Casing", "Feel" },
+    { "og.weapon.muzzle_flash", "Muzzle flash", "Feel" },
+    { "og.weapon.shot_sound", "Shot sound", "Feel" },
+    { "og.weapon.play_animation", "Play animation", "Feel" },
+    { "og.weapon.set_state", "Set state", "State" },
+};
+
+extern "C" s32 weaponGraphDesignerNodeCount(void)
+{
+    return (s32)(sizeof(s_WeaponGraphDesignerNodes) / sizeof(s_WeaponGraphDesignerNodes[0]));
+}
+
+extern "C" const weapon_graph_designer_node_t *weaponGraphDesignerNodeAt(s32 index)
+{
+    return index >= 0 && index < weaponGraphDesignerNodeCount() ? &s_WeaponGraphDesignerNodes[index] : nullptr;
+}
+
+static const weapon_graph_designer_node_t s_ProjectileDesignerNodes[] = {
+    { "event.projectile.spawned", "On spawned", "Events" },
+    { "event.projectile.thrown", "On thrown", "Events" },
+    { "event.projectile.in_flight", "In flight", "Events" },
+    { "event.projectile.armed", "When armed", "Events" },
+    { "event.projectile.contact", "On contact", "Events" },
+    { "event.projectile.bounced", "On bounced", "Events" },
+    { "event.projectile.hit_target", "On hitting a target", "Events" },
+    { "event.projectile.landed", "On landed", "Events" },
+    { "event.projectile.came_to_rest", "On coming to rest", "Events" },
+    { "event.projectile.timer_expired", "When the fuse runs out", "Events" },
+    { "event.projectile.proximity", "When something comes near", "Events" },
+    { "event.projectile.remote_signal", "On the detonator's signal", "Events" },
+    { "event.projectile.damaged", "On damaged", "Events" },
+    { "event.projectile.launch_blocked", "On launch blocked", "Events" },
+    { "event.projectile.sentry_aimed", "When the sentry aims", "Events" },
+    { "event.projectile.detonated", "On detonated", "Events" },
+    { "event.projectile.ended", "On ended", "Events" },
+    { "gate.projectile.fuse_armed", "Fuse armed", "Checks" },
+    { "gate.projectile.trigger_close", "Close enough", "Checks" },
+    { "gate.projectile.trigger_character", "A character", "Checks" },
+    { "gate.projectile.damage_not_blast", "Not a blast's damage", "Checks" },
+    { "og.projectile.arm_fuse", "Fuse", "Arm" },
+    { "og.projectile.arm_wall_fuse", "Wall fuse", "Arm" },
+    { "og.projectile.arm_struck_fuse", "Struck fuse", "Arm" },
+    { "og.projectile.arm_mine_fuse", "Mine fuse", "Arm" },
+    { "og.projectile.arm_remote", "Remote detonator", "Arm" },
+    { "og.projectile.arm_proximity", "Proximity", "Arm" },
+    { "og.projectile.arm_bolt", "Bolt", "Arm" },
+    { "og.projectile.fly_by_wire", "Fly by wire", "Flight" },
+    { "og.projectile.thrust", "Thrust", "Flight" },
+    { "og.projectile.home", "Home toward target", "Flight" },
+    { "og.projectile.trail", "Smoke trail", "Flight" },
+    { "og.projectile.woosh", "Woosh", "Flight" },
+    { "og.projectile.hit_sound", "Hit sound", "Flight" },
+    { "og.projectile.bounce_smoke", "Bounce smoke", "Flight" },
+    { "og.projectile.explode", "Explode", "Impact" },
+    { "og.projectile.impact", "Impact", "Impact" },
+    { "og.projectile.stick", "Stick", "Impact" },
+    { "og.projectile.wall_hug", "Hug the wall", "Impact" },
+    { "og.projectile.pierce", "Pierce", "Impact" },
+    { "og.projectile.spend_fuse", "Spend the fuse", "Impact" },
+    { "og.projectile.shield_device", "Shield device", "Impact" },
+    { "og.projectile.land_bolt", "Land a bolt", "Impact" },
+    { "og.projectile.land_knife", "Land a knife", "Impact" },
+    { "og.projectile.poison_target", "Poison the target", "Impact" },
+    { "og.projectile.nbomb_storm", "N-bomb storm", "Impact" },
+    { "og.projectile.deploy_sentry", "Deploy a sentry", "Impact" },
+    { "og.projectile.sentry_fire", "Sentry fire", "Impact" },
+};
+
+extern "C" s32 weaponGraphProjectileDesignerNodeCount(void)
+{
+    return (s32)(sizeof(s_ProjectileDesignerNodes) / sizeof(s_ProjectileDesignerNodes[0]));
+}
+
+extern "C" const weapon_graph_designer_node_t *weaponGraphProjectileDesignerNodeAt(s32 index)
+{
+    return index >= 0 && index < weaponGraphProjectileDesignerNodeCount() ? &s_ProjectileDesignerNodes[index]
+        : nullptr;
+}
+
+extern "C" const weapon_graph_designer_node_t *weaponGraphDesignerNodeFor(const char *kind)
+{
+    if (!kind) return nullptr;
+    for (s32 i = 0; i < weaponGraphDesignerNodeCount(); i++) {
+        if (std::strcmp(s_WeaponGraphDesignerNodes[i].kind, kind) == 0) return &s_WeaponGraphDesignerNodes[i];
+    }
+    for (s32 i = 0; i < weaponGraphProjectileDesignerNodeCount(); i++) {
+        if (std::strcmp(s_ProjectileDesignerNodes[i].kind, kind) == 0) return &s_ProjectileDesignerNodes[i];
+    }
+    return nullptr;
+}
+
+/* slice 8b: a projectile program's events and gates are program nodes too. */
+static bool designerIsEvent(const char *kind)
+{
+    return std::strncmp(kind, "event.weapon.", 13) == 0 || std::strncmp(kind, "event.projectile.", 17) == 0;
+}
+
+static bool designerIsGate(const char *kind)
+{
+    return std::strncmp(kind, "gate.weapon.", 12) == 0 || std::strncmp(kind, "gate.projectile.", 16) == 0;
+}
+
+extern "C" s32 weaponGraphNodeIsProgram(const char *kind)
+{
+    return kind && (isProgramKind(kind) || designerIsEvent(kind) || designerIsGate(kind)) ? 1 : 0;
+}
+
+extern "C" s32 weaponGraphNodeTakesExec(const char *kind)
+{
+    return !weaponGraphNodeIsProgram(kind) || !designerIsEvent(kind) ? 1 : 0;
+}
+
+extern "C" s32 weaponGraphNodeOutputCount(const char *kind)
+{
+    return weaponGraphNodeIsProgram(kind) && designerIsGate(kind) ? 2 : 1;
+}
+
+extern "C" const char *weaponGraphNodeOutputName(const char *kind, s32 index)
+{
+    if (index < 0 || index >= weaponGraphNodeOutputCount(kind)) return nullptr;
+    if (!weaponGraphNodeIsProgram(kind)) return "";
+    if (designerIsGate(kind)) return index == 0 ? "pass" : "fail";
+    return "out";
+}
+
+/* ---- held-weapon-events.md slice 8a: the designer settings ------------- */
+
+namespace {
+
+struct DesignerLabel {
+    const char *key;
+    const char *label;
+};
+
+const DesignerLabel kDesignerLabels[] = {
+    { "count", "Rounds per burst" }, { "gap", "Gap after a burst (ticks)" },
+    { "rate", "Rate (rounds per minute)" }, { "start_rate", "Starting rate (rounds per minute)" },
+    { "spin_up", "Spin-up (ticks)" }, { "spin_down", "Spin-down (ticks)" },
+    { "burst", "Burst (rounds; 0 for none)" }, { "aimed_burst", "Burst while aiming" },
+    { "rounds", "Rounds" }, { "pellets", "Pellets" }, { "through_walls", "Through walls" },
+    { "shield_damage", "Shield damage" }, { "range", "Range" }, { "item", "Item" },
+    { "item_function", "Item's function" }, { "give_up_gun", "Give up the gun" },
+    { "action", "Action" }, { "mode", "Mode" }, { "drain", "Drain per second" }, { "style", "Style" },
+    { "regrow_time", "Regrow time (ticks)" }, { "start", "Starts" }, { "time", "Time (ticks)" },
+    { "steps", "Steps" }, { "ammo_per_step", "Ammo per step" }, { "min_clip", "Minimum clip" },
+    { "fall_time", "Fall time (ticks)" }, { "release", "Release" }, { "damage_per_step", "Damage per step" },
+    { "fuse", "Fuse (ticks)" }, { "locks", "Locks" }, { "aim_follows", "Aim follows the lock" },
+    { "kick", "Kick (frames)" }, { "return", "Return (frames)" }, { "recovery", "Recovery (frames)" },
+    { "refire_early", "Refire early" }, { "cut_after", "Cut after (frames)" },
+    { "cut_return", "Cut return (frames)" }, { "distance", "Distance" }, { "angle", "Angle (degrees)" },
+    { "slide", "Slide" }, { "shake_x", "Shake X" }, { "shake_y", "Shake Y" }, { "shake_z", "Shake Z" },
+    { "spin_shake_from", "Shake at no spin" }, { "spin_shake_to", "Shake at full spin" },
+    { "type", "Type" }, { "on", "On" }, { "sound", "Sound" }, { "duration", "Fire slot (frames)" },
+    { "animation", "Animation" }, { "key", "State" }, { "equals", "Equals" }, { "value", "Value" },
+    { "kinds", "Kinds" }, { "sight_targets_only", "Sight targets only" }, { "vehicles", "Vehicles" },
+    { "relation", "Relation" }, { "alive", "Alive only" }, { "cloaked", "Cloaked" },
+};
+
+const char *designerLabel(const char *key)
+{
+    for (const DesignerLabel &row : kDesignerLabels) {
+        if (std::strcmp(row.key, key) == 0) return row.label;
+    }
+    return key;
+}
+
+const weapon_graph_designer_setting_t kHasAmmoSettings[] = {
+    { WEAPON_RULE_ROUNDS_PARAM, "Rounds", WEAPON_GRAPH_INPUT_WHOLE, 1.0f, (f32)WEAPON_RULE_MAX_ROUNDS, 1, nullptr },
+};
+const weapon_graph_designer_setting_t kStateIsSettings[] = {
+    { WEAPON_RULE_KEY_PARAM, "State", WEAPON_GRAPH_INPUT_NAME, 0.0f, 0.0f, 0, nullptr },
+    { WEAPON_RULE_EQUALS_PARAM, "Equals", WEAPON_GRAPH_INPUT_SWITCH, 0.0f, 0.0f, 0, nullptr },
+};
+const weapon_graph_designer_setting_t kSetStateSettings[] = {
+    { WEAPON_RULE_KEY_PARAM, "State", WEAPON_GRAPH_INPUT_NAME, 0.0f, 0.0f, 0, nullptr },
+    { WEAPON_RULE_VALUE_PARAM, "Value", WEAPON_GRAPH_INPUT_SWITCH, 0.0f, 0.0f, 0, nullptr },
+};
+/* slice 8b: a projectile module's own (projectileRulesFlightSettingHelp
+ * names what each takes). */
+const weapon_graph_designer_setting_t kThrustSettings[] = {
+    { PROJECTILE_THRUST_MAX_SPEED_PARAM, "Top speed (units a tick)", WEAPON_GRAPH_INPUT_NUMBER, 0.0f,
+        (f32)PROJECTILE_MAX_SPEED_LIMIT, 0, nullptr },
+    { PROJECTILE_THRUST_EXHAUST_PARAM, "Exhaust", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0,
+        "rocket|homing|grenade|pinball|none" },
+};
+const weapon_graph_designer_setting_t kTrailSettings[] = {
+    { PROJECTILE_SMOKE_PARAM, "Smoke", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0, "rocket|homing|grenade|pinball" },
+    { PROJECTILE_TRAIL_WHILE_PARAM, "While", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0, "flying|moving" },
+};
+const weapon_graph_designer_setting_t kHitSoundSettings[] = {
+    { PROJECTILE_HIT_SOUND_PARAM, "Sound", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0, "knife|pinball" },
+};
+const weapon_graph_designer_setting_t kBounceSmokeSettings[] = {
+    { PROJECTILE_SMOKE_PARAM, "Smoke", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0, "rocket|homing|grenade|pinball" },
+};
+const weapon_graph_designer_setting_t kHomeSettings[] = {
+    { PROJECTILE_HOME_LOST_PARAM, "When the target is lost", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0, "straight" },
+};
+const weapon_graph_designer_setting_t kExplodeSettings[] = {
+    { PROJECTILE_EXPLODE_TYPE_PARAM, "Explosion", WEAPON_GRAPH_INPUT_WHOLE, 1.0f,
+        (f32)(PROJECTILE_EXPLOSION_TYPE_COUNT - 1), 1, nullptr },
+};
+
+const weapon_graph_designer_setting_t kTargetFilterSettings[] = {
+    { TARGET_FILTER_KINDS_PARAM, "Kinds", WEAPON_GRAPH_INPUT_KINDS, 0.0f, 0.0f, 0,
+        "player|simulant|guard|vehicle|sentry|object" },
+    { TARGET_FILTER_SIGHT_TARGETS_PARAM, "Sight targets only", WEAPON_GRAPH_INPUT_SWITCH, 0.0f, 0.0f, 0, nullptr },
+    { TARGET_FILTER_VEHICLES_PARAM, "Vehicles", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0, "any|occupied" },
+    { TARGET_FILTER_RELATION_PARAM, "Relation", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0,
+        "anyone|enemy|friend|owner|not_owner|not_friend" },
+    { TARGET_FILTER_ALIVE_PARAM, "Alive only", WEAPON_GRAPH_INPUT_SWITCH, 0.0f, 0.0f, 0, nullptr },
+    { TARGET_FILTER_CLOAKED_PARAM, "Cloaked", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0, "never|with_ir|always" },
+};
+
+/* A rule table setting as the inspector takes it. */
+weapon_graph_designer_setting_t designerSettingOf(const weapon_rule_setting_t *rule)
+{
+    weapon_graph_designer_setting_t out;
+
+    std::memset(&out, 0, sizeof(out));
+    out.key = rule->key;
+    out.label = designerLabel(rule->key);
+    out.lo = (f32)rule->lo;
+    out.hi = (f32)rule->hi;
+    switch (rule->type) {
+    case WEAPON_RULE_SETTING_WHOLE:
+        out.input = WEAPON_GRAPH_INPUT_WHOLE;
+        out.lo_included = 1;
+        break;
+    case WEAPON_RULE_SETTING_RATE:
+        out.input = WEAPON_GRAPH_INPUT_NUMBER;
+        out.lo = 0.0f;
+        out.hi = (f32)WEAPON_RULE_MAX_RATE;
+        break;
+    case WEAPON_RULE_SETTING_BOOL:
+        out.input = WEAPON_GRAPH_INPUT_SWITCH;
+        break;
+    case WEAPON_RULE_SETTING_NUMBER:
+        out.input = WEAPON_GRAPH_INPUT_NUMBER;
+        out.lo = 0.0f;
+        break;
+    case WEAPON_RULE_SETTING_NONNEG:
+        out.input = WEAPON_GRAPH_INPUT_NUMBER;
+        out.lo = 0.0f;
+        out.lo_included = 1;
+        break;
+    case WEAPON_RULE_SETTING_ITEM:
+        out.input = WEAPON_GRAPH_INPUT_ID;
+        out.choices = "own";
+        break;
+    case WEAPON_RULE_SETTING_SOUND:
+    case WEAPON_RULE_SETTING_ANIMATION:
+        out.input = WEAPON_GRAPH_INPUT_ID;
+        out.choices = "none";
+        break;
+    case WEAPON_RULE_SETTING_ITEM_FUNCTION:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "gun|0|1|2";
+        break;
+    case WEAPON_RULE_SETTING_ACTION:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "detonate|boost|revert_boost|crouch|uplink";
+        break;
+    case WEAPON_RULE_SETTING_MODE:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "cloak";
+        break;
+    case WEAPON_RULE_SETTING_STYLE:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "magazine|one_at_a_time|regrow";
+        break;
+    case WEAPON_RULE_SETTING_CHARGE_START:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "while_selected|on_press";
+        break;
+    case WEAPON_RULE_SETTING_RELEASE:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "on_press|on_full";
+        break;
+    case WEAPON_RULE_SETTING_CASING:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "none|standard|reaper|rifle|shotgun";
+        break;
+    default:
+        out.input = WEAPON_GRAPH_INPUT_NAME;
+        break;
+    }
+    return out;
+}
+
+} // namespace
+
+extern "C" s32 weaponGraphDesignerSettings(const char *kind, weapon_graph_designer_setting_t *out, s32 cap)
+{
+    s32 n = 0;
+    auto put = [&](const weapon_graph_designer_setting_t &setting) {
+        if (out && n < cap) out[n] = setting;
+        n++;
+    };
+
+    if (!kind) return 0;
+    if (std::strcmp(kind, WEAPON_GATE_HAS_AMMO_KIND) == 0) {
+        for (const weapon_graph_designer_setting_t &s : kHasAmmoSettings) put(s);
+        return n;
+    }
+    if (std::strcmp(kind, WEAPON_GATE_STATE_IS_KIND) == 0) {
+        for (const weapon_graph_designer_setting_t &s : kStateIsSettings) put(s);
+        return n;
+    }
+    const u32 bit = weaponRulesModuleBit(kind);
+    if (bit == WEAPON_MODULE_SET_STATE) {
+        for (const weapon_graph_designer_setting_t &s : kSetStateSettings) put(s);
+        return n;
+    }
+    if (!bit) {
+        /* slice 8b: a projectile module's. */
+        switch (projectileRulesModuleBit(kind)) {
+        case PROJECTILE_MODULE_THRUST:
+            for (const weapon_graph_designer_setting_t &s : kThrustSettings) put(s);
+            break;
+        case PROJECTILE_MODULE_TRAIL:
+            for (const weapon_graph_designer_setting_t &s : kTrailSettings) put(s);
+            break;
+        case PROJECTILE_MODULE_HIT_SOUND:
+            for (const weapon_graph_designer_setting_t &s : kHitSoundSettings) put(s);
+            break;
+        case PROJECTILE_MODULE_BOUNCE_SMOKE:
+            for (const weapon_graph_designer_setting_t &s : kBounceSmokeSettings) put(s);
+            break;
+        case PROJECTILE_MODULE_EXPLODE:
+            for (const weapon_graph_designer_setting_t &s : kExplodeSettings) put(s);
+            break;
+        case PROJECTILE_MODULE_HOME:
+            for (const weapon_graph_designer_setting_t &s : kHomeSettings) put(s);
+            for (const weapon_graph_designer_setting_t &s : kTargetFilterSettings) put(s);
+            break;
+        case PROJECTILE_MODULE_ARM_PROXIMITY:
+            for (const weapon_graph_designer_setting_t &s : kTargetFilterSettings) put(s);
+            break;
+        default:
+            break;
+        }
+        return n;
+    }
+    for (s32 i = 0; weaponRulesSettingAt(i); i++) {
+        const weapon_rule_setting_t *rule = weaponRulesSettingAt(i);
+        if (rule->module == bit) put(designerSettingOf(rule));
+    }
+    if (bit == WEAPON_MODULE_LOCK_ON) {
+        for (const weapon_graph_designer_setting_t &s : kTargetFilterSettings) put(s);
+    }
+    return n;
+}
+
+/* ---- held-weapon-events.md slice 8b: a node's settings in a graph's text -- */
+
+namespace {
+
+bool settingsMemberKey(const std::string &key)
+{
+    return key != "id" && key != "kind" && key != "subgraph" && key != "params";
+}
+
+/* The node of that id in a parsed graph, or nullptr. */
+JsonObject *graphNodeById(Json &root, const char *node_id)
+{
+    if (!root.is_object() || !node_id) return nullptr;
+    JsonObject &object = root.get<JsonObject>();
+    auto nodes = object.find("nodes");
+    if (nodes == object.end() || !nodes->second.is_array()) return nullptr;
+    for (Json &item : nodes->second.get<JsonArray>()) {
+        JsonObject *node = item.get_ptr<JsonObject>();
+        if (!node) continue;
+        auto id = node->find("id");
+        if (id != node->end() && id->second.is_string() && id->second.get<crude_json::string>() == node_id) {
+            return node;
+        }
+    }
+    return nullptr;
+}
+
+char *dupText(const std::string &text)
+{
+    char *out = static_cast<char *>(std::malloc(text.size() + 1));
+    if (out) std::memcpy(out, text.c_str(), text.size() + 1);
+    return out;
+}
+
+} // namespace
+
+extern "C" char *weaponGraphEditorNodeSettings(const char *graph_json, const char *node_id, char *err, size_t err_cap)
+{
+    if (err && err_cap) err[0] = '\0';
+    try {
+        Json root = Json::parse(graph_json ? graph_json : "");
+        JsonObject *node = graphNodeById(root, node_id);
+        if (!node) {
+            setError(err, err_cap, "the graph has no node %s", node_id ? node_id : "(none)");
+            return nullptr;
+        }
+        std::string out;
+        for (const auto &entry : *node) {
+            if (!settingsMemberKey(entry.first)) continue;
+            if (!out.empty()) out += ", ";
+            out += quoted(entry.first) + ": " + weaponGraphEditorValueText(entry.second);
+        }
+        return dupText(out);
+    } catch (...) {
+        setError(err, err_cap, "out of memory");
+        return nullptr;
+    }
+}
+
+extern "C" char *weaponGraphEditorSetNodeSettings(const char *graph_json, const char *node_id, const char *settings,
+    char *err, size_t err_cap)
+{
+    if (err && err_cap) err[0] = '\0';
+    try {
+        Json root = Json::parse(graph_json ? graph_json : "");
+        JsonObject *node = graphNodeById(root, node_id);
+        if (!node) {
+            setError(err, err_cap, "the graph has no node %s", node_id ? node_id : "(none)");
+            return nullptr;
+        }
+        Json members = Json::parse(std::string("{") + (settings ? settings : "") + "}");
+        if (!members.is_object()) {
+            setError(err, err_cap, "the settings of node %s are not JSON members", node_id);
+            return nullptr;
+        }
+        for (const auto &entry : members.get<JsonObject>()) {
+            if (!settingsMemberKey(entry.first)) {
+                setError(err, err_cap, "a setting cannot be named %s", entry.first.c_str());
+                return nullptr;
+            }
+        }
+        for (auto it = node->begin(); it != node->end();) {
+            if (settingsMemberKey(it->first)) it = node->erase(it);
+            else ++it;
+        }
+        for (const auto &entry : members.get<JsonObject>()) (*node)[entry.first] = entry.second;
+        return dupText(weaponGraphEditorValueText(root));
+    } catch (...) {
+        setError(err, err_cap, "out of memory");
+        return nullptr;
+    }
+}
+
+extern "C" u32 weaponGraphDesignerKindsMask(const char *text, const char *choices)
+{
+    u32 named = 0;
+    u32 mask = 0;
+    u32 index = 0;
+    std::string word;
+
+    if (!text || !choices || targetFilterKindsFromText(text, &named) < 0) return 0;
+    for (const char *p = choices; ; p++) {
+        if (*p == '|' || *p == '\0') {
+            u32 bits = 0;
+            if (!word.empty() && targetFilterKindsFromText(word.c_str(), &bits) >= 0 && bits
+                    && (named & bits) == bits && index < 32) {
+                mask |= 1u << index;
+            }
+            word.clear();
+            index++;
+            if (*p == '\0') break;
+        } else {
+            word += *p;
+        }
+    }
+    return mask;
 }

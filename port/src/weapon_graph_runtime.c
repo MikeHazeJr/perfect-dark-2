@@ -706,6 +706,17 @@ static s32 projectileProgramFlightVisit(const char *kind,
 	projectile_flight_t flight;
 	const char *bad = NULL;
 
+	if (bit == PROJECTILE_MODULE_ARM_PROXIMITY) {
+		/* Held slice 6b: what sets the mine off (the target filter). */
+		projectile_arm_t arm;
+
+		projectileRulesNativeArm(-1, FUNC_PRIMARY, &arm);
+		if (projectileRulesArmSettings(bit, projectileFlightParamText, (void *)params, &arm, &bad)) return 1;
+		check->kind = kind;
+		check->key = bad;
+		check->text = bad ? missionGraphParamText(params, bad) : NULL;
+		return 0;
+	}
 	if (!(bit & PROJECTILE_MODULE_FLIGHT)) return 1;
 	projectileRulesNativeFlight(-1, FUNC_PRIMARY, &flight);
 	if (projectileRulesFlightSettings(bit, projectileFlightParamText, (void *)params, &flight, &bad)) return 1;
@@ -982,6 +993,28 @@ const char *weaponGraphRuntimeHeldParamText(s32 weaponnum, const struct mission_
 	return heldParamTextIn(table, params, key, buf, cap);
 }
 
+/* held-weapon-events.md slice 6b: a lock's filter settings as registration
+ * reads them: a "$name" one from the weapon's variables (one it does not
+ * name reads as malformed), or left to the weapon's registration while only
+ * the program is checked. */
+typedef struct held_filter_read {
+	const mission_graph_params_t *params;
+	s32 next;
+	char bufs[8][WEAPON_RULE_ITEM_LEN];
+} held_filter_read_t;
+
+static const char *heldFilterText(const char *key, void *user)
+{
+	held_filter_read_t *read = (held_filter_read_t *)user;
+	const char *raw = missionGraphParamText(read->params, key);
+	const char *text;
+
+	if (!raw || heldParamDeferred(raw)) return NULL;
+	text = heldParamTextIn(s_held_register_variables, read->params, key, read->bufs[read->next++ % 8],
+		WEAPON_RULE_ITEM_LEN);
+	return text ? text : "";
+}
+
 /* held-weapon-events.md slice 2: a held program's settings, checked when its
  * weapon registers: has_ammo's "rounds" a whole number from 1 to
  * WEAPON_RULE_MAX_ROUNDS (or none), state_is and set_state a key with a
@@ -1024,6 +1057,20 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 			kind, (unsigned)check->functype);
 		return 0;
 	}
+	if ((bit & WEAPON_MODULE_FEEL) && check->functype >= 0 && !weaponRulesRecoilFits(check->functype)) {
+		/* slice 7a: a recoil is a shooting function's. */
+		snprintf(check->why, sizeof(check->why),
+			"%s fits only a shooting function (its record's function type is 0x%04x)", kind, (unsigned)check->functype);
+		return 0;
+	}
+	if (bit == WEAPON_MODULE_PLAY_ANIMATION && check->functype >= 0 && !weaponRulesAnimationFits(check->functype)) {
+		/* slice 7c: a fire animation is an attack's (a shot's, a throw's or a
+		 * strike's). */
+		snprintf(check->why, sizeof(check->why),
+			"%s fits only a shooting, throwing or melee function (its record's function type is 0x%04x)", kind,
+			(unsigned)check->functype);
+		return 0;
+	}
 	if (bit == WEAPON_MODULE_MODE_TOGGLE && check->ammo_slot == -1) {
 		/* PR 31 review: the cloak drains its function's rounds, and the
 		 * drain reads the reserve of that ammunition. */
@@ -1031,7 +1078,8 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 			"%s: its cloak drains its function's rounds, and this function has no ammunition (ammo_slot -1)", kind);
 		return 0;
 	}
-	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_RELOAD)) {
+	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_RELOAD
+			| WEAPON_MODULE_LOCK_ON | WEAPON_MODULE_PRESENTATION)) {
 		for (s32 i = 0; weaponRulesSettingAt(i); i++) {
 			const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
 			const char *raw = setting->module == bit ? missionGraphParamText(params, setting->key) : NULL;
@@ -1071,6 +1119,17 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 				} else if (setting->type == WEAPON_RULE_SETTING_RELEASE) {
 					snprintf(check->why, sizeof(check->why), "%s needs %s on_press or on_full, got %s",
 						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_CASING) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s none, standard, reaper, rifle or shotgun, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_ANIMATION) {
+					snprintf(check->why, sizeof(check->why),
+						"%s needs %s none or an animation catalog id such as base:invanim_falcon2_shoot, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_SOUND) {
+					snprintf(check->why, sizeof(check->why),
+						"%s needs %s none or an audio catalog id such as base:sfx_fire_shotgun, got %s",
+						kind, setting->key, raw);
 				} else if (setting->type == WEAPON_RULE_SETTING_NONNEG) {
 					snprintf(check->why, sizeof(check->why), "%s needs %s from 0 up to %d, got %s",
 						kind, setting->key, setting->hi, raw);
@@ -1078,6 +1137,21 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 					snprintf(check->why, sizeof(check->why), "%s needs %s from %d to %d, got %s",
 						kind, setting->key, setting->lo, setting->hi, raw);
 				}
+				return 0;
+			}
+		}
+		if (bit == WEAPON_MODULE_SHOT_SOUND && !s_held_validate_only) {
+			/* slice 7b: a shot's sound resolves in the audio catalog when its
+			 * weapon registers, as the record's audio references must. */
+			const char *raw = missionGraphParamText(params, WEAPON_RULE_SOUND_PARAM);
+			const char *text = raw ? heldParamTextIn(s_held_register_variables, params, WEAPON_RULE_SOUND_PARAM,
+				vbuf, sizeof(vbuf)) : NULL;
+			catalog_audio_result_t audio;
+
+			if (text && strcmp(text, "none") != 0
+					&& (!catalogResolveAudio(text, &audio) || audio.sound_id <= 0)) {
+				snprintf(check->why, sizeof(check->why), "%s cannot resolve sound %s in the audio catalog",
+					kind, text);
 				return 0;
 			}
 		}
@@ -1100,6 +1174,23 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 				check->custom);
 			if (problem) {
 				snprintf(check->why, sizeof(check->why), "%s: %s", kind, problem);
+				return 0;
+			}
+		}
+		if (bit == WEAPON_MODULE_LOCK_ON) {
+			/* slice 6b: the lock's target filter (target_filter.h). */
+			held_filter_read_t read;
+			target_filter_t filter;
+			const char *bad = NULL;
+
+			memset(&read, 0, sizeof(read));
+			read.params = params;
+			if (targetFilterFromSettings(heldFilterText, &read, &filter, &bad) < 0) {
+				const char *raw = bad ? missionGraphParamText(params, bad) : NULL;
+				const char *help = targetFilterSettingHelp(bad);
+
+				snprintf(check->why, sizeof(check->why), "%s needs %s %s, got %s", kind,
+					bad ? bad : "a setting", help ? help : "?", raw ? raw : "?");
 				return 0;
 			}
 		}
@@ -4892,6 +4983,47 @@ static s32 heldOpcodeIsSupported(weapon_graph_opcode_e opcode)
 	}
 }
 
+/* held-weapon-events.md slice 7a: a number member of an object param's
+ * raw text ({"xrange": 0.6, ...}) and the first element of an array param's
+ * ([0, 1, ...]). 1 with *out set, 0 when there is none. */
+static s32 heldRawObjectFloat(const char *raw, const char *key, f32 *out)
+{
+	char quoted[48];
+	const char *p;
+	char *end = NULL;
+	double value;
+
+	if (!raw || !key || !out || snprintf(quoted, sizeof(quoted), "\"%s\"", key) >= (int)sizeof(quoted)) return 0;
+	p = strstr(raw, quoted);
+	if (!p) return 0;
+	p += strlen(quoted);
+	while (*p && isspace((unsigned char)*p)) p++;
+	if (*p != ':') return 0;
+	p++;
+	while (*p && isspace((unsigned char)*p)) p++;
+	value = strtod(p, &end);
+	if (!end || end == p || !(value >= -FLT_MAX && value <= FLT_MAX)) return 0;
+	*out = (f32)value;
+	return 1;
+}
+
+static s32 heldRawArrayFirstFloat(const char *raw, f32 *out)
+{
+	const char *p = raw;
+	char *end = NULL;
+	double value;
+
+	if (!p || !out) return 0;
+	while (*p && isspace((unsigned char)*p)) p++;
+	if (*p != '[') return 0;
+	p++;
+	while (*p && isspace((unsigned char)*p)) p++;
+	value = strtod(p, &end);
+	if (!end || end == p || !(value >= -FLT_MAX && value <= FLT_MAX)) return 0;
+	*out = (f32)value;
+	return 1;
+}
+
 static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
                                  const weapon_graph_ir_node_t *node,
                                  const char *mode_hint,
@@ -4959,6 +5091,28 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 	if (heldParamFloat(ir, node, "slidemax", &f)) {
 		out->has_slidemax = 1;
 		out->slidemax = f;
+	}
+	{
+		/* slice 7a: the jitter and the Reaper's spin, which base archives
+		 * carry as an object and two arrays. */
+		const weapon_graph_ir_param_t *rs = heldParam(ir, node, "recoilsettings");
+		const weapon_graph_ir_param_t *vs = heldParam(ir, node, "vibration_start");
+		const weapon_graph_ir_param_t *vm = heldParam(ir, node, "vibration_max");
+		f32 x, y, z, from, to;
+
+		if (rs && rs->type == WEAPON_GRAPH_PARAM_OBJECT && heldRawObjectFloat(rs->value, "xrange", &x)
+				&& heldRawObjectFloat(rs->value, "yrange", &y) && heldRawObjectFloat(rs->value, "zrange", &z)) {
+			out->has_recoil_shake = 1;
+			out->recoil_shake[0] = x;
+			out->recoil_shake[1] = y;
+			out->recoil_shake[2] = z;
+		}
+		if (vs && vm && vs->type == WEAPON_GRAPH_PARAM_ARRAY && vm->type == WEAPON_GRAPH_PARAM_ARRAY
+				&& heldRawArrayFirstFloat(vs->value, &from) && heldRawArrayFirstFloat(vm->value, &to)) {
+			out->has_spin_shake = 1;
+			out->spin_shake_from = from;
+			out->spin_shake_to = to;
+		}
 	}
 	if (heldParamFloat(ir, node, "impactforce", &f)) {
 		out->has_impactforce = 1;

@@ -103,6 +103,7 @@ typedef struct projectile_record {
 	s16 gunnum;        /* the weapon whose function names the archive, or -1 */
 	s16 arm_weaponnum;
 	u32 arms;
+	projectile_arm_t armset; /* held slice 6b: the settings its arm modules named */
 	u8 flew;           /* slice 7: flight is the answer for flight_weaponnum and flight_gunfunc */
 	s8 flight_gunfunc;
 	s16 flight_weaponnum;
@@ -452,6 +453,11 @@ static s32 projectileProgramModuleRun(const char *kind, const char *node_id,
 			 * Registration refused malformed ones. */
 			projectileRulesFlightSettings(bit, projectileParamText, (void *)params, rule->context->flight, NULL);
 		}
+		if (bit == PROJECTILE_MODULE_ARM_PROXIMITY && rule->context && rule->context->arm) {
+			/* Held slice 6b: what sets the mine off. Registration refused
+			 * malformed settings. */
+			projectileRulesArmSettings(bit, projectileParamText, (void *)params, rule->context->arm, NULL);
+		}
 		return 1;
 	}
 	return 0;
@@ -634,6 +640,7 @@ u32 projectileArmModules(struct defaultobj *obj, u32 native)
 	const char *asset_id = NULL;
 	projectile_record_t *kept;
 	projectile_identity_t who;
+	projectile_arm_t armset;
 	u32 arms = original;
 
 	if (!obj || obj->type != OBJTYPE_WEAPON || !obj->prop) {
@@ -644,20 +651,46 @@ u32 projectileArmModules(struct defaultobj *obj, u32 native)
 			&& kept->arm_gunfunc == (s8)weapon->gunfunc) {
 		return kept->arms;
 	}
+	projectileRulesNativeArm(weapon->weaponnum, weapon->gunfunc, &armset);
 	if (projectileIdentify(obj, &who)
 			&& projectileProgramFor(&who, MISSION_GRAPH_EVENT_PROJECTILE_ARMED, &asset_id)) {
+		projectile_rule_context_t context;
+
 		/* Its archive has a program: the program arms it, and none of a mod
-		 * weapon's record arms run for it. */
+		 * weapon's record arms run for it. Held slice 6b: with the settings
+		 * its arm modules name. */
+		memset(&context, 0, sizeof(context));
+		context.arm = &armset;
 		arms = projectileRuleDecide(MISSION_GRAPH_EVENT_PROJECTILE_ARMED, obj, obj, who,
-			original, NULL) | PROJECTILE_ARMS_PROGRAM;
+			original, &context) | PROJECTILE_ARMS_PROGRAM;
+		/* The original's arm with a filter differs too (a base archive's
+		 * names none, by construction). */
+		if (g_NetMode != NETMODE_CLIENT && who.gunnum < WEAPON_CUSTOM_START
+				&& (arms & PROJECTILE_MODULE_ALL) == original && armset.proximity_filtered) {
+			s_ProjectileRuleDiffer++;
+			if (s_ProjectileRuleDiffer <= 8) {
+				sysLogPrintf(LOG_WARNING,
+					"PROJECTILE.RULE differs: armed weapon=%s func=%s program=%s settings",
+					projectileEventWeaponId(who.gunnum),
+					who.func == FUNC_SECONDARY ? "secondary" : "primary", asset_id ? asset_id : "-");
+			}
+		}
 	}
 	if (kept) {
 		kept->armed = 1;
 		kept->arm_weaponnum = (s16)weapon->weaponnum;
 		kept->arm_gunfunc = (s8)weapon->gunfunc;
 		kept->arms = arms;
+		kept->armset = armset;
 	}
 	return arms;
+}
+
+const struct target_filter *projectileArmProximityFilter(const struct defaultobj *obj)
+{
+	const projectile_record_t *kept = obj && obj->prop ? projectileRecordOf(obj->prop, 0) : NULL;
+
+	return kept && kept->armed && kept->armset.proximity_filtered ? &kept->armset.proximity_filter : NULL;
 }
 
 /* Slice 7: the flight a weapon object chose (event.projectile.in_flight),

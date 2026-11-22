@@ -82,6 +82,7 @@ void bgunTickMasterLoad(void);
 void bgunTickLoad(void);
 bool bgunLoadAll(void);
 struct modeldef *bgunGetCartModeldef(void);
+struct modeldef *bgunGetCartModeldefForCasing(s32 casingtype);
 void bgun0f09ebcc(struct defaultobj *obj, struct coord *coord, RoomNum *rooms, Mtxf *matrix1, struct coord *velocity, Mtxf *matrix2, struct prop *prop, struct coord *pos);
 void bgun0f09ed2c(struct defaultobj *obj, struct coord *coord, Mtxf *arg2, struct coord *velocity, Mtxf *arg4);
 struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset *gset, struct coord *pos, RoomNum *rooms, Mtxf *arg4, struct coord *velocity);

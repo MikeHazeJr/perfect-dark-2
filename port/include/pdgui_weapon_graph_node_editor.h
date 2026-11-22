@@ -26,6 +26,9 @@ struct PdWeaponGraphModuleDef {
 	const char *label;
 	const char *kind;
 	const char *default_params;
+	/* held-weapon-events.md slice 8a: the palette group it is listed under
+	 * ("Trigger", "Feel", "Function record"); NULL for none. */
+	const char *group;
 };
 
 struct PdWeaponGraphContextDef {
@@ -70,6 +73,7 @@ struct PdWeaponGraphEditModel {
 	int scope_pick;
 	int edge_from;
 	int edge_to;
+	int edge_port_pick;   /* slice 8a: the inspector's branch of a gate (0 pass, 1 fail) */
 	int primary_export;
 	int secondary_export;
 	std::vector<bool> context_enabled;
@@ -90,6 +94,8 @@ enum PdWeaponGraphEditorAction {
 	PD_WEAPON_GRAPH_EDITOR_ACTION_SET_PRIMARY,
 	PD_WEAPON_GRAPH_EDITOR_ACTION_SET_SECONDARY,
 	PD_WEAPON_GRAPH_EDITOR_ACTION_BREAK_PIN,
+	/* slice 8a: node a becomes palette entry b, another of its group */
+	PD_WEAPON_GRAPH_EDITOR_ACTION_REPLACE_NODE,
 };
 
 struct PdWeaponGraphEditorResult {
@@ -98,6 +104,9 @@ struct PdWeaponGraphEditorResult {
 	int b;
 	int module_index;
 	char scope[PDGUI_WEAPON_GRAPH_SCOPE_LEN];
+	/* slice 8a: an added link's port: a program node's output ("out", a
+	 * gate's "pass" or "fail"), empty for a record link. */
+	char port[16];
 	bool model_changed;
 	bool status_ok;
 	char status[PDGUI_WEAPON_GRAPH_STATUS_LEN];
@@ -118,6 +127,10 @@ struct PdWeaponGraphEditorDesc {
 };
 
 void pdguiWeaponGraphNodeEditorInit(void);
+/* held-weapon-events.md slice 8b: a program node's settings as the inspector
+ * edits them, for a node outside the canvas (a projectile's program).
+ * `extra` holds its settings members; true when they changed. */
+bool pdguiWeaponGraphRenderNodeSettings(const char *kind, char *extra, size_t extra_cap);
 void pdguiWeaponGraphNodeEditorShutdown(void);
 void pdguiWeaponGraphModelReset(PdWeaponGraphEditModel *model,
 		const PdWeaponGraphContextDef *contexts,

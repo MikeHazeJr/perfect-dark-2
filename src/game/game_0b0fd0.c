@@ -617,64 +617,74 @@ f32 gsetGetDamage(struct gset *gset)
 	return damage;
 }
 
-u8 gsetGetFireslotDuration(struct gset *gset)
+/* held-weapon-events.md slice 7b: a fire slot's frames from a function's
+ * duration60, as the original counts them (PAL converts 4 and up to its own
+ * ticks). */
+u8 gsetFireslotTicks(s32 duration60)
 {
+	u8 result = duration60 <= 0 ? 0 : duration60 >= 255 ? 255 : (u8)duration60;
+
 #if VERSION >= VERSION_PAL_FINAL
-	const weapon_graph_held_function_t *graph =
-		gsetHeld(gset);
-	struct weaponfunc *func = NULL;
-	u8 result = 0;
-
-	if (graph && graph->has_duration_ticks60) {
-		result = graph->duration_ticks60;
-	} else {
-		func = gsetGetWeaponFunction(gset);
-	}
-
-	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
-		struct weaponfunc_shoot *funcshoot = (struct weaponfunc_shoot *)func;
-		result = funcshoot->duration60;
-	}
-
 	if (result >= 4) {
 		result = TICKS(result);
 	}
+#endif
 
 	return result;
-#else
-	const weapon_graph_held_function_t *graph =
-		gsetHeld(gset);
-	if (graph && graph->has_duration_ticks60) {
-		return graph->duration_ticks60;
-	}
-
-	struct weaponfunc *func = gsetGetWeaponFunction(gset);
-
-	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
-		struct weaponfunc_shoot *funcshoot = (struct weaponfunc_shoot *)func;
-		return funcshoot->duration60;
-	}
-
-	return 0;
-#endif
 }
 
+/* The frames a shot keeps its fire slot: the held graph's, else the
+ * shooting function's; slice 7b: a function with a program keeps it for the
+ * og.weapon.shot_sound its press plans (a simulant's and a guard's shots; a
+ * player's read the hand's plan). */
+u8 gsetGetFireslotDuration(struct gset *gset)
+{
+	const weapon_graph_held_function_t *graph =
+		gsetHeld(gset);
+	s32 duration = 0;
+
+	if (graph && graph->has_duration_ticks60) {
+		duration = graph->duration_ticks60;
+	} else {
+		struct weaponfunc *func = gsetGetWeaponFunction(gset);
+
+		if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+			struct weaponfunc_shoot *funcshoot = (struct weaponfunc_shoot *)func;
+			duration = funcshoot->duration60;
+		}
+	}
+
+	if (!wgV2RuntimeIsWeapon(gset->weaponnum)) {
+		duration = weaponProgramShotDuration(gset->weaponnum, gset->weaponfunc, duration);
+	}
+
+	return gsetFireslotTicks(duration);
+}
+
+/* A shot's sound: the held graph's, else the shooting function's; slice 7b:
+ * a function with a program plays the og.weapon.shot_sound its press plans. */
 u16 gsetGetSingleShootSound(struct gset *gset)
 {
 	const weapon_graph_held_function_t *graph =
 		gsetHeld(gset);
+	s32 sound = 0;
+
 	if (graph && graph->has_shootsound) {
-		return graph->shootsound;
+		sound = graph->shootsound;
+	} else {
+		struct weaponfunc *func = gsetGetWeaponFunction(gset);
+
+		if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+			struct weaponfunc_shoot *funcshoot = (struct weaponfunc_shoot *)func;
+			sound = funcshoot->shootsound;
+		}
 	}
 
-	struct weaponfunc *func = gsetGetWeaponFunction(gset);
-
-	if (func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
-		struct weaponfunc_shoot *funcshoot = (struct weaponfunc_shoot *)func;
-		return funcshoot->shootsound;
+	if (!wgV2RuntimeIsWeapon(gset->weaponnum)) {
+		sound = weaponProgramShotSound(gset->weaponnum, gset->weaponfunc, sound);
 	}
 
-	return 0;
+	return sound < 0 ? 0 : sound > 0xffff ? 0xffff : (u16)sound;
 }
 
 bool gsetHasFunctionFlags(struct gset *gset, u32 flags)

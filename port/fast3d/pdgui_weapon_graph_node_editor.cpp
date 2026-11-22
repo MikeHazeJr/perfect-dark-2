@@ -7,7 +7,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <algorithm>
+#include <stdlib.h>
 #include <string>
+#include <vector>
 
 #include "imgui/imgui.h"
 #include "imgui_node_editor.h"
@@ -45,6 +47,7 @@ static PdGameplayGraphPinType pinTypeForWeaponPinKind(int pinKind)
 	switch (pinKind) {
 	case 1:
 	case 2:
+	case 5: /* slice 8a: a gate's fail output */
 		return PDGAMEPLAY_GRAPH_PIN_EXEC;
 	case 3:
 		return PDGAMEPLAY_GRAPH_PIN_NUMBER;
@@ -104,6 +107,21 @@ static ed::LinkId linkEditorId(const PdWeaponGraphEdgeEdit &edge)
 static ed::PinId nodePinId(const PdWeaponGraphNodeEdit &node, int pinKind)
 {
 	return ed::PinId((uintptr_t)(node.editor_id * 16 + pinKind));
+}
+
+/* held-weapon-events.md slice 8a: the output pin an edge leaves from (a
+ * gate's fail branch has a pin of its own), and the port an edge from a pin
+ * leaves by. */
+static int edgeStartPinKind(const PdWeaponGraphEdgeEdit &edge)
+{
+	return strcmp(edge.output, "fail") == 0 ? 5 : 2;
+}
+
+static void edgePortFor(const char *kind, int pinKind, char *out, size_t cap)
+{
+	const char *name = weaponGraphNodeOutputName(kind, pinKind == 5 ? 1 : 0);
+
+	snprintf(out, cap, "%s", name ? name : "");
 }
 
 static int editorIdFromPin(ed::PinId pin)
@@ -359,10 +377,15 @@ static void renderNode(PdWeaponGraphEditModel *model, int index)
 	ed::PushStyleColor(ed::StyleColor_NodeBorder, color);
 	ed::BeginNode(nodeEditorId(node));
 	ImGui::PushID(node.editor_id);
-	ImGui::TextUnformatted(node.id[0] ? node.id : node.kind);
+	/* held-weapon-events.md slice 8a: a program node shows its designer name
+	 * and its own ports: no input on an event, a gate's pass and fail. */
+	const weapon_graph_designer_node_t *designer = weaponGraphDesignerNodeFor(node.kind);
+	const bool takesExec = weaponGraphNodeTakesExec(node.kind) != 0;
+	const int outputs = weaponGraphNodeOutputCount(node.kind);
+	ImGui::TextUnformatted(designer ? designer->label : node.id[0] ? node.id : node.kind);
 	ImGui::SameLine();
 	ImGui::TextDisabled("[%s]", node.subgraph[0] ? node.subgraph : "primary");
-	ImGui::TextColored(color, "%s", node.kind);
+	ImGui::TextColored(color, "%s", designer ? node.id : node.kind);
 	if (ImGui::BeginTable("##exec_pin_row", 4,
 			ImGuiTableFlags_SizingStretchProp |
 			ImGuiTableFlags_NoPadOuterX |
@@ -374,23 +397,32 @@ static void renderNode(PdWeaponGraphEditModel *model, int index)
 		ImGui::TableSetupColumn("##out_label", ImGuiTableColumnFlags_WidthFixed, 38.0f);
 		ImGui::TableSetupColumn("##out_pin", ImGuiTableColumnFlags_WidthFixed,
 			kWeaponGraphPinSocketSize);
-		ImGui::TableNextRow();
-		ImGui::TableSetColumnIndex(0);
-		ed::BeginPin(nodePinId(node, 1), ed::PinKind::Input);
-		ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
-		renderPinSocket("##exec_in_pin", "Exec input: drag from another node's output to connect",
-			pinColor(1));
-		ed::EndPin();
-		ImGui::TableSetColumnIndex(1);
-		ImGui::TextColored(pinColor(1), "exec");
-		ImGui::TableSetColumnIndex(2);
-		ImGui::TextColored(pinColor(2), "exec");
-		ImGui::TableSetColumnIndex(3);
-		ed::BeginPin(nodePinId(node, 2), ed::PinKind::Output);
-		ed::PinPivotAlignment(ImVec2(1.0f, 0.5f));
-		renderPinSocket("##exec_out_pin", "Exec output: drag to another node's input to connect",
-			pinColor(2));
-		ed::EndPin();
+		for (int row = 0; row < (outputs > 1 ? outputs : 1); row++) {
+			ImGui::TableNextRow();
+			ImGui::PushID(row);
+			if (row == 0 && takesExec) {
+				ImGui::TableSetColumnIndex(0);
+				ed::BeginPin(nodePinId(node, 1), ed::PinKind::Input);
+				ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
+				renderPinSocket("##exec_in_pin", "Exec input: drag from another node's output to connect",
+					pinColor(1));
+				ed::EndPin();
+				ImGui::TableSetColumnIndex(1);
+				ImGui::TextColored(pinColor(1), "exec");
+			}
+			if (row < outputs) {
+				const char *port = weaponGraphNodeOutputName(node.kind, row);
+				ImGui::TableSetColumnIndex(2);
+				ImGui::TextColored(pinColor(2), "%s", port && port[0] ? port : "exec");
+				ImGui::TableSetColumnIndex(3);
+				ed::BeginPin(nodePinId(node, row == 0 ? 2 : 5), ed::PinKind::Output);
+				ed::PinPivotAlignment(ImVec2(1.0f, 0.5f));
+				renderPinSocket("##exec_out_pin", "Exec output: drag to another node's input to connect",
+					pinColor(2));
+				ed::EndPin();
+			}
+			ImGui::PopID();
+		}
 		ImGui::EndTable();
 	}
 	if (strstr(node.params, "context_refs")) {
@@ -414,11 +446,17 @@ static void renderPalette(const PdWeaponGraphEditorDesc *desc,
 	ImGui::SetNextItemWidth(-1.0f);
 	ImGui::InputText("##node_filter", model->add_filter, sizeof(model->add_filter));
 	ImGui::Separator();
+	const char *lastGroup = NULL;
 	for (int i = 0; i < desc->module_count; i++) {
 		const PdWeaponGraphModuleDef &module = desc->modules[i];
 		if (!stringContainsNoCase(module.label, model->add_filter) &&
 				!stringContainsNoCase(module.kind, model->add_filter)) {
 			continue;
+		}
+		if (module.group && (!lastGroup || strcmp(lastGroup, module.group) != 0)) {
+			/* slice 8a: the designer groups, then the function records. */
+			ImGui::TextDisabled("%s", module.group);
+			lastGroup = module.group;
 		}
 		ImVec4 color = categoryColor(module.kind);
 		ImGui::PushStyleColor(ImGuiCol_Text, color);
@@ -553,14 +591,27 @@ static void renderInspectorConnectControls(const PdWeaponGraphEditorDesc *desc,
 		}
 		ImGui::EndCombo();
 	}
+	/* slice 8a: a gate links by its pass or its fail branch. */
+	const char *fromKind = model->nodes[selected].kind;
+	if (weaponGraphNodeOutputCount(fromKind) > 1) {
+		static const char *const kBranches[] = { "pass", "fail" };
+		if (model->edge_port_pick < 0 || model->edge_port_pick > 1) model->edge_port_pick = 0;
+		ImGui::SetNextItemWidth(-1.0f);
+		ImGui::Combo("Branch", &model->edge_port_pick, kBranches, 2);
+	}
 	if (ImGui::Button("Connect Selected", ImVec2(-1.0f, 0.0f))) {
 		if (target < 0 || target >= model->node_count) {
 			editorSetStatus(result, false, "Choose a node to connect to");
 		} else if (edgeExists(model, selected, target)) {
 			editorSetStatus(result, false, "That graph link already exists");
+		} else if (weaponGraphNodeIsProgram(fromKind) != weaponGraphNodeIsProgram(model->nodes[target].kind)
+				|| !weaponGraphNodeTakesExec(model->nodes[target].kind)) {
+			editorSetStatus(result, false, "Program nodes link only to program nodes that take an input");
 		} else {
 			outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_EDGE,
 				selected, target);
+			edgePortFor(fromKind, weaponGraphNodeOutputCount(fromKind) > 1 && model->edge_port_pick == 1 ? 5 : 2,
+				result->port, sizeof(result->port));
 			editorSetStatus(result, true, "Graph link added");
 		}
 	}
@@ -625,6 +676,240 @@ static void renderNodeParamControls(PdWeaponGraphNodeEdit &node,
 	}
 }
 
+/* held-weapon-events.md slice 8a: a program node's settings as named
+ * inputs. A setting left out is the function's own and stays out until it is
+ * set; Reset leaves it out again. A "$name" setting reads a weapon variable
+ * and is edited as text. Settings the inspector does not list keep their
+ * text. */
+static std::vector<std::string> splitChoices(const char *choices)
+{
+	std::vector<std::string> out;
+	std::string word;
+
+	for (const char *p = choices ? choices : ""; ; p++) {
+		if (*p == '|' || *p == '\0') {
+			if (!word.empty()) out.push_back(word);
+			word.clear();
+			if (*p == '\0') break;
+		} else {
+			word += *p;
+		}
+	}
+	return out;
+}
+
+static bool textIsDigits(const std::string &text)
+{
+	if (text.empty()) return false;
+	for (char c : text) {
+		if (c < '0' || c > '9') return false;
+	}
+	return true;
+}
+
+static crude_json::value choiceValue(const std::string &choice)
+{
+	if (textIsDigits(choice)) return crude_json::value((crude_json::number)atoi(choice.c_str()));
+	return crude_json::value(choice);
+}
+
+static crude_json::value initialSettingValue(const weapon_graph_designer_setting_t &setting)
+{
+	switch (setting.input) {
+	case WEAPON_GRAPH_INPUT_WHOLE:
+		return crude_json::value((crude_json::number)setting.lo);
+	case WEAPON_GRAPH_INPUT_NUMBER:
+		if (strcmp(setting.key, "rate") == 0 || strcmp(setting.key, "start_rate") == 0) {
+			return crude_json::value((crude_json::number)600);
+		}
+		return crude_json::value((crude_json::number)(setting.hi < 1.0f ? setting.hi : 1.0f));
+	case WEAPON_GRAPH_INPUT_SWITCH:
+		return crude_json::value(true);
+	case WEAPON_GRAPH_INPUT_KINDS:
+		return crude_json::value(std::string("all"));
+	case WEAPON_GRAPH_INPUT_NAME:
+		return crude_json::value(std::string("state"));
+	default: {
+		const std::vector<std::string> choices = splitChoices(setting.choices);
+		return choices.empty() ? crude_json::value(std::string()) : choiceValue(choices[0]);
+	}
+	}
+}
+
+/* An edited setting: true when it changed. */
+static bool renderSettingInput(const weapon_graph_designer_setting_t &setting, crude_json::value &value)
+{
+	if (value.is_string()) {
+		const std::string text = value.get<crude_json::string>();
+		if (!text.empty() && text[0] == '$') {
+			char buf[64];
+			snprintf(buf, sizeof(buf), "%s", text.c_str());
+			ImGui::SetNextItemWidth(-1.0f);
+			if (ImGui::InputText("##variable", buf, sizeof(buf))) {
+				value = crude_json::string(buf);
+				return true;
+			}
+			return false;
+		}
+	}
+	switch (setting.input) {
+	case WEAPON_GRAPH_INPUT_WHOLE: {
+		int v = value.is_number() ? (int)value.get<crude_json::number>() : (int)setting.lo;
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::InputInt("##whole", &v)) {
+			if (v < (int)setting.lo) v = (int)setting.lo;
+			if (v > (int)setting.hi) v = (int)setting.hi;
+			value = (crude_json::number)v;
+			return true;
+		}
+		return false;
+	}
+	case WEAPON_GRAPH_INPUT_NUMBER: {
+		float v = value.is_number() ? (float)value.get<crude_json::number>() : setting.hi;
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::InputFloat("##number", &v, 0.0f, 0.0f, "%.3f")) {
+			const float floor = setting.lo_included ? setting.lo : setting.lo + 0.001f;
+			if (v < floor) v = floor;
+			if (v > setting.hi) v = setting.hi;
+			value = (crude_json::number)v;
+			return true;
+		}
+		return false;
+	}
+	case WEAPON_GRAPH_INPUT_SWITCH: {
+		bool v = value.is_boolean() ? value.get<crude_json::boolean>() : false;
+		if (ImGui::Checkbox("##switch", &v)) {
+			value = v;
+			return true;
+		}
+		return false;
+	}
+	case WEAPON_GRAPH_INPUT_CHOICE: {
+		const std::vector<std::string> choices = splitChoices(setting.choices);
+		const std::string current = value.is_string() ? value.get<crude_json::string>()
+			: value.is_number() ? std::to_string((int)value.get<crude_json::number>()) : std::string();
+		bool changed = false;
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::BeginCombo("##choice", current.c_str())) {
+			for (const std::string &choice : choices) {
+				if (ImGui::Selectable(choice.c_str(), choice == current)) {
+					value = choiceValue(choice);
+					changed = true;
+				}
+			}
+			ImGui::EndCombo();
+		}
+		return changed;
+	}
+	case WEAPON_GRAPH_INPUT_KINDS: {
+		const std::vector<std::string> kinds = splitChoices(setting.choices);
+		const std::string current = value.is_string() ? value.get<crude_json::string>() : std::string();
+		/* PR 49 review: a group ("characters", "things", "all") checks the
+		 * kinds it names, so an edit keeps them. */
+		const u32 checked = weaponGraphDesignerKindsMask(current.c_str(), setting.choices);
+		bool changed = false;
+		std::string next;
+		for (size_t index = 0; index < kinds.size(); index++) {
+			const std::string &kind = kinds[index];
+			bool on = index < 32 && (checked & (1u << index)) != 0;
+			ImGui::PushID(kind.c_str());
+			if (ImGui::Checkbox(kind.c_str(), &on)) changed = true;
+			ImGui::PopID();
+			if (on) next += (next.empty() ? "" : ",") + kind;
+		}
+		if (changed) value = crude_json::string(next.empty() ? kinds[0] : next);
+		return changed;
+	}
+	default: {
+		char buf[64];
+		snprintf(buf, sizeof(buf), "%s", value.is_string() ? value.get<crude_json::string>().c_str() : "");
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::InputText("##text", buf, sizeof(buf))) {
+			value = crude_json::string(buf);
+			return true;
+		}
+		if (setting.input == WEAPON_GRAPH_INPUT_ID && setting.choices) {
+			for (const std::string &choice : splitChoices(setting.choices)) {
+				ImGui::SameLine();
+				if (ImGui::SmallButton(choice.c_str())) {
+					value = crude_json::string(choice);
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	}
+}
+
+static void renderReplaceMenu(const PdWeaponGraphEditorDesc *desc, PdWeaponGraphEditorResult *result,
+		int nodeIndex);
+
+static void renderProgramSettings(PdWeaponGraphNodeEdit &node, PdWeaponGraphEditorResult *result)
+{
+	crude_json::value root = crude_json::value::parse(std::string("{") + node.extra + "}");
+	if (!root.is_object()) {
+		ImGui::TextDisabled("These settings are not valid JSON; edit them as text below.");
+		return;
+	}
+	crude_json::object &obj = root.get<crude_json::object>();
+	weapon_graph_designer_setting_t settings[32];
+	const s32 count = weaponGraphDesignerSettings(node.kind, settings, 32);
+	bool changed = false;
+
+	ImGui::TextUnformatted("Settings");
+	if (count == 0) ImGui::TextDisabled("This node has no settings.");
+	for (s32 i = 0; i < count && i < 32; i++) {
+		const weapon_graph_designer_setting_t &setting = settings[i];
+		auto found = obj.find(setting.key);
+		ImGui::PushID(setting.key);
+		if (found == obj.end()) {
+			ImGui::TextDisabled("%s: the function's own", setting.label);
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Set")) {
+				obj[setting.key] = initialSettingValue(setting);
+				changed = true;
+			}
+		} else {
+			ImGui::TextUnformatted(setting.label);
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Reset")) {
+				obj.erase(found);
+				changed = true;
+			} else if (renderSettingInput(setting, found->second)) {
+				changed = true;
+			}
+		}
+		ImGui::PopID();
+	}
+	for (const auto &entry : obj) {
+		bool listed = false;
+		for (s32 i = 0; i < count && i < 32; i++) {
+			if (entry.first == settings[i].key) listed = true;
+		}
+		if (!listed) ImGui::TextDisabled("%s: kept as written", entry.first.c_str());
+	}
+	if (changed) {
+		std::string extra;
+		for (const auto &entry : obj) {
+			std::string escaped;
+			for (char c : entry.first) {
+				if (c == '"' || c == '\\') escaped += '\\';
+				escaped += c;
+			}
+			if (!extra.empty()) extra += ", ";
+			extra += "\"" + escaped + "\": " + weaponGraphEditorValueText(entry.second);
+		}
+		if (extra.size() < sizeof(node.extra)) {
+			snprintf(node.extra, sizeof(node.extra), "%s", extra.c_str());
+			result->model_changed = true;
+			editorSetStatus(result, true, "Node setting updated");
+		} else {
+			editorSetStatus(result, false, "Node settings are too large after the edit");
+		}
+	}
+}
+
 static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 		PdWeaponGraphEditorResult *result,
 		float width,
@@ -659,15 +944,27 @@ static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 		}
 		ImGui::EndCombo();
 	}
-	renderNodeParamControls(node, result);
-	ImGui::Separator();
-	ImGui::TextUnformatted("Advanced JSON");
-	if (ImGui::InputTextMultiline("Params", node.params, sizeof(node.params),
-			ImVec2(-1.0f, 112.0f * desc->scale),
-			ImGuiInputTextFlags_AllowTabInput)) {
-		result->model_changed = true;
+	const bool program = weaponGraphNodeIsProgram(node.kind) != 0;
+	if (program) {
+		/* slice 8a: a program node's settings are its own members. */
+		renderProgramSettings(node, result);
+		if (ImGui::CollapsingHeader("Settings as text")) {
+			if (ImGui::InputTextMultiline("##program_settings", node.extra, sizeof(node.extra),
+					ImVec2(-1.0f, 96.0f * desc->scale), ImGuiInputTextFlags_AllowTabInput)) {
+				result->model_changed = true;
+			}
+		}
+	} else {
+		renderNodeParamControls(node, result);
+		ImGui::Separator();
+		ImGui::TextUnformatted("Advanced JSON");
+		if (ImGui::InputTextMultiline("Params", node.params, sizeof(node.params),
+				ImVec2(-1.0f, 112.0f * desc->scale),
+				ImGuiInputTextFlags_AllowTabInput)) {
+			result->model_changed = true;
+		}
 	}
-	if (ImGui::CollapsingHeader("Node Context Refs")) {
+	if (!program && ImGui::CollapsingHeader("Node Context Refs")) {
 		for (int i = 0; i < desc->context_count; i++) {
 			const char *name = desc->contexts[i].name;
 			bool checked = paramsHasContext(node.params, name);
@@ -693,6 +990,16 @@ static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 	if (ImGui::Button("Duplicate Node", ImVec2(130.0f * desc->scale, 0.0f))) {
 		outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_DUPLICATE_NODE, selected, -1);
 	}
+	if (weaponGraphDesignerNodeFor(node.kind)) {
+		ImGui::SameLine();
+		if (ImGui::Button("Replace With...", ImVec2(130.0f * desc->scale, 0.0f))) {
+			ImGui::OpenPopup("##replace_node_popup");
+		}
+		if (ImGui::BeginPopup("##replace_node_popup")) {
+			renderReplaceMenu(desc, result, selected);
+			ImGui::EndPopup();
+		}
+	}
 	ImGui::SameLine();
 	if (ImGui::Button("Delete Node", ImVec2(108.0f * desc->scale, 0.0f))) {
 		outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_REMOVE_NODE, selected, -1);
@@ -702,6 +1009,29 @@ static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 	ImGui::TextDisabled("Primary: %s", nodeLabel(model, model->primary_export));
 	ImGui::TextDisabled("Secondary: %s", nodeLabel(model, model->secondary_export));
 	ImGui::EndChild();
+}
+
+/* held-weapon-events.md slice 8a: a designer node is replaced by another of
+ * its group, keeping its links and place (Fire once for Automatic). */
+static void renderReplaceMenu(const PdWeaponGraphEditorDesc *desc, PdWeaponGraphEditorResult *result,
+		int nodeIndex)
+{
+	const weapon_graph_designer_node_t *designer = weaponGraphDesignerNodeFor(desc->model->nodes[nodeIndex].kind);
+
+	if (!designer || !ImGui::BeginMenu("Replace With")) return;
+	for (int i = 0; i < desc->module_count; i++) {
+		const PdWeaponGraphModuleDef &module = desc->modules[i];
+		if (!module.group || strcmp(module.group, designer->group) != 0
+				|| strcmp(module.kind, designer->kind) == 0) {
+			continue;
+		}
+		if (ImGui::MenuItem(module.label)) {
+			result->module_index = i;
+			outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_REPLACE_NODE, nodeIndex, i);
+			editorSetStatus(result, true, "Replace node requested");
+		}
+	}
+	ImGui::EndMenu();
 }
 
 static void renderCanvasContextMenus(const PdWeaponGraphEditorDesc *desc,
@@ -747,6 +1077,7 @@ static void renderCanvasContextMenus(const PdWeaponGraphEditorDesc *desc,
 				outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_DUPLICATE_NODE,
 					nodeIndex, -1);
 			}
+			renderReplaceMenu(desc, result, nodeIndex);
 			if (ImGui::MenuItem("Delete Node")) {
 				outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_REMOVE_NODE,
 					nodeIndex, -1);
@@ -817,7 +1148,7 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 		const PdWeaponGraphEdgeEdit &edge = model->edges[i];
 		if (!edgeVisibleForScope(desc, model, edge)) continue;
 		ed::Link(linkEditorId(edge),
-			nodePinId(model->nodes[edge.from], 2),
+			nodePinId(model->nodes[edge.from], edgeStartPinKind(edge)),
 			nodePinId(model->nodes[edge.to], 1),
 			linkColorForPinKind(2), 4.0f);
 	}
@@ -838,11 +1169,11 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 			int endKind = pinKindFromPin(endPin);
 			int fromNode = findNodeByEditorId(model, editorIdFromPin(startPin));
 			int toNode = findNodeByEditorId(model, editorIdFromPin(endPin));
-			if (startKind == 1 && endKind == 2) {
+			if (startKind == 1 && (endKind == 2 || endKind == 5)) {
 				std::swap(startKind, endKind);
 				std::swap(fromNode, toNode);
 			}
-			if (fromNode < 0 || toNode < 0 || startKind != 2 || endKind != 1 ||
+			if (fromNode < 0 || toNode < 0 || (startKind != 2 && startKind != 5) || endKind != 1 ||
 					!pdguiGameplayGraphPinsCompatible(
 						pinTypeForWeaponPinKind(startKind),
 						PDGAMEPLAY_GRAPH_PIN_OUTPUT,
@@ -860,9 +1191,15 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 			} else if (edgeExists(model, fromNode, toNode)) {
 				ed::RejectNewItem(ImVec4(1.0f, 0.28f, 0.22f, 1.0f), 2.0f);
 				editorSetStatus(result, false, "That graph link already exists");
+			} else if (weaponGraphNodeIsProgram(model->nodes[fromNode].kind)
+					!= weaponGraphNodeIsProgram(model->nodes[toNode].kind)) {
+				/* slice 8a: a function's program and its record link apart. */
+				ed::RejectNewItem(ImVec4(1.0f, 0.28f, 0.22f, 1.0f), 2.0f);
+				editorSetStatus(result, false, "Program nodes link only to program nodes");
 			} else if (ed::AcceptNewItem(ImVec4(0.46f, 0.92f, 0.50f, 1.0f), 2.0f)) {
 				outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_EDGE,
 					fromNode, toNode);
+				edgePortFor(model->nodes[fromNode].kind, startKind, result->port, sizeof(result->port));
 				editorSetStatus(result, true, "Graph link added");
 			}
 		}
@@ -960,6 +1297,22 @@ void pdguiWeaponGraphNodeEditorInit(void)
 	ed::Config config;
 	config.SettingsFile = nullptr;
 	s_WeaponGraphEditor = ed::CreateEditor(&config);
+}
+
+bool pdguiWeaponGraphRenderNodeSettings(const char *kind, char *extra, size_t extra_cap)
+{
+	static PdWeaponGraphNodeEdit node;
+	PdWeaponGraphEditorResult result;
+
+	if (!kind || !extra || strlen(extra) >= sizeof(node.extra)) return false;
+	memset(&node, 0, sizeof(node));
+	memset(&result, 0, sizeof(result));
+	snprintf(node.kind, sizeof(node.kind), "%s", kind);
+	snprintf(node.extra, sizeof(node.extra), "%s", extra);
+	renderProgramSettings(node, &result);
+	if (!result.model_changed || strlen(node.extra) >= extra_cap) return false;
+	snprintf(extra, extra_cap, "%s", node.extra);
+	return true;
 }
 
 void pdguiWeaponGraphNodeEditorShutdown(void)

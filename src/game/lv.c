@@ -9,6 +9,8 @@
 #include "game/bondgun.h"
 #include "game/sight.h"
 #include "target_filter.h"
+#include "weapon_rules.h"
+#include "weapon_events.h"
 #include "game/bondgun_mod.h" /* T-MODDING-008: committed charge release */
 #include "game/bondhead.h"
 #include "game/bondmove.h"
@@ -1911,11 +1913,19 @@ Gfx *lvRender(Gfx *gdl)
 				// glares calculated earlier on PC, before prop matrices turn into garbage
 				bgCalculateGlaresForVisibleRooms();
 
+				/* held-weapon-events.md slice 6b (PR 49 review): a weapon whose
+				 * lock takes targets tracks them as the aim-tracking base weapons
+				 * do (the CMP150 and the rocket launchers, the only ones with the
+				 * flag and the only ones with a lock): a mod weapon's adapter
+				 * never sets the flag. */
+				const bool tracksaim = weaponHasFlag(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG_AIMTRACK)
+					|| weaponSightLock(0)->locks > 0;
+
 				// Calculate lookingatprop
 				if (PLAYERCOUNT() == 1
 						|| g_Vars.coopplayernum >= 0
 						|| g_Vars.antiplayernum >= 0
-						|| (weaponHasFlag(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG_AIMTRACK) && bmoveIsInSightAimMode())) {
+						|| (tracksaim && bmoveIsInSightAimMode())) {
 					g_Vars.currentplayer->lookingatprop.prop = propFindAimingAt(HAND_RIGHT, false, FINDPROPCONTEXT_QUERY);
 
 					/* held-weapon-events.md slice 6a: the look picker's filter
@@ -1925,11 +1935,41 @@ Gfx *lvRender(Gfx *gdl)
 					if (g_Vars.currentplayer->lookingatprop.prop) {
 						target_filter_t look;
 						target_facts_t facts;
+						const weapon_rule_lock_t *lock = weaponSightLock(0);
 
 						targetFilterNative(TARGET_PICKER_LOOK, bgunGetWeaponNum(HAND_RIGHT), &look);
 						sightTargetFacts(g_Vars.currentplayer->lookingatprop.prop, &facts);
 
-						if (!targetFilterAccepts(&look, &facts)) {
+						/* held-weapon-events.md slice 6c: a lock that seeks
+						 * vehicles sees a rider it does not take as the
+						 * vehicle they ride, and a vehicle it takes though
+						 * no vehicle reacts to sight. */
+						if (weaponRulesLockSeeksVehicles(lock)) {
+							struct prop *vehicle = targetFilterAccepts(&lock->filter, &facts)
+								? NULL : sightRiderVehicle(g_Vars.currentplayer->lookingatprop.prop);
+
+							if (vehicle) {
+								target_facts_t vehiclefacts;
+
+								sightTargetFacts(vehicle, &vehiclefacts);
+
+								if (targetFilterAccepts(&lock->filter, &vehiclefacts)) {
+									g_Vars.currentplayer->lookingatprop.prop = vehicle;
+									facts = vehiclefacts;
+								}
+							}
+
+							if (facts.kind == TARGET_KIND_VEHICLE && targetFilterAccepts(&lock->filter, &facts)) {
+								look.things_must_react = 0;
+							}
+						}
+
+						/* PR 49 review: what a weapon's authored lock takes
+						 * passes the look too (a lock that sees through
+						 * cloaks, or takes objects that do not react to
+						 * sight); an unmodified weapon keeps the native look. */
+						if (!targetFilterAccepts(&look, &facts)
+								&& !(weaponSightLockAuthored() && targetFilterAccepts(&lock->filter, &facts))) {
 							g_Vars.currentplayer->lookingatprop.prop = NULL;
 						}
 					}
@@ -1939,7 +1979,7 @@ Gfx *lvRender(Gfx *gdl)
 
 				if (gsetHasFunctionFlags(&g_Vars.currentplayer->hands[0].gset, FUNCFLAG_THREATDETECTOR)) {
 					lvFindThreats();
-				} else if (weaponHasFlag(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG_AIMTRACK)) {
+				} else if (tracksaim) {
 					s32 j;
 
 					if (frIsInTraining()

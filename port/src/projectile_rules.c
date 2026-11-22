@@ -424,6 +424,8 @@ void projectileRulesNativeFlight(s32 weaponnum, s32 gunfunc, projectile_flight_t
 		return;
 	}
 	memset(out, 0, sizeof(*out));
+	targetFilterAnything(&out->home_filter);
+	out->home_filtered = 0;
 	out->max_speed = PROJECTILE_ROCKET_MAX_SPEED;
 	out->exhaust = SMOKETYPE_ROCKETTAIL;
 	out->trail_smoke = weaponnum == WEAPON_GRENADEROUND ? SMOKETYPE_GRENADETAIL : SMOKETYPE_HOMINGTAIL;
@@ -480,6 +482,20 @@ s32 projectileRulesFlightSettings(u32 module, projectile_text_fn get, void *user
 			else if (strcmp(text, "moving") == 0) flight->trail_while = PROJECTILE_TRAIL_WHILE_MOVING;
 			else PROJECTILE_FLIGHT_BAD(PROJECTILE_TRAIL_WHILE_PARAM);
 		}
+	} else if (module == PROJECTILE_MODULE_HOME) {
+		/* Slice 6b: the filter its target is re-checked by, and what it
+		 * does when the target fails it. */
+		const char *bad = NULL;
+		const s32 named = targetFilterFromSettings(get, user, &flight->home_filter, &bad);
+
+		if (named < 0) {
+			PROJECTILE_FLIGHT_BAD(bad);
+		}
+		flight->home_filtered = named != 0 ? 1 : 0;
+		text = get(PROJECTILE_HOME_LOST_PARAM, user);
+		if (text && strcmp(text, "straight") != 0) {
+			PROJECTILE_FLIGHT_BAD(PROJECTILE_HOME_LOST_PARAM);
+		}
 	} else if (module == PROJECTILE_MODULE_HIT_SOUND) {
 		text = get(PROJECTILE_HIT_SOUND_PARAM, user);
 		if (text) {
@@ -500,6 +516,33 @@ s32 projectileRulesFlightSettings(u32 module, projectile_text_fn get, void *user
 	return ok;
 }
 
+void projectileRulesNativeArm(s32 weaponnum, s32 gunfunc, projectile_arm_t *out)
+{
+	(void)weaponnum;
+	(void)gunfunc;
+	if (!out) return;
+	targetFilterAnything(&out->proximity_filter);
+	out->proximity_filtered = 0;
+}
+
+s32 projectileRulesArmSettings(u32 module, projectile_text_fn get, void *user, projectile_arm_t *arm,
+	const char **bad_key)
+{
+	target_filter_t filter;
+	s32 named;
+
+	if (bad_key) *bad_key = NULL;
+	if (!get || !arm) return 0;
+	if (module != PROJECTILE_MODULE_ARM_PROXIMITY) return 1;
+	named = targetFilterFromSettings(get, user, &filter, bad_key);
+	if (named < 0) return 0;
+	if (named > 0) {
+		arm->proximity_filter = filter;
+		arm->proximity_filtered = 1;
+	}
+	return 1;
+}
+
 const char *projectileRulesFlightSettingHelp(const char *key)
 {
 	if (!key) return "";
@@ -508,6 +551,8 @@ const char *projectileRulesFlightSettingHelp(const char *key)
 	if (strcmp(key, PROJECTILE_SMOKE_PARAM) == 0) return "rocket, homing, grenade or pinball";
 	if (strcmp(key, PROJECTILE_TRAIL_WHILE_PARAM) == 0) return "flying or moving";
 	if (strcmp(key, PROJECTILE_HIT_SOUND_PARAM) == 0) return "knife or pinball";
+	if (strcmp(key, PROJECTILE_HOME_LOST_PARAM) == 0) return "straight";
+	if (targetFilterSettingHelp(key)) return targetFilterSettingHelp(key);
 	return "";
 }
 
@@ -529,6 +574,9 @@ s32 projectileRulesFlightSettingsText(u32 module, const projectile_flight_t *fli
 		n = snprintf(buf, (size_t)cap, ", \"" PROJECTILE_SMOKE_PARAM "\": \"%s\", \"" PROJECTILE_TRAIL_WHILE_PARAM
 			"\": \"%s\"", smoke ? smoke : "homing",
 			flight->trail_while == PROJECTILE_TRAIL_WHILE_MOVING ? "moving" : "flying");
+	} else if (module == PROJECTILE_MODULE_HOME) {
+		/* The original's home names no filter. */
+		n = flight->home_filtered ? targetFilterSettingsText(&flight->home_filter, buf, cap) : 0;
 	} else if (module == PROJECTILE_MODULE_HIT_SOUND) {
 		n = snprintf(buf, (size_t)cap, ", \"" PROJECTILE_HIT_SOUND_PARAM "\": \"%s\"",
 			flight->hit_sound == PROJECTILE_HIT_SOUND_PINBALL ? "pinball" : "knife");
@@ -548,6 +596,10 @@ s32 projectileRulesFlightSame(u32 modules, const projectile_flight_t *a, const p
 		return 0;
 	}
 	if ((modules & PROJECTILE_MODULE_TRAIL) && (a->trail_smoke != b->trail_smoke || a->trail_while != b->trail_while)) {
+		return 0;
+	}
+	if ((modules & PROJECTILE_MODULE_HOME) && (a->home_filtered != b->home_filtered
+			|| (a->home_filtered && !targetFilterSame(&a->home_filter, &b->home_filter)))) {
 		return 0;
 	}
 	if ((modules & PROJECTILE_MODULE_HIT_SOUND) && a->hit_sound != b->hit_sound) {

@@ -1,0 +1,97 @@
+{
+  "scenario_name": "held_weapon_charge_smoke",
+  "description": "Held weapon charge (context/designs/modding/held-weapon-events.md, slice 5). On Felicity with no simulants, player 0 is given the Mauler, fires its primary once, switches to its secondary and waits while the charge builds (it builds while the function is selected: five steps in 100 ticks, one round a step, never below a clip of 2), then fires the charged shot. Each function's first press logs its program's plan beside the original's: the primary is a single hitscan shot, the secondary og.weapon.charge with the original's numbers (damage 10/3 a step). They must be equal, and no rule may differ in the totals at the scripted exit.",
+  "tags": [
+    "graph",
+    "weapons",
+    "combatsim",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "src/game/bondgun.c",
+    "port/src/weapon_events.c",
+    "port/include/weapon_rules.h"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-force-first-person",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay."
+    },
+    {
+      "at_ms": 1000,
+      "type": "give_weapon",
+      "path": "base:mauler",
+      "comment": "From the give to its first input there are 3 s (equip time)."
+    },
+    {
+      "at_ms": 4000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Mauler primary: one hitscan shot."
+    },
+    {
+      "at_ms": 5500,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the charge-up shot; the charge builds while it is selected."
+    },
+    {
+      "at_ms": 9000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Fire the charged shot, well after its 100 ticks (1.7 s) to full."
+    },
+    {
+      "at_ms": 12000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=held_weapon_charge_smoke",
+      "SMOKE\\.GIVE_WEAPON: weapon=base:mauler weaponnum=[0-9]+ result=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:mauler func=primary program=yes modules=[^ ]+ native=[^ ]+ plan=fire_once rounds=1 shot=hitscan pellets=1 ",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:mauler func=secondary program=yes modules=[^ ]+ native=[^ ]+ plan=charge start=while_selected time=100 steps=5 ammo_per_step=1 min_clip=2 fall_time=200 release=on_press damage_per_step=3\\.33333325 rounds=1 shot=hitscan pellets=1 [^\\n]*native_plan=charge start=while_selected time=100 steps=5 ammo_per_step=1 min_clip=2 fall_time=200 release=on_press damage_per_step=3\\.33333325 rounds=1 shot=hitscan pellets=1",
+      "WEAPON\\.EVENTS: smoke_exit trigger_pressed=[1-9][0-9]* ready_while_held=[0-9]+ clip_empty=[0-9]+ trigger_released=[1-9][0-9]* reload_done=[0-9]+ rules\\.compared=[1-9][0-9]* rules\\.differ=0",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "KILLFEED: suicide",
+      "SMOKE\\.GIVE_WEAPON: [^\\n]*result=0",
+      "WEAPON\\.RULE differs",
+      "program refused",
+      "ASSET\\.FALLBACK",
+      "LOUDFAIL\\.FALLBACK"
+    ]
+  }
+}

@@ -5,11 +5,24 @@
 #include "types.h"
 
 bool sightIsPropFriendly(struct prop *prop);
-bool sightCanTargetProp(struct prop *prop, s32 max);
+/* held-weapon-events.md slice 6b: whether the sight's lock takes the prop
+ * (its filter, the lock's: weaponSightLock). */
+struct target_filter;
+bool sightCanTargetProp(struct prop *prop, s32 max, const struct target_filter *filter);
 /* held-weapon-events.md slice 6a: a prop's facts for the target filter
  * (target_filter.h), as the current player sees it. */
 struct target_facts;
 void sightTargetFacts(struct prop *prop, struct target_facts *out);
+/* slice 6b: the same facts as another owner reads them (a rocket's owner);
+ * owner_ir is whether that owner sees through cloaks. */
+void sightTargetFactsFor(struct prop *prop, struct prop *ownerprop, s32 owner_ir, struct target_facts *out);
+/* Whether a filter's owner sees through cloaks (a player using the IR
+ * scanner, as USINGDEVICE reads it); 0 for anyone else. */
+s32 sightOwnerUsesIr(struct prop *ownerprop);
+/* slice 6c: the player riding a vehicle (its driver, else its gunner), and
+ * the vehicle a player rides; NULL for none. */
+struct prop *sightVehicleRider(struct prop *vehicle);
+struct prop *sightRiderVehicle(struct prop *prop);
 bool sightIsReactiveToProp(struct prop *prop);
 s32 sightFindFreeTargetIndex(s32 max);
 void func0f0d7364(void);

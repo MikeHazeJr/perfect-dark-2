@@ -1823,7 +1823,22 @@ u32 bgunModRollUcmd(void)
  * team and target filters.
  * ------------------------------------------------------------------------ */
 
-s32 bgunModProxyDecision(struct weaponobj *weapon, struct chrdata *chr, struct coord *pos)
+/* held-weapon-events.md slice 6b: a character's facts for a mod mine's
+ * record filter, as the record reads them: the owner by player number, a
+ * friend of the owner by COMPARE_ENEMIES (an owner it cannot find has no
+ * friends). */
+static void bgunModMineTargetFacts(struct chrdata *chr, struct chrdata *ownerchr, s32 isowner, target_facts_t *out)
+{
+	memset(out, 0, sizeof(*out));
+	out->kind = chr->prop && chr->prop->type == PROPTYPE_PLAYER ? TARGET_KIND_PLAYER
+		: chr->aibot ? TARGET_KIND_SIMULANT : TARGET_KIND_GUARD;
+	out->alive = 1;
+	out->relation = isowner ? TARGET_RELATION_OWNER
+		: ownerchr && !chrCompareTeams(ownerchr, chr, COMPARE_ENEMIES) ? TARGET_RELATION_FRIEND
+		: TARGET_RELATION_ENEMY;
+}
+
+s32 bgunModProxyDecision(struct weaponobj *weapon, struct chrdata *chr, struct coord *pos, s32 filtered)
 {
 	const weapon_graph_held_function_t *held = bgunModHeldForWeaponObj(weapon);
 	const weapon_graph_entity_runtime_t *entity =
@@ -1841,8 +1856,9 @@ s32 bgunModProxyDecision(struct weaponobj *weapon, struct chrdata *chr, struct c
 	}
 
 	/* A mine for hostile characters ignores passing objects, including the
-	 * crystals still flying from the same volley. */
-	if (chr == NULL) {
+	 * crystals still flying from the same volley. Slice 6b: a mine whose
+	 * arm names a filter judges objects by it too. */
+	if (chr == NULL && filtered < 0) {
 		return entity->proxy_target_filter_mode == 1 ? 0 : -1;
 	}
 
@@ -1856,19 +1872,21 @@ s32 bgunModProxyDecision(struct weaponobj *weapon, struct chrdata *chr, struct c
 	}
 
 	owner = (weapon->base.hidden & 0xf0000000) >> 28;
-	index = g_Vars.normmplayerisrunning ? mpPlayerGetIndex(chr)
+	index = chr == NULL ? -1 : g_Vars.normmplayerisrunning ? mpPlayerGetIndex(chr)
 		: (chr->prop ? playermgrGetPlayerNumByProp(chr->prop) : -1);
 
-	if (entity->proxy_owner_filter_mode == 1 && index == owner) {
-		return 0;
-	}
-
-	if (entity->proxy_owner_filter_mode == 2 && index != owner) {
-		return 0;
-	}
-
-	if (entity->proxy_team_filter_mode == 1 || entity->proxy_target_filter_mode == 1) {
+	if (filtered >= 0) {
+		/* Slice 6b: its program's arm decides who sets it off. */
+		if (!filtered) {
+			return 0;
+		}
+	} else {
+		/* Slice 6b: the record's owner, team and target filters are its
+		 * native filter (targetFilterModMine), over the facts as it reads
+		 * them. */
 		struct chrdata *ownerchr = NULL;
+		target_filter_t filter;
+		target_facts_t facts;
 
 		if (g_Vars.normmplayerisrunning) {
 			ownerchr = mpGetChrFromPlayerIndex(owner);
@@ -1876,7 +1894,11 @@ s32 bgunModProxyDecision(struct weaponobj *weapon, struct chrdata *chr, struct c
 			ownerchr = g_Vars.players[owner]->prop->chr;
 		}
 
-		if (ownerchr != NULL && ownerchr != chr && !chrCompareTeams(ownerchr, chr, COMPARE_ENEMIES)) {
+		targetFilterModMine(entity->proxy_owner_filter_mode, entity->proxy_team_filter_mode,
+			entity->proxy_target_filter_mode, &filter);
+		bgunModMineTargetFacts(chr, ownerchr, index == owner, &facts);
+
+		if (!targetFilterAccepts(&filter, &facts)) {
 			return 0;
 		}
 	}

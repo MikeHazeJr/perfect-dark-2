@@ -1012,7 +1012,7 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 	REQUIRE(extractor.find("const s32 explosion = projectileRulesNativeExplosion(objweapon, objfunc);") != std::string::npos);
 	REQUIRE(extractor.find("\tprojectileRulesLaunchedObject(p->weaponnum, p->mode_index,") != std::string::npos);
 	REQUIRE(extractor.find("\t\tpayload_plan.payloads[i].weaponnum = weapon_id;") != std::string::npos);
-	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules\"") != std::string::npos);
+	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules_heldlocks_heldfeel\"") != std::string::npos);
 	// Every rule event of the table is wired, the arm and the fuse first.
 	for (const char *row : { "{ MISSION_GRAPH_EVENT_PROJECTILE_ARMED, \"armed\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, \"fuse\" },",
@@ -1115,7 +1115,8 @@ TEST_CASE("projectile rules: the fuses, the mines and damage ask the rules", "[p
 	// The watch list: no weapon number decides for a base weapon; the rule
 	// is asked for anything within twice the area of the 250 unit circle,
 	// and told whether it is within 250 units and whether it is a character.
-	const size_t sweep = propobj.find("static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool arg1)\n{");
+	const size_t sweep = propobj.find("static void coordTriggerProxiesFor(struct chrdata *chr, struct prop *candidate, "
+		"struct coord *pos, bool arg1)\n{");
 	REQUIRE(sweep != std::string::npos);
 	const std::string watch = propobj.substr(sweep, propobj.find("\n}\n", sweep) - sweep);
 	CHECK(watch.find("WEAPON_DRAGON") == std::string::npos);
@@ -1246,7 +1247,7 @@ TEST_CASE("projectile rules: weaponTick runs the arm each object chose", "[proje
 	REQUIRE(events.find("\tif (projectileIdentify(obj, &who)\n"
 		"\t\t\t&& projectileProgramFor(&who, MISSION_GRAPH_EVENT_PROJECTILE_ARMED, &asset_id)) {") != std::string::npos);
 	REQUIRE(events.find("\t\tarms = projectileRuleDecide(MISSION_GRAPH_EVENT_PROJECTILE_ARMED, obj, obj, who,\n"
-		"\t\t\toriginal, NULL) | PROJECTILE_ARMS_PROGRAM;") != std::string::npos);
+		"\t\t\toriginal, &context) | PROJECTILE_ARMS_PROGRAM;") != std::string::npos);
 	REQUIRE(events.find("\tindex = (s32)(prop - g_Vars.props);") != std::string::npos);
 	REQUIRE(events.find("\t\tkept->armed = 1;\n"
 		"\t\tkept->arm_weaponnum = (s16)weapon->weaponnum;\n"
@@ -1547,7 +1548,7 @@ TEST_CASE("the flight rule is projectileTick's original chain", "[projectile-rul
 	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
 	REQUIRE(extractor.find("{ MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT, \"in_flight\" },") != std::string::npos);
 	REQUIRE(extractor.find("projectileRulesNativeFlight(objweapon, objfunc, &flightset);") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v22\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v24\"") != std::string::npos);
 	const std::string runtime = readSource("port/src/weapon_graph_runtime.c");
 	REQUIRE(runtime.find("missionGraphProgramVisitModuleParams(program, projectileProgramFlightVisit, &flightcheck)")
 		!= std::string::npos);

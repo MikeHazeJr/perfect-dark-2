@@ -172,6 +172,11 @@ extern "C" {
  * bounce_smoke). */
 #define MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT 40
 
+/* held-weapon-events.md slice 6b: the held aiming event, a weapon event
+ * numbered after the flight event. The player aims with the function (each
+ * tick the sight is on); it chooses the sight's lock (og.weapon.lock_on). */
+#define MISSION_GRAPH_EVENT_WEAPON_AIMING 41
+
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
  * or while it ends. */

@@ -20,7 +20,11 @@
 #include "data.h"
 #include "game/player.h" /* playerCurrentInCutscene, for USINGDEVICE (slice 6a) */
 #include "game/playermgr.h"
+#include "game/chr.h"
 #include "target_filter.h"
+#include "weapon_rules.h"
+#include "weapon_events.h"
+#include "vehicle_graph_runtime.h"
 #include "types.h"
 #include <math.h>
 #include "video.h"
@@ -132,6 +136,50 @@ Gfx *sight0f0d7164(Gfx *gdl)
 	return gdl;
 }
 
+struct prop *sightVehicleRider(struct prop *vehicle)
+{
+	s32 gunner = -1;
+	s32 i;
+
+	if (!vehicle) {
+		return NULL;
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		struct player *player = g_Vars.players[i];
+
+		if (player && player->prop && player->hoverbike == vehicle && player->bondmovemode == MOVEMODE_BIKE) {
+			if (vehicleGraphRuntimeSeatOfPlayer(vehicle, vehicle->lifecycle_generation, i) != VEHICLE_GRAPH_SEAT_GUNNER) {
+				return player->prop;
+			}
+
+			if (gunner < 0) {
+				gunner = i;
+			}
+		}
+	}
+
+	return gunner >= 0 ? g_Vars.players[gunner]->prop : NULL;
+}
+
+struct prop *sightRiderVehicle(struct prop *prop)
+{
+	s32 playernum;
+
+	if (!prop || prop->type != PROPTYPE_PLAYER) {
+		return NULL;
+	}
+
+	playernum = playermgrGetPlayerNumByProp(prop);
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS || !g_Vars.players[playernum]
+			|| g_Vars.players[playernum]->bondmovemode != MOVEMODE_BIKE) {
+		return NULL;
+	}
+
+	return g_Vars.players[playernum]->hoverbike;
+}
+
 /*
  * held-weapon-events.md slice 6a: a prop's facts for the target filter, as
  * the current player sees it: its kind (a player, a simulant, a guard, a
@@ -139,7 +187,27 @@ Gfx *sight0f0d7164(Gfx *gdl)
  * it is one of the CI training stage's targets, and whether it is cloaked
  * and the player sees through cloaks.
  */
-void sightTargetFacts(struct prop *prop, struct target_facts *out)
+/* held-weapon-events.md slice 6b (PR 49 review): whether a filter's owner
+ * sees through cloaks, as USINGDEVICE(DEVICE_IRSCANNER) reads it for the
+ * current player: a living player, not in a cutscene, not flying an eyespy,
+ * using the IR scanner. Anyone else (a simulant, a guard, no owner) uses no
+ * scanner. A homing rocket's and a proximity mine's filters read it for the
+ * one who fired or laid them, so "cloaked": "with_ir" there means what it
+ * means for the sight. */
+s32 sightOwnerUsesIr(struct prop *ownerprop)
+{
+	const s32 playernum = ownerprop && ownerprop->type == PROPTYPE_PLAYER
+		? playermgrGetPlayerNumByProp(ownerprop) : -1;
+	const struct player *player = playernum >= 0 && playernum < MAX_PLAYERS ? g_Vars.players[playernum] : NULL;
+
+	if (!player || player->isdead || playerInCutscene(playernum)
+			|| (player->eyespy && player->eyespy->active)) {
+		return 0;
+	}
+	return (player->devicesactive & ~player->devicesinhibit & DEVICE_IRSCANNER) ? 1 : 0;
+}
+
+void sightTargetFactsFor(struct prop *prop, struct prop *ownerprop, s32 owner_ir, struct target_facts *out)
 {
 	out->kind = 0;
 	out->reacts_to_sight = 0;
@@ -148,9 +216,10 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 	out->relation = TARGET_RELATION_NONE;
 	out->alive = 1;
 	out->cloaked = 0;
-	out->owner_ir = USINGDEVICE(DEVICE_IRSCANNER) ? 1 : 0;
+	out->owner_ir = owner_ir ? 1 : 0;
 	out->drugged = 0;
 	out->unexplodable = 0;
+	out->armed = 0;
 
 	if (!prop) {
 		return;
@@ -164,9 +233,9 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 		out->cloaked = chr && (chr->hidden & CHRHFLAG_CLOAKED) ? 1 : 0;
 
 		if (chr) {
-			struct chrdata *self = g_Vars.currentplayer->prop ? g_Vars.currentplayer->prop->chr : NULL;
+			struct chrdata *self = ownerprop ? ownerprop->chr : NULL;
 
-			out->relation = prop == g_Vars.currentplayer->prop ? TARGET_RELATION_OWNER
+			out->relation = prop == ownerprop ? TARGET_RELATION_OWNER
 				: (self && chrCompareTeams(self, chr, COMPARE_FRIENDS) ? TARGET_RELATION_FRIEND : TARGET_RELATION_ENEMY);
 			out->alive = chr->actiontype != ACT_DIE && chr->actiontype != ACT_DEAD;
 
@@ -180,6 +249,8 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 
 			out->drugged = chr->actiontype == ACT_DRUGGEDDROP || chr->actiontype == ACT_DRUGGEDKO;
 			out->unexplodable = (chr->chrflags & CHRCFLAG_UNEXPLODABLE) ? 1 : 0;
+			out->armed = chrGetHeldProp(chr, HAND_RIGHT) || chrGetHeldProp(chr, HAND_LEFT)
+				|| (chr->chrflags & CHRCFLAG_FORCEAUTOAIM) || chr->gunprop ? 1 : 0;
 		}
 	} else if (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_WEAPON || prop->type == PROPTYPE_DOOR) {
 		struct defaultobj *obj = prop->obj;
@@ -188,10 +259,27 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 
 		if (obj) {
 			if (obj->type == OBJTYPE_HOVERBIKE || obj->type == OBJTYPE_HOVERCAR || obj->type == OBJTYPE_CHOPPER) {
+				/* slice 6c: a vehicle is occupied while someone rides it,
+				 * and is its rider's friend or enemy; an empty one is
+				 * nobody's (TARGET_RELATION_NONE). */
+				struct prop *rider = sightVehicleRider(prop);
+
 				out->kind = TARGET_KIND_VEHICLE;
+				out->occupied = rider || (obj->hidden & OBJHFLAG_MOUNTED) ? 1 : 0;
+
+				if (rider && rider->chr) {
+					struct chrdata *self = ownerprop ? ownerprop->chr : NULL;
+
+					out->relation = rider == ownerprop ? TARGET_RELATION_OWNER
+						: (self && chrCompareTeams(self, rider->chr, COMPARE_FRIENDS) ? TARGET_RELATION_FRIEND
+							: TARGET_RELATION_ENEMY);
+				}
 			} else if (obj->type == OBJTYPE_AUTOGUN) {
 				out->kind = TARGET_KIND_SENTRY;
 			}
+
+			/* slice 6c: a thing is alive until it is destroyed. */
+			out->alive = objGetDestroyedLevel(obj) == 0 ? 1 : 0;
 
 			out->reacts_to_sight = (obj->flags3 & OBJFLAG3_REACTTOSIGHT) ? 1 : 0;
 			out->training_target = g_Vars.stagenum == STAGE_CITRAINING
@@ -200,16 +288,22 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 	}
 }
 
+/* As the current player sees it. */
+void sightTargetFacts(struct prop *prop, struct target_facts *out)
+{
+	sightTargetFactsFor(prop, g_Vars.currentplayer->prop, USINGDEVICE(DEVICE_IRSCANNER) ? 1 : 0, out);
+}
+
 /**
  * Return true if the given prop can be added to the target list.
  *
- * held-weapon-events.md slice 6a: the lock's filter, the gun's (its native
- * one: a character, a player or an object that reacts to sight; the rocket
- * launcher locks whatever the player looks at).
+ * held-weapon-events.md slice 6b: the sight's lock's filter (its
+ * og.weapon.lock_on's, or the original's: a character, a player or an
+ * object that reacts to sight; the rocket launcher's takes whatever the
+ * player looks at).
  */
-bool sightCanTargetProp(struct prop *prop, s32 max)
+bool sightCanTargetProp(struct prop *prop, s32 max, const struct target_filter *filter)
 {
-	target_filter_t lock;
 	target_facts_t facts;
 	s32 i;
 
@@ -219,10 +313,9 @@ bool sightCanTargetProp(struct prop *prop, s32 max)
 		}
 	}
 
-	targetFilterNative(TARGET_PICKER_LOCK, bgunGetWeaponNum(HAND_RIGHT), &lock);
 	sightTargetFacts(prop, &facts);
 
-	return targetFilterAccepts(&lock, &facts) ? true : false;
+	return targetFilterAccepts(filter, &facts) ? true : false;
 }
 
 /**
@@ -288,7 +381,11 @@ void sightTick(bool sighton)
 	u8 newtracktype;
 	s32 i;
 	s32 index;
-	struct invaimsettings *gunsettings = gsetGetAimSettings(&g_Vars.currentplayer->hands[0].gset);
+	/* held-weapon-events.md slice 6b: the sight's lock, the right hand's
+	 * function program's while the player aims (og.weapon.lock_on at
+	 * event.weapon.aiming), else the original's for the weapon's aim
+	 * settings (weaponRulesNativeLock). */
+	const weapon_rule_lock_t *lock = weaponSightLock(sighton);
 	struct weaponfunc *func = weaponGetFunctionById(g_Vars.currentplayer->hands[0].gset.weaponnum,
 			g_Vars.currentplayer->hands[0].gset.weaponfunc);
 
@@ -310,7 +407,7 @@ void sightTick(bool sighton)
 		}
 	}
 
-	newtracktype = gunsettings->tracktype;
+	newtracktype = lock->tracktype;
 
 	if (gsetHasFunctionFlags(&g_Vars.currentplayer->hands[0].gset, FUNCFLAG_THREATDETECTOR)) {
 		newtracktype = SIGHTTRACKTYPE_THREATDETECTOR;
@@ -388,8 +485,8 @@ void sightTick(bool sighton)
 	case SIGHTTRACKTYPE_ROCKETLAUNCHER:
 		// Conditionally copy lookingatprop to trackedprops[0], but only if that slot is empty
 		if (sighton && g_Vars.currentplayer->lookingatprop.prop
-				&& sightCanTargetProp(g_Vars.currentplayer->lookingatprop.prop, 1)) {
-			index = sightFindFreeTargetIndex(1);
+				&& sightCanTargetProp(g_Vars.currentplayer->lookingatprop.prop, lock->locks, &lock->filter)) {
+			index = sightFindFreeTargetIndex(lock->locks);
 
 			if (index >= 0) {
 				struct sndstate *handle;
@@ -405,14 +502,15 @@ void sightTick(bool sighton)
 				trackedprop->y2 = g_Vars.currentplayer->lookingatprop.y2;
 
 				g_Vars.currentplayer->targetset[index] = 0;
+				weaponSightLockTaken(index, trackedprop->prop);
 			}
 		}
 		break;
 	case SIGHTTRACKTYPE_FOLLOWLOCKON:
 		// Conditionally copy lookingatprop to any trackedprops slot, but only if the slot is empty
 		if (sighton && g_Vars.currentplayer->lookingatprop.prop
-				&& sightCanTargetProp(g_Vars.currentplayer->lookingatprop.prop, 4)) {
-			index = sightFindFreeTargetIndex(4);
+				&& sightCanTargetProp(g_Vars.currentplayer->lookingatprop.prop, lock->locks, &lock->filter)) {
+			index = sightFindFreeTargetIndex(lock->locks);
 
 			if (index >= 0) {
 				struct sndstate *handle;
@@ -428,6 +526,7 @@ void sightTick(bool sighton)
 				trackedprop->y2 = g_Vars.currentplayer->lookingatprop.y2;
 
 				g_Vars.currentplayer->targetset[index] = 0;
+				weaponSightLockTaken(index, trackedprop->prop);
 			}
 		}
 		break;

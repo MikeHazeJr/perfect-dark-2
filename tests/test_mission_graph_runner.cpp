@@ -25,6 +25,8 @@ extern "C" {
 #include "weapon_graph_runtime.h"
 #include "weapon_rules.h"
 #include "target_filter.h"
+#include "projectile_rules.h"
+void testStubEffectAudio(const char *id, s32 category, s32 sound_id);
 }
 
 namespace {
@@ -1174,7 +1176,12 @@ TEST_CASE("the held weapon rule table names its modules, gates and events",
 	for (s32 e = 0; weaponRulesEventAt(e) >= 0; e++) kinds.push_back(weaponRulesEventAt(e));
 	CHECK(kinds == std::vector<s32>{ MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED,
 		MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD, MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY,
-		MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED, MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE });
+		MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED, MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE,
+		MISSION_GRAPH_EVENT_WEAPON_AIMING });
+	for (size_t e = 0; e < kinds.size(); e++) {
+		CHECK(weaponRulesEventIndex(kinds[e]) == (s32)e);
+	}
+	CHECK(weaponRulesEventIndex(MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT) == -1);
 	for (s32 kind : kinds) {
 		INFO(kind);
 		CHECK(missionGraphEventIsWeapon(kind) == 1);
@@ -1190,11 +1197,15 @@ TEST_CASE("the held weapon rule table names its modules, gates and events",
 	}
 	CHECK(weaponRulesEventName(MISSION_GRAPH_EVENT_PROJECTILE_ARMED) == nullptr);
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED)
-		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_SET_STATE));
+		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_PRESENTATION
+			| WEAPON_MODULE_SET_STATE));
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY)
-		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_SET_STATE));
+		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_PRESENTATION
+			| WEAPON_MODULE_SET_STATE));
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED) == WEAPON_MODULE_SET_STATE);
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE) == WEAPON_MODULE_SET_STATE);
+	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_AIMING) == WEAPON_MODULE_LOCK_ON);
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_LOCK_ON)) == "og.weapon.lock_on");
 
 	// The original's idle rule and its rounds.
 	for (s32 kind : { MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD }) {
@@ -3566,8 +3577,12 @@ TEST_CASE("the look and lock pickers are the target filter's native ones",
 	REQUIRE(lv.find("targetFilterNative(TARGET_PICKER_LOOK, bgunGetWeaponNum(HAND_RIGHT), &look);") != std::string::npos);
 	CHECK(lv.find("(obj->flags3 & OBJFLAG3_REACTTOSIGHT) == 0") == std::string::npos);
 	const std::string sight = readSource("src/game/sight.c");
-	REQUIRE(sight.find("targetFilterNative(TARGET_PICKER_LOCK, bgunGetWeaponNum(HAND_RIGHT), &lock);") != std::string::npos);
+	// slice 6b: the lock's filter is the sight's lock's, whose native one
+	// is the table's (weaponRulesNativeLock).
+	REQUIRE(sight.find("return targetFilterAccepts(filter, &facts) ? true : false;") != std::string::npos);
 	CHECK(sight.find("WEAPON_ROCKETLAUNCHER") == std::string::npos);
+	REQUIRE(readSource("port/include/weapon_rules.h").find(
+		"targetFilterNative(TARGET_PICKER_LOCK, weaponnum, &out->filter);") != std::string::npos);
 	REQUIRE(sight.find("void sightTargetFacts(struct prop *prop, struct target_facts *out)") != std::string::npos);
 }
 
@@ -3617,6 +3632,1670 @@ TEST_CASE("the Farsight's auto-target is the target filter's native one",
 	REQUIRE(body.find("if (targetFilterAccepts(&filter, &facts)) {") != std::string::npos);
 	CHECK(body.find("WEAPON_FARSIGHT") == std::string::npos);
 	CHECK(body.find("CHRCFLAG_UNEXPLODABLE") == std::string::npos);
+}
+
+TEST_CASE("the bot Slayer's proximity is the target filter's native one",
+	"[mission-graph][weapon-graph][held-weapon][target-filter]")
+{
+	// rocketTickFbw's test as it stood (propobj.c at b66065f8).
+	const auto original = [](bool owner, bool dead, bool enemy, bool invisible) -> bool {
+		return !owner && !dead && enemy && !invisible;
+	};
+	target_filter_t slayer;
+	targetFilterNative(TARGET_PICKER_BOT_SLAYER, WEAPON_SKROCKET, &slayer);
+	s32 compared = 0;
+	for (u32 kind : { TARGET_KIND_GUARD, TARGET_KIND_SIMULANT, TARGET_KIND_PLAYER }) {
+		for (s32 bits = 0; bits < 16; bits++) {
+			const bool owner = bits & 1, dead = bits & 2, enemy = bits & 4, invisible = bits & 8;
+			// rocketFbwTargetFacts: the owner's own chr, else enemy or not.
+			target_facts_t c{};
+			c.kind = kind;
+			c.relation = owner ? TARGET_RELATION_OWNER : (enemy ? TARGET_RELATION_ENEMY : TARGET_RELATION_FRIEND);
+			c.alive = !dead;
+			c.cloaked = invisible;
+			INFO("kind " << kind << " bits " << bits);
+			// The original asked COMPARE_ENEMIES only of another chr; the owner is never its own enemy.
+			CHECK((targetFilterAccepts(&slayer, &c) != 0) == original(owner, dead, enemy && !owner, invisible));
+			compared++;
+		}
+	}
+	CHECK(compared == 48);
+
+	const std::string propobj = readSource("src/game/propobj.c");
+	REQUIRE(propobj.find("targetFilterNative(TARGET_PICKER_BOT_SLAYER, rocket->weaponnum, &fbwfilter);") != std::string::npos);
+	REQUIRE(propobj.find("static void rocketFbwTargetFacts(struct chrdata *chr, struct chrdata *owner, target_facts_t *out)")
+		!= std::string::npos);
+	CHECK(propobj.find("&& chrCompareTeams(ownerchr, chr, COMPARE_ENEMIES)\n\t\t\t\t\t&& !botIsTargetInvisible(NULL, chr)) {")
+		== std::string::npos);
+}
+
+TEST_CASE("the sentry's target is the target filter's native one",
+	"[mission-graph][weapon-graph][held-weapon][target-filter]")
+{
+	// autogunTick's test as it stood (propobj.c at b66065f8), for a chr of a
+	// team the autogun attacks.
+	const auto original = [](bool hidden, bool cloaked, bool dead) -> bool {
+		return !hidden && !cloaked && !dead;
+	};
+	target_filter_t sentry;
+	targetFilterNative(TARGET_PICKER_SENTRY, -1, &sentry);
+	s32 compared = 0;
+	for (u32 kind : { TARGET_KIND_GUARD, TARGET_KIND_SIMULANT, TARGET_KIND_PLAYER }) {
+		for (s32 bits = 0; bits < 8; bits++) {
+			const bool hidden = bits & 1, cloaked = bits & 2, dead = bits & 4;
+			target_facts_t c{};
+			c.kind = kind;
+			c.relation = TARGET_RELATION_ENEMY;
+			c.alive = !dead;
+			c.cloaked = hidden || cloaked;
+			INFO("kind " << kind << " bits " << bits);
+			CHECK((targetFilterAccepts(&sentry, &c) != 0) == original(hidden, cloaked, dead));
+			compared++;
+		}
+	}
+	CHECK(compared == 24);
+
+	const std::string propobj = readSource("src/game/propobj.c");
+	REQUIRE(propobj.find("targetFilterNative(TARGET_PICKER_SENTRY, -1, &sentryfilter);") != std::string::npos);
+	REQUIRE(propobj.find("static void autogunTargetFacts(struct chrdata *chr, target_facts_t *out)") != std::string::npos);
+	CHECK(propobj.find("&& (chr->hidden & CHRHFLAG_CLOAKED) == 0\n\t\t\t\t\t\t&& !chrIsDead(chr)) {") == std::string::npos);
+}
+
+TEST_CASE("auto-aim's candidates are the target filter's native ones",
+	"[mission-graph][weapon-graph][held-weapon][target-filter]")
+{
+	// autoaimTick's candidate test as it stood (prop.c at b66065f8), before
+	// chrCalculateAutoAim: not a friend, and armed.
+	const auto original = [](bool friendly, bool right, bool left, bool force, bool gunprop) -> bool {
+		return !friendly && (right || left || force || gunprop);
+	};
+	target_filter_t aim;
+	targetFilterNative(TARGET_PICKER_AUTOAIM, WEAPON_FALCON2, &aim);
+	s32 compared = 0;
+	for (u32 kind : { TARGET_KIND_GUARD, TARGET_KIND_SIMULANT, TARGET_KIND_PLAYER }) {
+		for (s32 bits = 0; bits < 32; bits++) {
+			const bool friendly = bits & 1, right = bits & 2, left = bits & 4, force = bits & 8, gunprop = bits & 16;
+			target_facts_t c{};
+			c.kind = kind;
+			c.relation = friendly ? TARGET_RELATION_FRIEND : TARGET_RELATION_ENEMY;
+			c.alive = 1;
+			c.armed = right || left || force || gunprop;
+			INFO("kind " << kind << " bits " << bits);
+			CHECK((targetFilterAccepts(&aim, &c) != 0) == original(friendly, right, left, force, gunprop));
+			compared++;
+		}
+	}
+	CHECK(compared == 96);
+
+	const std::string prop = readSource("src/game/prop.c");
+	REQUIRE(prop.find("targetFilterNative(TARGET_PICKER_AUTOAIM, bgunGetWeaponNum(HAND_RIGHT), &aimfilter);") != std::string::npos);
+	REQUIRE(prop.find("if (targetFilterAccepts(&aimfilter, &facts)\n\t\t\t\t\t\t\t&& chrCalculateAutoAim(prop, &sp94, sp8c, sp84)) {")
+		!= std::string::npos);
+	CHECK(prop.find("|| (chr->chrflags & CHRCFLAG_FORCEAUTOAIM)\n\t\t\t\t\t\t\t\t|| chr->gunprop)") == std::string::npos);
+	REQUIRE(readSource("src/game/sight.c").find("|| (chr->chrflags & CHRCFLAG_FORCEAUTOAIM) || chr->gunprop ? 1 : 0;")
+		!= std::string::npos);
+}
+
+// held-weapon-events.md slice 6b: the filter as settings, on og.projectile.home.
+TEST_CASE("a homing rocket's target filter is its home node's settings",
+	"[mission-graph][weapon-graph][held-weapon][target-filter]")
+{
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	// Mike's "Enemy vehicles".
+	Texts enemyVehicles;
+	enemyVehicles.values = { { "kinds", "vehicle" }, { "vehicles", "occupied" }, { "relation", "enemy" },
+		{ "alive", "true" }, { "cloaked", "never" } };
+	target_filter_t f;
+	const char *bad = nullptr;
+	REQUIRE(targetFilterFromSettings(Texts::get, &enemyVehicles, &f, &bad) == 1);
+	CHECK(f.kinds == TARGET_KIND_VEHICLE);
+	CHECK(f.vehicles_occupied == 1);
+	CHECK(f.relation == TARGET_RELATION_ENEMY);
+	CHECK(f.alive_only == 1);
+	CHECK(f.sees_cloaked == TARGET_SEES_CLOAKED_NEVER);
+	CHECK(f.things_must_react == 0); // a hoverbike does not react to sight
+	target_facts_t rider{};
+	rider.kind = TARGET_KIND_PLAYER;
+	rider.relation = TARGET_RELATION_ENEMY;
+	rider.alive = 1;
+	CHECK(targetFilterAccepts(&f, &rider) == 0); // the bike, never its rider
+	target_facts_t bike{};
+	bike.kind = TARGET_KIND_VEHICLE;
+	bike.occupied = 1;
+	bike.relation = TARGET_RELATION_ENEMY;
+	bike.alive = 1;
+	CHECK(targetFilterAccepts(&f, &bike) == 1);
+	bike.occupied = 0;
+	bike.relation = TARGET_RELATION_NONE;
+	CHECK(targetFilterAccepts(&f, &bike) == 0); // occupied only: the rider bailed out
+	// The written settings read back the same.
+	char text[256];
+	REQUIRE(targetFilterSettingsText(&f, text, sizeof(text)) > 0);
+	INFO(text);
+	CHECK(std::string(text).find("\"kinds\": \"vehicle\"") != std::string::npos);
+	// Kinds, defaults and refusals.
+	u32 kinds = 0;
+	CHECK(targetFilterKindsFromText("player,simulant", &kinds) == 0);
+	CHECK(kinds == (TARGET_KIND_PLAYER | TARGET_KIND_SIMULANT));
+	CHECK(targetFilterKindsFromText("characters, vehicle", &kinds) == 0);
+	CHECK(kinds == (TARGET_KINDS_CHARACTERS | TARGET_KIND_VEHICLE));
+	CHECK(targetFilterKindsFromText("tank", &kinds) == -1);
+	CHECK(targetFilterKindsFromText("", &kinds) == -1);
+	Texts none;
+	CHECK(targetFilterFromSettings(Texts::get, &none, &f, &bad) == 0); // names none: anything
+	CHECK(f.kinds == TARGET_KINDS_ALL);
+	Texts wrong;
+	wrong.values = { { "relation", "rival" } };
+	CHECK(targetFilterFromSettings(Texts::get, &wrong, &f, &bad) == -1);
+	REQUIRE(bad != nullptr);
+	CHECK(std::string(bad) == "relation");
+	CHECK(std::string(targetFilterSettingHelp("relation")) == "anyone, enemy, friend, owner, not_owner or not_friend");
+
+	// og.projectile.home: the original's names no filter and writes none.
+	projectile_flight_t native;
+	projectileRulesNativeFlight(WEAPON_HOMINGROCKET, FUNC_PRIMARY, &native);
+	CHECK(native.home_filtered == 0);
+	char buf[256];
+	CHECK(projectileRulesFlightSettingsText(PROJECTILE_MODULE_HOME, &native, buf, sizeof(buf)) == 0);
+	projectile_flight_t authored = native;
+	Texts home = enemyVehicles;
+	home.values["lost"] = "straight";
+	CHECK(projectileRulesFlightSettings(PROJECTILE_MODULE_HOME, Texts::get, &home, &authored, nullptr) == 1);
+	CHECK(authored.home_filtered == 1);
+	CHECK(authored.home_filter.kinds == TARGET_KIND_VEHICLE);
+	CHECK(projectileRulesFlightSame(PROJECTILE_MODULE_HOME, &authored, &native) == 0);
+	CHECK(projectileRulesFlightSame(PROJECTILE_MODULE_HOME, &native, &native) == 1);
+	REQUIRE(projectileRulesFlightSettingsText(PROJECTILE_MODULE_HOME, &authored, buf, sizeof(buf)) > 0);
+	{
+		// The written home reads back the same.
+		Texts back;
+		const std::string s(buf);
+		for (const char *key : { "kinds", "vehicles", "relation", "cloaked" }) {
+			const std::string needle = std::string("\"") + key + "\": \"";
+			const size_t at = s.find(needle);
+			REQUIRE(at != std::string::npos);
+			back.values[key] = s.substr(at + needle.size(), s.find('"', at + needle.size()) - (at + needle.size()));
+		}
+		back.values["alive"] = s.find("\"alive\": true") != std::string::npos ? "true" : "false";
+		projectile_flight_t again = native;
+		CHECK(projectileRulesFlightSettings(PROJECTILE_MODULE_HOME, Texts::get, &back, &again, nullptr) == 1);
+		CHECK(projectileRulesFlightSame(PROJECTILE_MODULE_HOME, &again, &authored) == 1);
+	}
+	Texts badlost;
+	badlost.values = { { "lost", "spiral" } };
+	const char *badkey = nullptr;
+	projectile_flight_t g = native;
+	CHECK(projectileRulesFlightSettings(PROJECTILE_MODULE_HOME, Texts::get, &badlost, &g, &badkey) == 0);
+	REQUIRE(badkey != nullptr);
+	CHECK(std::string(badkey) == "lost");
+
+	// The seams: the homing code re-checks a filtered home's target while it
+	// flies, with the facts as the rocket's owner reads them.
+	const std::string propobj = readSource("src/game/propobj.c");
+	REQUIRE(propobj.find("if (projectile->targetprop && flightset->home_filtered) {") != std::string::npos);
+	REQUIRE(propobj.find("sightTargetFactsFor(projectile->targetprop, projectile->ownerprop,\n"
+		"\t\t\t\t\t\t\tsightOwnerUsesIr(projectile->ownerprop), &homefacts);") != std::string::npos);
+	REQUIRE(propobj.find("if (!targetFilterAccepts(&flightset->home_filter, &homefacts)) {\n"
+		"\t\t\t\t\t\t\tprojectile->targetprop = NULL;") != std::string::npos);
+	const std::string sight = readSource("src/game/sight.c");
+	REQUIRE(sight.find("void sightTargetFactsFor(struct prop *prop, struct prop *ownerprop, s32 owner_ir, struct target_facts *out)")
+		!= std::string::npos);
+	REQUIRE(sight.find("sightTargetFactsFor(prop, g_Vars.currentplayer->prop, USINGDEVICE(DEVICE_IRSCANNER) ? 1 : 0, out);")
+		!= std::string::npos);
+}
+
+namespace {
+
+// The base wiring of a function whose weapon has a lock, as the extractor
+// writes it (romextract_pdweapon.c, s_emitHeldLockNodes and
+// s_emitHeldLockEdge): event.weapon.aiming and og.weapon.lock_on with its
+// settings, before the idle wiring's nodes and edges.
+std::string withLock(std::string text, const std::string &m, const std::string &settings)
+{
+	const std::string pressed = "{ \"id\": \"" + m + "_pressed\"";
+	text.insert(text.find(pressed), "{ \"id\": \"" + m + "_aiming\", \"kind\": \"event.weapon.aiming\" },"
+		"{ \"id\": \"" + m + "_lock\", \"kind\": \"og.weapon.lock_on\"" + settings + " },");
+	const std::string firstEdge = "{ \"from\": \"" + m + "_pressed\"";
+	text.insert(text.find(firstEdge), "{ \"from\": \"" + m + "_aiming\", \"output\": \"out\", \"to\": \"" + m +
+		"_lock\", \"input\": \"exec\" },");
+	return text;
+}
+
+} // namespace
+
+// held-weapon-events.md slice 6b: the sight's lock is og.weapon.lock_on at
+// event.weapon.aiming, and the original's is the weapon's track type.
+TEST_CASE("the sight's lock is the original's, and a program's lock_on is its settings",
+	"[mission-graph][weapon-graph][held-weapon][target-filter][weapon-rules]")
+{
+	// The original's: the rocket launcher holds one target, whatever the
+	// player looks at; the CMP150 four, things only if the stage marks them,
+	// and its secondary aims at them; every other weapon none.
+	weapon_rule_lock_t rocket, cmp, cmpsec, falcon, unarmed, mod, threat;
+	weaponRulesNativeLock(WEAPON_ROCKETLAUNCHER, FUNC_SECONDARY, SIGHTTRACKTYPE_ROCKETLAUNCHER, &rocket);
+	CHECK(rocket.locks == 1);
+	CHECK(rocket.aim_follows == 0);
+	CHECK(rocket.tracktype == SIGHTTRACKTYPE_ROCKETLAUNCHER);
+	CHECK(rocket.filter.things_must_react == 0);
+	weaponRulesNativeLock(WEAPON_CMP150, FUNC_PRIMARY, SIGHTTRACKTYPE_FOLLOWLOCKON, &cmp);
+	weaponRulesNativeLock(WEAPON_CMP150, FUNC_SECONDARY, SIGHTTRACKTYPE_FOLLOWLOCKON, &cmpsec);
+	CHECK(cmp.locks == WEAPON_RULE_MAX_LOCKS);
+	CHECK(cmp.aim_follows == 0);
+	CHECK(cmpsec.aim_follows == 1);
+	CHECK(cmp.tracktype == SIGHTTRACKTYPE_FOLLOWLOCKON);
+	CHECK(cmp.filter.things_must_react == 1);
+	CHECK(cmp.filter.training_targets == 0);
+	weaponRulesNativeLock(WEAPON_FALCON2, FUNC_PRIMARY, SIGHTTRACKTYPE_DEFAULT, &falcon);
+	CHECK(falcon.locks == 0);
+	CHECK(falcon.tracktype == SIGHTTRACKTYPE_DEFAULT);
+	weaponRulesNativeLock(WEAPON_UNARMED, FUNC_PRIMARY, SIGHTTRACKTYPE_NONE, &unarmed);
+	CHECK(unarmed.locks == 0);
+	CHECK(unarmed.tracktype == SIGHTTRACKTYPE_NONE);
+	weaponRulesNativeLock(WEAPON_UNARMED, FUNC_PRIMARY, SIGHTTRACKTYPE_THREATDETECTOR, &threat);
+	CHECK(threat.tracktype == SIGHTTRACKTYPE_THREATDETECTOR);
+	// A mod weapon whose descriptor names the rocket launcher's track type
+	// keeps today's filter: only the rocket launcher's number takes things
+	// that do not react.
+	weaponRulesNativeLock(WEAPON_CUSTOM_START, FUNC_PRIMARY, SIGHTTRACKTYPE_ROCKETLAUNCHER, &mod);
+	CHECK(mod.locks == 1);
+	CHECK(mod.filter.things_must_react == 1);
+	// A lock's track type: one target the rocket launcher's, more the
+	// follow lock-on's numbered boxes; no lock keeps a weapon's own unless it
+	// is a lock's.
+	weapon_rule_lock_t none{};
+	CHECK(weaponRulesLockTrackType(&none, SIGHTTRACKTYPE_ROCKETLAUNCHER) == SIGHTTRACKTYPE_DEFAULT);
+	CHECK(weaponRulesLockTrackType(&none, SIGHTTRACKTYPE_NONE) == SIGHTTRACKTYPE_NONE);
+	none.locks = 2;
+	CHECK(weaponRulesLockTrackType(&none, SIGHTTRACKTYPE_DEFAULT) == SIGHTTRACKTYPE_FOLLOWLOCKON);
+
+	// A node's settings, over one target, no follow and the "anything" filter.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts empty;
+	weapon_rule_lock_t lock;
+	CHECK(weaponRulesApplyLockSettings(Texts::get, &empty, &lock) == 1);
+	CHECK(lock.locks == 1);
+	CHECK(lock.aim_follows == 0);
+	CHECK(lock.filter.kinds == TARGET_KINDS_ALL);
+	CHECK(weaponRulesLockEqual(&lock, &rocket) == 1); // the rocket launcher's is the default node
+	Texts follow;
+	follow.values = { { "locks", "4" }, { "aim_follows", "true" }, { "sight_targets_only", "true" } };
+	CHECK(weaponRulesApplyLockSettings(Texts::get, &follow, &lock) == 1);
+	CHECK(weaponRulesLockEqual(&lock, &cmpsec) == 1);
+	CHECK(weaponRulesLockEqual(&lock, &cmp) == 0);
+	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{ { "locks", "5" }, { "locks", "0" },
+			{ "aim_follows", "yes" }, { "relation", "rival" }, { "kinds", "tank" },
+			{ "sight_targets_only", "maybe" } }) {
+		INFO(bad.first << "=" << bad.second);
+		Texts wrong;
+		wrong.values = { bad };
+		CHECK(weaponRulesApplyLockSettings(Texts::get, &wrong, &lock) == 0);
+	}
+	// The sight targets setting is the filter's, on og.projectile.home too.
+	target_filter_t marked;
+	const char *badkey = nullptr;
+	Texts sightTargets;
+	sightTargets.values = { { "sight_targets_only", "true" } };
+	CHECK(targetFilterFromSettings(Texts::get, &sightTargets, &marked, &badkey) == 1);
+	CHECK(marked.things_must_react == 1);
+	CHECK(std::string(targetFilterSettingHelp("sight_targets_only")) == "true or false");
+	target_filter_t anything;
+	targetFilterAnything(&anything);
+	CHECK(targetFilterSame(&anything, &rocket.filter) == 1); // the training targets do not matter here
+	char text[512];
+	REQUIRE(weaponRulesLockSettingsText(&cmpsec, text, (s32)sizeof(text)) > 0);
+	INFO(text);
+	CHECK(std::string(text).find("\"locks\": 4, \"aim_follows\": true, \"kinds\": \"all\", \"sight_targets_only\": true")
+		!= std::string::npos);
+
+	// The base wiring, walked as the seam walks it, holds the original's
+	// lock whatever the hand holds.
+	int instance = 0;
+	const auto walkLock = [&](const std::string &json, const weapon_rule_states_t *with, weapon_rule_hand_t hand,
+		weapon_rule_lock_t *out, u32 *modules) -> s32 {
+		char err[256] = { 0 };
+		mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(),
+			heldKnown, err, sizeof(err));
+		INFO(err);
+		REQUIRE(program != nullptr);
+		weapon_rule_walk_t walk{};
+		weapon_rule_states_t states = with ? *with : weapon_rule_states_t{};
+		walk.weaponnum = -1;
+		walk.hand = hand;
+		walk.states = &states;
+		walk.param_text = weaponGraphRuntimeHeldParamText;
+		const s32 handled = weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_AIMING, 0, "base:test__weapon",
+			&instance, &walk);
+		*out = walk.lock;
+		*modules = walk.modules;
+		missionGraphProgramFree(program);
+		return handled;
+	};
+	struct Case { s32 weaponnum; s32 func; s32 tracktype; const char *mode; };
+	for (const Case &c : { Case{ WEAPON_ROCKETLAUNCHER, FUNC_PRIMARY, SIGHTTRACKTYPE_ROCKETLAUNCHER, "primary" },
+			Case{ WEAPON_ROCKETLAUNCHER, FUNC_SECONDARY, SIGHTTRACKTYPE_ROCKETLAUNCHER, "secondary" },
+			Case{ WEAPON_CMP150, FUNC_PRIMARY, SIGHTTRACKTYPE_FOLLOWLOCKON, "primary" },
+			Case{ WEAPON_CMP150, FUNC_SECONDARY, SIGHTTRACKTYPE_FOLLOWLOCKON, "secondary" } }) {
+		weapon_rule_lock_t native;
+		weaponRulesNativeLock(c.weaponnum, c.func, c.tracktype, &native);
+		char settings[512];
+		REQUIRE(weaponRulesLockSettingsText(&native, settings, (s32)sizeof(settings)) > 0);
+		const std::string json = withLock(baseIdleProgram(c.mode, 1), c.mode, settings);
+		for (const weapon_rule_hand_t hand : { weapon_rule_hand_t{ 1, 0, 8, 0, 0 }, weapon_rule_hand_t{ 1, 8, 8, 1, 1 },
+				weapon_rule_hand_t{ 0, 0, 0, 0, 1 } }) {
+			weapon_rule_lock_t walked;
+			u32 modules = 0;
+			INFO("weapon=" << c.weaponnum << " func=" << c.func << " loaded=" << hand.loaded);
+			REQUIRE(walkLock(json, nullptr, hand, &walked, &modules) == 1);
+			CHECK(modules == WEAPON_MODULE_LOCK_ON);
+			walked.tracktype = weaponRulesLockTrackType(&walked, c.tracktype);
+			CHECK(weaponRulesLockEqual(&walked, &native) == 1);
+		}
+	}
+
+	// A gate decides the lock while aiming: a scope that locks only while
+	// its state is on; handled without a lock, the box follows the aim.
+	std::string scoped = withLock(baseIdleProgram("primary", 1), "primary", ", \"locks\": 2");
+	scoped.replace(scoped.find("{ \"from\": \"primary_aiming\", \"output\": \"out\", \"to\": \"primary_lock\""),
+		std::string("{ \"from\": \"primary_aiming\", \"output\": \"out\", \"to\": \"primary_lock\"").size(),
+		"{ \"from\": \"primary_aiming\", \"output\": \"out\", \"to\": \"primary_scoped\", \"input\": \"exec\" },"
+		"{ \"from\": \"primary_scoped\", \"output\": \"pass\", \"to\": \"primary_lock\"");
+	scoped.insert(scoped.find("{ \"id\": \"primary_lock\""),
+		"{ \"id\": \"primary_scoped\", \"kind\": \"gate.weapon.state_is\", \"key\": \"scoped\", \"equals\": true },");
+	weapon_rule_lock_t walked;
+	u32 modules = 0;
+	REQUIRE(walkLock(scoped, nullptr, weapon_rule_hand_t{ 1, 8, 8, 1, 1 }, &walked, &modules) == 1);
+	CHECK(modules == 0);
+	CHECK(walked.locks == 0);
+	CHECK(weaponRulesLockTrackType(&walked, SIGHTTRACKTYPE_ROCKETLAUNCHER) == SIGHTTRACKTYPE_DEFAULT);
+	weapon_rule_states_t on{};
+	on.count = 1;
+	std::snprintf(on.keys[0], sizeof(on.keys[0]), "scoped");
+	on.values[0] = 1;
+	REQUIRE(walkLock(scoped, &on, weapon_rule_hand_t{ 1, 8, 8, 1, 1 }, &walked, &modules) == 1);
+	CHECK(modules == WEAPON_MODULE_LOCK_ON);
+	CHECK(walked.locks == 2);
+	CHECK(weaponRulesLockTrackType(&walked, SIGHTTRACKTYPE_DEFAULT) == SIGHTTRACKTYPE_FOLLOWLOCKON);
+
+	// Registration: the lock only at aiming, only the lock there, and its
+	// settings values of their kinds ("$name" from the weapon's variables).
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	const s32 weaponnum = 3;
+	char err[256] = { 0 };
+	const auto registers = [&](const std::string &primary, const char *variables = nullptr) {
+		err[0] = 0;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(weaponnum, "base:test__weapon", primary.data(),
+			(u32)primary.size(), secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0,
+			variables, variables ? (u32)std::strlen(variables) : 0, nullptr, 0, err, sizeof(err)) == 0;
+	};
+	weaponGraphRuntimeClearAll();
+	const std::string enemyVehicles = withLock(baseIdleProgram("primary", 1), "primary",
+		", \"locks\": 1, \"kinds\": \"vehicle\", \"vehicles\": \"occupied\", \"relation\": \"enemy\", "
+		"\"alive\": true, \"cloaked\": \"never\"");
+	REQUIRE(registers(enemyVehicles));
+	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, 0);
+	REQUIRE(program != nullptr);
+	CHECK(missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_WEAPON_AIMING) == 1);
+	CHECK(missionGraphProgramEventReachesModule(program, MISSION_GRAPH_EVENT_WEAPON_AIMING, "og.weapon.lock_on") == 1);
+	std::string pressLocks = baseIdleProgram("primary", 1);
+	pressLocks.replace(pressLocks.find("\"kind\": \"og.weapon.dry_fire\""),
+		std::string("\"kind\": \"og.weapon.dry_fire\"").size(), "\"kind\": \"og.weapon.lock_on\"");
+	CHECK_FALSE(registers(pressLocks));
+	CHECK(std::string(err).find("og.weapon.lock_on has no effect on event.weapon.trigger_pressed") != std::string::npos);
+	std::string aimReloads = withLock(baseIdleProgram("primary", 1), "primary", "");
+	aimReloads.replace(aimReloads.find("\"kind\": \"og.weapon.lock_on\""),
+		std::string("\"kind\": \"og.weapon.lock_on\"").size(), "\"kind\": \"og.weapon.dry_fire\"");
+	CHECK_FALSE(registers(aimReloads));
+	CHECK(std::string(err).find("og.weapon.dry_fire has no effect on event.weapon.aiming") != std::string::npos);
+	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{
+			{ ", \"locks\": 5", "og.weapon.lock_on needs locks from 1 to 4, got 5" },
+			{ ", \"aim_follows\": \"yes\"", "og.weapon.lock_on needs aim_follows true or false, got yes" },
+			{ ", \"relation\": \"rival\"", "og.weapon.lock_on needs relation anyone, enemy, friend, owner, not_owner or not_friend, got rival" },
+			{ ", \"kinds\": \"tank\"", "og.weapon.lock_on needs kinds player, simulant, guard, vehicle" },
+			{ ", \"sight_targets_only\": \"maybe\"", "og.weapon.lock_on needs sight_targets_only true or false, got maybe" },
+			{ ", \"relation\": \"$side\"", "og.weapon.lock_on needs relation anyone, enemy, friend, owner, not_owner or not_friend, got $side" } }) {
+		INFO(bad.first);
+		CHECK_FALSE(registers(withLock(baseIdleProgram("primary", 1), "primary", bad.first)));
+		INFO(err);
+		CHECK(std::string(err).find(bad.second) != std::string::npos);
+	}
+	const char *variables = R"({"schema":"pd.weapon_variables.v1","asset_id":"base:test__weapon",
+		"variables":[{"name":"side","value":"enemy"}]})";
+	CHECK(registers(withLock(baseIdleProgram("primary", 1), "primary", ", \"relation\": \"$side\""), variables));
+	weaponGraphRuntimeClearAll();
+
+	// The seams: the sight takes its lock from weaponSightLock while the
+	// player aims, and auto-aim's follow from the same lock.
+	const std::string sight = readSource("src/game/sight.c");
+	REQUIRE(sight.find("const weapon_rule_lock_t *lock = weaponSightLock(sighton);") != std::string::npos);
+	REQUIRE(sight.find("newtracktype = lock->tracktype;") != std::string::npos);
+	CHECK(sight.find("gunsettings->tracktype") == std::string::npos);
+	const std::string take = "sightCanTargetProp(g_Vars.currentplayer->lookingatprop.prop, lock->locks, &lock->filter)) {\n"
+		"\t\t\tindex = sightFindFreeTargetIndex(lock->locks);";
+	REQUIRE(sight.find(take) != std::string::npos);
+	CHECK(sight.find(take, sight.find(take) + 1) != std::string::npos); // the rocket launcher's and the follow's
+	const std::string prop = readSource("src/game/prop.c");
+	REQUIRE(prop.find("if (weaponSightLock(0)->aim_follows) {") != std::string::npos);
+	CHECK(prop.find("bgunGetWeaponNum(HAND_RIGHT) == WEAPON_CMP150") == std::string::npos);
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_AIMING, g_Vars.currentplayernum,")
+		!= std::string::npos);
+	REQUIRE(events.find("weaponRulesNativeLock(hand->gset.weaponnum, hand->gset.weaponfunc, tracktype, &native);")
+		!= std::string::npos);
+	REQUIRE(events.find("if (!weaponRulesLockEqual(out, native)) {") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("weaponRulesNativeLock(weapon_id, mode, tracktype, &lock);") != std::string::npos);
+	REQUIRE(extractor.find("if (s_emitHeldLockNodes(&w, mode_name, &lock) != 0) w.error = 1;\n"
+		"\t\ts_emitHeldProgramNodes(&w, mode_name,") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldLockEdge(&w, mode_name, &lock);\n\t\ts_emitHeldProgramEdges(&w, mode_name, &plan);")
+		!= std::string::npos);
+	REQUIRE(extractor.find("if (weaponRulesLockSettingsText(lock, settings, (s32)sizeof(settings)) < 0) return -1;")
+		!= std::string::npos);
+	const std::string trackTypeArg = "s_weaponTrackType(wpn), s_functionCasing(wpn, ";
+	REQUIRE(extractor.find(trackTypeArg) != std::string::npos);
+	CHECK(extractor.find(trackTypeArg, extractor.find(trackTypeArg) + 1) != std::string::npos);
+}
+
+// held-weapon-events.md slice 6b: what sets a mine off is its arm's filter,
+// and a mod mine's record filters are its native one.
+TEST_CASE("a mine's arm names what sets it off, and a mod mine's record is its native filter",
+	"[mission-graph][held-weapon][target-filter][projectile-rules]")
+{
+	// The wanted relations "not the owner" and "not a friend".
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_OWNER, TARGET_RELATION_FRIEND) == 1);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_OWNER, TARGET_RELATION_OWNER) == 0);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_OWNER, TARGET_RELATION_NONE) == 1);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_FRIEND, TARGET_RELATION_OWNER) == 1);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_FRIEND, TARGET_RELATION_ENEMY) == 1);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_FRIEND, TARGET_RELATION_FRIEND) == 0);
+
+	// bgunModProxyDecision's record filters as they stood (bondgun_mod.c at
+	// b66065f8), for a character within the mine's radius: the owner by
+	// player number, the team test by COMPARE_ENEMIES, skipped when the owner
+	// cannot be found.
+	const auto original = [](s32 ownerMode, s32 teamMode, s32 targetMode, bool isOwner, bool ownerKnown,
+		bool enemies) -> bool {
+		if (ownerMode == 1 && isOwner) return false;
+		if (ownerMode == 2 && !isOwner) return false;
+		if ((teamMode == 1 || targetMode == 1) && ownerKnown && !isOwner && !enemies) return false;
+		return true;
+	};
+	s32 compared = 0;
+	for (s32 ownerMode = 0; ownerMode <= 3; ownerMode++)
+	for (s32 teamMode = 0; teamMode <= 1; teamMode++)
+	for (s32 targetMode = 0; targetMode <= 1; targetMode++)
+	for (s32 bits = 0; bits < 8; bits++) {
+		const bool isOwner = bits & 1, ownerKnown = bits & 2, enemies = bits & 4;
+		if (isOwner && !ownerKnown) continue; // the owner's own character is always found
+		target_filter_t filter;
+		targetFilterModMine(ownerMode, teamMode, targetMode, &filter);
+		for (u32 kind : { TARGET_KIND_PLAYER, TARGET_KIND_SIMULANT, TARGET_KIND_GUARD }) {
+			// The facts as bgunModMineTargetFacts reads them.
+			target_facts_t c{};
+			c.kind = kind;
+			c.alive = 1;
+			c.relation = isOwner ? TARGET_RELATION_OWNER
+				: ownerKnown && !enemies ? TARGET_RELATION_FRIEND : TARGET_RELATION_ENEMY;
+			INFO("owner_mode=" << ownerMode << " team=" << teamMode << " target=" << targetMode << " bits=" << bits);
+			CHECK((targetFilterAccepts(&filter, &c) == 1)
+				== original(ownerMode, teamMode, targetMode, isOwner, ownerKnown, enemies));
+			compared++;
+		}
+	}
+	CHECK(compared == 4 * 2 * 2 * 6 * 3);
+	// The record's quirk: hostile only, no owner filter, lets the owner set it off.
+	target_filter_t quirk;
+	targetFilterModMine(0, 1, 0, &quirk);
+	CHECK(quirk.relation == TARGET_RELATION_NOT_FRIEND);
+
+	// The arm's settings: the original names none; arm_proximity takes the
+	// filter's; the other arms take none.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	projectile_arm_t arm;
+	projectileRulesNativeArm(WEAPON_PROXIMITYMINE, FUNC_PRIMARY, &arm);
+	CHECK(arm.proximity_filtered == 0);
+	Texts none;
+	CHECK(projectileRulesArmSettings(PROJECTILE_MODULE_ARM_PROXIMITY, Texts::get, &none, &arm, nullptr) == 1);
+	CHECK(arm.proximity_filtered == 0);
+	Texts enemies;
+	enemies.values = { { "kinds", "characters" }, { "relation", "not_friend" } };
+	CHECK(projectileRulesArmSettings(PROJECTILE_MODULE_ARM_FUSE, Texts::get, &enemies, &arm, nullptr) == 1);
+	CHECK(arm.proximity_filtered == 0);
+	CHECK(projectileRulesArmSettings(PROJECTILE_MODULE_ARM_PROXIMITY, Texts::get, &enemies, &arm, nullptr) == 1);
+	CHECK(arm.proximity_filtered == 1);
+	CHECK(arm.proximity_filter.kinds == TARGET_KINDS_CHARACTERS);
+	CHECK(targetFilterSame(&arm.proximity_filter, &quirk) == 1);
+	Texts wrong;
+	wrong.values = { { "relation", "rival" } };
+	const char *bad = nullptr;
+	projectile_arm_t untouched;
+	projectileRulesNativeArm(WEAPON_PROXIMITYMINE, FUNC_PRIMARY, &untouched);
+	CHECK(projectileRulesArmSettings(PROJECTILE_MODULE_ARM_PROXIMITY, Texts::get, &wrong, &untouched, &bad) == 0);
+	REQUIRE(bad != nullptr);
+	CHECK(std::string(bad) == "relation");
+	CHECK(untouched.proximity_filtered == 0);
+	CHECK(std::string(projectileRulesFlightSettingHelp("relation")) == "anyone, enemy, friend, owner, not_owner or not_friend");
+
+	// The seams: the sweep judges what came near by the arm's filter, as the
+	// mine's owner sees it, and a mod mine's record by its native filter.
+	const std::string propobj = readSource("src/game/propobj.c");
+	REQUIRE(propobj.find("const target_filter_t *armfilter = projectileArmProximityFilter(&weapon->base);") != std::string::npos);
+	REQUIRE(propobj.find("sightTargetFactsFor(candidate, owner, sightOwnerUsesIr(owner), &facts);\n"
+		"\t\t\t\tfiltered = candidate && targetFilterAccepts(armfilter, &facts) ? 1 : 0;") != std::string::npos);
+	// PR 49 review: "with_ir" there reads the owner's IR scanner, as the
+	// sight reads the current player's.
+	REQUIRE(readSource("src/game/sight.c").find("return (player->devicesactive & ~player->devicesinhibit & DEVICE_IRSCANNER) ? 1 : 0;")
+		!= std::string::npos);
+	CHECK(propobj.find("weaponProxyOwnerProp(weapon), 0, &facts)") == std::string::npos);
+	REQUIRE(propobj.find("s32 decision = bgunModProxyDecision(weapon, chr, pos, filtered);") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\tif (filtered == 0) {\n\t\t\t\t/* Slice 6b: its arm does not listen for this. */\n"
+		"\t\t\t\tcontinue;") != std::string::npos);
+	REQUIRE(propobj.find("coordTriggerProxiesFor(chr, chr->prop, &pos, true);") != std::string::npos);
+	REQUIRE(propobj.find("coordTriggerProxiesBy(obj->prop, &obj->prop->pos, false);") != std::string::npos);
+	REQUIRE(readSource("src/game/bondeyespy.c").find("coordTriggerProxiesBy(chr->prop, &chr->prop->pos, true);")
+		!= std::string::npos);
+	REQUIRE(readSource("src/game/training.c").find("coordTriggerProxiesBy(prop, &prop->pos, true);") != std::string::npos);
+	const std::string mod = readSource("src/game/bondgun_mod.c");
+	REQUIRE(mod.find("targetFilterModMine(entity->proxy_owner_filter_mode, entity->proxy_team_filter_mode,\n"
+		"\t\t\tentity->proxy_target_filter_mode, &filter);") != std::string::npos);
+	REQUIRE(mod.find("bgunModMineTargetFacts(chr, ownerchr, index == owner, &facts);") != std::string::npos);
+	CHECK(mod.find("ownerchr != chr && !chrCompareTeams") == std::string::npos);
+	const std::string events = readSource("port/src/projectile_events.c");
+	REQUIRE(events.find("context.arm = &armset;") != std::string::npos);
+	REQUIRE(events.find("projectileRulesArmSettings(bit, projectileParamText, (void *)params, rule->context->arm, NULL);")
+		!= std::string::npos);
+	REQUIRE(readSource("port/src/weapon_graph_runtime.c").find(
+		"if (projectileRulesArmSettings(bit, projectileFlightParamText, (void *)params, &arm, &bad)) return 1;")
+		!= std::string::npos);
+}
+
+// held-weapon-events.md slice 6c: a lock that names vehicles seeks them.
+TEST_CASE("a lock that names vehicles seeks them, and the original's locks do not",
+	"[mission-graph][held-weapon][target-filter][weapon-rules]")
+{
+	weapon_rule_lock_t rocket, cmp, falcon;
+	weaponRulesNativeLock(WEAPON_ROCKETLAUNCHER, FUNC_PRIMARY, SIGHTTRACKTYPE_ROCKETLAUNCHER, &rocket);
+	weaponRulesNativeLock(WEAPON_CMP150, FUNC_SECONDARY, SIGHTTRACKTYPE_FOLLOWLOCKON, &cmp);
+	weaponRulesNativeLock(WEAPON_FALCON2, FUNC_PRIMARY, SIGHTTRACKTYPE_DEFAULT, &falcon);
+	// The original's locks take what the look offers, which is never a vehicle
+	// that does not react to sight.
+	CHECK(weaponRulesLockSeeksVehicles(&rocket) == 0);
+	CHECK(weaponRulesLockSeeksVehicles(&cmp) == 0);
+	CHECK(weaponRulesLockSeeksVehicles(&falcon) == 0);
+	CHECK(weaponRulesLockSeeksVehicles(nullptr) == 0);
+	// Mike's "Enemy vehicles", and a lock that names vehicles among others.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts enemyVehicles;
+	enemyVehicles.values = { { "kinds", "vehicle" }, { "vehicles", "occupied" }, { "relation", "enemy" },
+		{ "alive", "true" }, { "cloaked", "never" } };
+	weapon_rule_lock_t lock;
+	REQUIRE(weaponRulesApplyLockSettings(Texts::get, &enemyVehicles, &lock) == 1);
+	CHECK(weaponRulesLockSeeksVehicles(&lock) == 1);
+	Texts mixed;
+	mixed.values = { { "kinds", "player, vehicle" }, { "locks", "2" } };
+	REQUIRE(weaponRulesApplyLockSettings(Texts::get, &mixed, &lock) == 1);
+	CHECK(weaponRulesLockSeeksVehicles(&lock) == 1);
+	Texts all;
+	all.values = { { "kinds", "all" } };
+	REQUIRE(weaponRulesApplyLockSettings(Texts::get, &all, &lock) == 1);
+	CHECK(weaponRulesLockSeeksVehicles(&lock) == 0);
+	Texts people;
+	people.values = { { "kinds", "characters" } };
+	REQUIRE(weaponRulesApplyLockSettings(Texts::get, &people, &lock) == 1);
+	CHECK(weaponRulesLockSeeksVehicles(&lock) == 0);
+
+	// The seams: a vehicle's facts come from its rider and its damage, and the
+	// look offers vehicles and riders' vehicles to a lock that seeks them.
+	const std::string sight = readSource("src/game/sight.c");
+	REQUIRE(sight.find("struct prop *rider = sightVehicleRider(prop);") != std::string::npos);
+	REQUIRE(sight.find("out->occupied = rider || (obj->hidden & OBJHFLAG_MOUNTED) ? 1 : 0;") != std::string::npos);
+	REQUIRE(sight.find("out->relation = rider == ownerprop ? TARGET_RELATION_OWNER") != std::string::npos);
+	REQUIRE(sight.find("out->alive = objGetDestroyedLevel(obj) == 0 ? 1 : 0;") != std::string::npos);
+	REQUIRE(sight.find("vehicleGraphRuntimeSeatOfPlayer(vehicle, vehicle->lifecycle_generation, i) != VEHICLE_GRAPH_SEAT_GUNNER")
+		!= std::string::npos);
+	REQUIRE(sight.find("return g_Vars.players[playernum]->hoverbike;") != std::string::npos);
+	const std::string lv = readSource("src/game/lv.c");
+	REQUIRE(lv.find("if (weaponRulesLockSeeksVehicles(lock)) {") != std::string::npos);
+	REQUIRE(lv.find("? NULL : sightRiderVehicle(g_Vars.currentplayer->lookingatprop.prop);") != std::string::npos);
+	REQUIRE(lv.find("if (facts.kind == TARGET_KIND_VEHICLE && targetFilterAccepts(&lock->filter, &facts)) {\n"
+		"\t\t\t\t\t\t\t\tlook.things_must_react = 0;") != std::string::npos);
+	// PR 49 review: a weapon whose lock takes targets picks and refreshes
+	// them as the aim-tracking base weapons do, and what an authored lock
+	// takes passes the native look.
+	REQUIRE(lv.find("|| weaponSightLock(0)->locks > 0;") != std::string::npos);
+	REQUIRE(lv.find("|| (tracksaim && bmoveIsInSightAimMode())) {") != std::string::npos);
+	REQUIRE(lv.find("} else if (tracksaim) {") != std::string::npos);
+	REQUIRE(lv.find("&& !(weaponSightLockAuthored() && targetFilterAccepts(&lock->filter, &facts))) {")
+		!= std::string::npos);
+	REQUIRE(readSource("port/src/weapon_events.c").find("return weaponRulesLockEqual(lock, &native) ? 0 : 1;")
+		!= std::string::npos);
+
+	// The smoke's evidence: each target the sight takes is counted, the
+	// first ones logged with what it is.
+	const std::string take = "g_Vars.currentplayer->targetset[index] = 0;\n"
+		"\t\t\t\tweaponSightLockTaken(index, trackedprop->prop);";
+	REQUIRE(sight.find(take) != std::string::npos);
+	CHECK(sight.find(take, sight.find(take) + 1) != std::string::npos); // the rocket launcher's and the follow's
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("\"SIGHT.LOCK: player=%d weapon=%s func=%s slot=%d of %d kind=%s occupied=%d relation=%s\",")
+		!= std::string::npos);
+	REQUIRE(events.find("rules.differ=%d aiming=%d locks=%d\",") != std::string::npos);
+	CHECK(std::string(targetFilterKindName(TARGET_KIND_VEHICLE)) == "vehicle");
+	CHECK(std::string(targetFilterRelationName(TARGET_RELATION_NONE)) == "none");
+	CHECK(std::string(targetFilterRelationName(TARGET_RELATION_NOT_FRIEND)) == "not_friend");
+}
+
+namespace {
+
+// A shooting function's record with the Falcon 2-like recoil of
+// invfunc_00011160 (6, 18, 2, 8; recovery 0; distance 5, angle 2) and the
+// default jitter.
+weapon_rule_function_t recoilRecord()
+{
+	weapon_rule_function_t f{};
+	f.weaponnum = WEAPON_FALCON2;
+	f.func = FUNC_PRIMARY;
+	f.functype = 0x0001;
+	f.ammo_slot = 0;
+	f.recoil_kick = 6;
+	f.recoil_return = 18;
+	f.recoil_cut_after = 2;
+	f.recoil_cut_return = 8;
+	f.recoil_recovery = 0;
+	f.recoil_distance = 5.0f;
+	f.recoil_angle = 2.0f;
+	f.recoil_slide = 0.5f;
+	f.recoil_has_shake = 1;
+	f.recoil_shake[0] = 0.6f;
+	f.recoil_shake[1] = 0.6f;
+	f.recoil_shake[2] = 0.6f;
+	return f;
+}
+
+// og.weapon.recoil as the extractor writes it (s_emitHeldRecoilNode: every
+// setting, its floats as %.7g).
+std::string recoilNodeSettings(const weapon_rule_trigger_t &plan)
+{
+	char buf[512];
+	std::snprintf(buf, sizeof(buf), ", \"kick\": %d, \"return\": %d, \"recovery\": %d, \"refire_early\": %s, "
+		"\"cut_after\": %d, \"cut_return\": %d, \"distance\": %.7g, \"angle\": %.7g, \"slide\": %.7g",
+		plan.recoil_kick, plan.recoil_return, plan.recoil_recovery, plan.recoil_refire ? "true" : "false",
+		plan.recoil_cut_after, plan.recoil_cut_return, (double)plan.recoil_distance, (double)plan.recoil_angle,
+		(double)plan.recoil_slide);
+	std::string s = buf;
+	if (plan.recoil_has_shake) {
+		std::snprintf(buf, sizeof(buf), ", \"shake_x\": %.7g, \"shake_y\": %.7g, \"shake_z\": %.7g",
+			(double)plan.recoil_shake[0], (double)plan.recoil_shake[1], (double)plan.recoil_shake[2]);
+		s += buf;
+	}
+	if (plan.recoil_has_spin_shake) {
+		std::snprintf(buf, sizeof(buf), ", \"spin_shake_from\": %.7g, \"spin_shake_to\": %.7g",
+			(double)plan.recoil_spin_from, (double)plan.recoil_spin_to);
+		s += buf;
+	}
+	return s;
+}
+
+} // namespace
+
+// held-weapon-events.md slice 7a: a shot's recoil is its program's, else
+// its function's own.
+TEST_CASE("a shot's recoil is its function's own unless its program's recoil node names it",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	const weapon_rule_function_t record = recoilRecord();
+	weapon_rule_trigger_t native;
+	weaponRulesNativeTrigger(&record, &native);
+	CHECK(native.recoil == 1);
+	CHECK(native.recoil_kick == 6);
+	CHECK(native.recoil_return == 18);
+	CHECK(native.recoil_refire == 1);
+	CHECK(native.recoil_cut_after == 2);
+	CHECK(native.recoil_cut_return == 8);
+	CHECK(weaponRulesRecoilCutAfter(&native) == 2);
+	CHECK(weaponRulesRecoilCutReturn(&native) == 8);
+	CHECK(native.recoil_distance == 5.0f);
+	CHECK(native.recoil_has_shake == 1);
+	CHECK(native.recoil_has_spin_shake == 0);
+	// The original's "no cut" (unk26 -1 or 0) and "no early refire" (unk27
+	// below 0) read back as the seam read them.
+	weapon_rule_function_t nocut = record;
+	nocut.recoil_cut_after = -1;
+	nocut.recoil_cut_return = -1;
+	weapon_rule_trigger_t plan;
+	weaponRulesNativeTrigger(&nocut, &plan);
+	CHECK(plan.recoil_refire == 0);
+	CHECK(weaponRulesRecoilCutAfter(&plan) == 0);
+	CHECK(weaponRulesRecoilCutReturn(&plan) == -1);
+	// A function that does not shoot has none, and a recoil does not fit it.
+	weapon_rule_function_t thrown = record;
+	thrown.functype = 0x0002;
+	weaponRulesNativeTrigger(&thrown, &plan);
+	CHECK(plan.recoil == 0);
+	CHECK(weaponRulesRecoilFits(0x0002) == 0);
+	CHECK(weaponRulesRecoilFits(0x0201) == 1);
+	// The recoil is part of the attack's plan.
+	plan = native;
+	plan.recoil_kick = 7;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+
+	// Its settings, over the function's own.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts none;
+	REQUIRE(weaponRulesApplyRecoilSettings(Texts::get, &none, &record, &plan) == 1);
+	CHECK(weaponRulesRecoilEqual(&plan, &native) == 1);
+	Texts heavy;
+	heavy.values = { { "kick", "12" }, { "refire_early", "false" }, { "slide", "0.0" }, { "shake_z", "2.6" },
+		{ "spin_shake_from", "0" } };
+	REQUIRE(weaponRulesApplyRecoilSettings(Texts::get, &heavy, &record, &plan) == 1);
+	CHECK(plan.recoil_kick == 12);
+	CHECK(plan.recoil_return == 18);
+	CHECK(plan.recoil_refire == 0);
+	CHECK(weaponRulesRecoilCutReturn(&plan) == -1);
+	CHECK(plan.recoil_slide == 0.0f);
+	CHECK(plan.recoil_shake[0] == 0.6f);
+	CHECK(plan.recoil_shake[2] == 2.6f);
+	CHECK(plan.recoil_has_spin_shake == 1);
+	CHECK(plan.recoil_spin_from == 0.0f);
+	CHECK(plan.recoil_spin_to == 1.0f); // the other end left out: no change at full spin
+	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{ { "kick", "200" }, { "angle", "-5" },
+			{ "refire_early", "yes" }, { "shake_x", "a" }, { "distance", "1001" } }) {
+		INFO(bad.first << "=" << bad.second);
+		Texts wrong;
+		wrong.values = { bad };
+		CHECK(weaponRulesApplyRecoilSettings(Texts::get, &wrong, &record, &plan) == 0);
+	}
+	CHECK(weaponRulesNonNegFromText("0.0", 10.0f, -1.0f) == 0.0f);
+	CHECK(weaponRulesNonNegFromText("-0", 10.0f, -1.0f) == -1.0f);
+
+	// The base wiring with its recoil node, as the extractor writes it,
+	// plans the original's recoil.
+	int instance = 0;
+	std::string json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1,
+		"\"kind\": \"og.weapon.hitscan\"");
+	json.insert(json.find("], \"edges\""), ",{ \"id\": \"primary_recoil\", \"kind\": \"og.weapon.recoil\"" +
+		recoilNodeSettings(native) + " }");
+	json.insert(json.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_shot\", \"output\": \"out\", "
+		"\"to\": \"primary_recoil\", \"input\": \"exec\" },");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err,
+		sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	weapon_rule_walk_t walk{};
+	weapon_rule_states_t states{};
+	walk.weaponnum = -1;
+	walk.hand = weapon_rule_hand_t{ 1, 8, 8, 1, 1 };
+	walk.states = &states;
+	walk.function = &record;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon", &instance,
+		&walk) == 1);
+	CHECK((walk.modules & WEAPON_MODULE_RECOIL) != 0);
+	CHECK(weaponRulesRecoilEqual(&walk.plan, &native) == 1);
+	missionGraphProgramFree(program);
+	// Without the node the walk plans the function's own recoil.
+	json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1, "\"kind\": \"og.weapon.hitscan\"");
+	program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err, sizeof(err));
+	REQUIRE(program != nullptr);
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon", &instance,
+		&walk) == 1);
+	CHECK((walk.modules & WEAPON_MODULE_RECOIL) == 0);
+	CHECK(weaponRulesRecoilEqual(&walk.plan, &native) == 1);
+	missionGraphProgramFree(program);
+
+	// Registration: a recoil only on a shooting function, its settings values
+	// of their kinds.
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	// A melee function's program that reaches a recoil.
+	const std::string meleeRecoil = R"({
+  "schema": "pd.weapon_graph.v2",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } },
+    { "id": "secondary_pressed", "kind": "event.weapon.trigger_pressed" },
+    { "id": "secondary_attack", "kind": "og.weapon.fire_once" },
+    { "id": "secondary_recoil", "kind": "og.weapon.recoil" }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" },
+    { "from": "secondary_pressed", "output": "out", "to": "secondary_attack", "input": "exec" },
+    { "from": "secondary_attack", "output": "out", "to": "secondary_recoil", "input": "exec" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	const s32 weaponnum = 4;
+	const auto registers = [&](const std::string &primary, const std::string &second) {
+		err[0] = 0;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(weaponnum, "base:test__weapon", primary.data(),
+			(u32)primary.size(), second.data(), (u32)second.size(), nullptr, 0, nullptr, 0,
+			nullptr, 0, nullptr, 0, err, sizeof(err)) == 0;
+	};
+	const auto withRecoil = [&](const std::string &settings) {
+		std::string text = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1);
+		text.insert(text.find("], \"edges\""), ",{ \"id\": \"primary_recoil\", \"kind\": \"og.weapon.recoil\"" +
+			settings + " }");
+		text.insert(text.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_use_ammo\", \"output\": "
+			"\"out\", \"to\": \"primary_recoil\", \"input\": \"exec\" },");
+		return text;
+	};
+	weaponGraphRuntimeClearAll();
+	REQUIRE(registers(withRecoil(", \"kick\": 6, \"slide\": 0.0, \"shake_z\": 2.6"), secondary));
+	CHECK_FALSE(registers(withRecoil(""), meleeRecoil));
+	INFO(err);
+	CHECK(std::string(err).find("og.weapon.recoil fits only a shooting function") != std::string::npos);
+	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{
+			{ ", \"kick\": 200", "og.weapon.recoil needs kick from 0 to 127, got 200" },
+			{ ", \"angle\": -5", "og.weapon.recoil needs angle from 0 up to 360, got -5" },
+			{ ", \"refire_early\": \"yes\"", "og.weapon.recoil needs refire_early true or false, got yes" } }) {
+		INFO(bad.first);
+		CHECK_FALSE(registers(withRecoil(bad.first), secondary));
+		INFO(err);
+		CHECK(std::string(err).find(bad.second) != std::string::npos);
+	}
+	weaponGraphRuntimeClearAll();
+
+	// The seams read the attack's plan; the held graph reads the jitter and
+	// the Reaper's spin; the extractor writes the node; simulants' interval
+	// has an accessor.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("const weapon_rule_trigger_t *plan = bgunHandPlan(handnum);\n\n#if PAL") != std::string::npos);
+	CHECK(bondgun.find("graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24")
+		== std::string::npos);
+	REQUIRE(bondgun.find("unk26 = weaponRulesRecoilCutAfter(plan);") != std::string::npos);
+	REQUIRE(bondgun.find("unk27 = weaponRulesRecoilCutReturn(plan);") != std::string::npos);
+	REQUIRE(bondgun.find("slidemax = bgunHandPlan(handnum)->recoil_slide;") != std::string::npos);
+	REQUIRE(bondgun.find("&& bgunHandPlan(handnum)->recoil_has_shake) {") != std::string::npos);
+	CHECK(bondgun.find("shootfunc->recoilsettings->xrange") == std::string::npos);
+	REQUIRE(bondgun.find("if (spinplan->recoil_has_spin_shake) {") != std::string::npos);
+	const std::string runtime = readSource("port/src/weapon_graph_runtime.c");
+	REQUIRE(runtime.find("heldRawObjectFloat(rs->value, \"xrange\", &x)") != std::string::npos);
+	REQUIRE(runtime.find("heldRawArrayFirstFloat(vs->value, &from) && heldRawArrayFirstFloat(vm->value, &to)")
+		!= std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("\"use_ammo\", \"shot\", \"recoil\",") != std::string::npos);
+	REQUIRE(extractor.find("(i >= 10 && i <= 13 && !plan->recoil)") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldRecoilNode(w, ids[i], plan, last);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldProgramEdge(w, plan->shot ? shot : plan->rounds > 0 ? use_ammo : attack, \"out\", "
+		"recoil, 0);") != std::string::npos);
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("return plan.recoil_kick + plan.recoil_return;") != std::string::npos);
+}
+
+// held-weapon-events.md slice 7b: a shot's casing and muzzle flash.
+TEST_CASE("a shot's casing and flash are its function's own unless its program names them",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	weapon_rule_function_t record = recoilRecord();
+	record.casing = CASING_RIFLE + 1;
+	weapon_rule_trigger_t native;
+	weaponRulesNativeTrigger(&record, &native);
+	CHECK(weaponRulesCasingEject(&native) == CASING_RIFLE);
+	CHECK(native.flash == 1);
+	CHECK(std::string(weaponRulesCasingName(native.casing)) == "rifle");
+	// A function flagged for no flash, one with no casing, and one that does
+	// not shoot.
+	weapon_rule_function_t dark = record;
+	dark.flags = WEAPON_RULE_FUNCFLAG_NOMUZZLEFLASH;
+	dark.casing = 0;
+	weapon_rule_trigger_t plan;
+	weaponRulesNativeTrigger(&dark, &plan);
+	CHECK(plan.flash == 0);
+	CHECK(weaponRulesCasingEject(&plan) == -1);
+	weapon_rule_function_t thrown = record;
+	thrown.functype = 0x0002;
+	weaponRulesNativeTrigger(&thrown, &plan);
+	CHECK(plan.casing == 0);
+	CHECK(plan.flash == 0);
+	// A zeroed plan ejects none.
+	weapon_rule_trigger_t zero{};
+	CHECK(weaponRulesCasingEject(&zero) == -1);
+	// They are part of the attack's plan.
+	plan = native;
+	plan.casing = CASING_SHOTGUN + 1;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+	plan = native;
+	plan.flash = 0;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts none;
+	REQUIRE(weaponRulesApplyCasingSettings(Texts::get, &none, &record, &plan) == 1);
+	CHECK(weaponRulesCasingEject(&plan) == CASING_RIFLE);
+	Texts shotgun;
+	shotgun.values = { { "type", "shotgun" }, { "on", "false" } };
+	REQUIRE(weaponRulesApplyCasingSettings(Texts::get, &shotgun, &record, &plan) == 1);
+	CHECK(weaponRulesCasingEject(&plan) == CASING_SHOTGUN);
+	REQUIRE(weaponRulesApplyFlashSettings(Texts::get, &shotgun, &record, &plan) == 1);
+	CHECK(plan.flash == 0);
+	Texts nocase;
+	nocase.values = { { "type", "none" } };
+	REQUIRE(weaponRulesApplyCasingSettings(Texts::get, &nocase, &record, &plan) == 1);
+	CHECK(weaponRulesCasingEject(&plan) == -1);
+	Texts wrong;
+	wrong.values = { { "type", "brass" }, { "on", "yes" } };
+	CHECK(weaponRulesApplyCasingSettings(Texts::get, &wrong, &record, &plan) == 0);
+	CHECK(weaponRulesApplyFlashSettings(Texts::get, &wrong, &record, &plan) == 0);
+	CHECK(weaponRulesCasingFromText("reaper") == CASING_REAPER + 1);
+
+	// The base wiring's chain (shot, recoil, casing, flash), as the
+	// extractor writes it, plans the original's.
+	int instance = 0;
+	std::string json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1,
+		"\"kind\": \"og.weapon.hitscan\"");
+	json.insert(json.find("], \"edges\""), ",{ \"id\": \"primary_recoil\", \"kind\": \"og.weapon.recoil\"" +
+		recoilNodeSettings(native) + " },{ \"id\": \"primary_casing\", \"kind\": \"og.weapon.casing\", \"type\": \"" +
+		weaponRulesCasingName(native.casing) + "\" },{ \"id\": \"primary_flash\", \"kind\": \"og.weapon.muzzle_flash\", "
+		"\"on\": true }");
+	json.insert(json.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_shot\", \"output\": \"out\", "
+		"\"to\": \"primary_recoil\", \"input\": \"exec\" },{ \"from\": \"primary_recoil\", \"output\": \"out\", "
+		"\"to\": \"primary_casing\", \"input\": \"exec\" },{ \"from\": \"primary_casing\", \"output\": \"out\", "
+		"\"to\": \"primary_flash\", \"input\": \"exec\" },");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err,
+		sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	weapon_rule_walk_t walk{};
+	weapon_rule_states_t states{};
+	walk.weaponnum = -1;
+	walk.hand = weapon_rule_hand_t{ 1, 8, 8, 1, 1 };
+	walk.states = &states;
+	walk.function = &record;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon", &instance,
+		&walk) == 1);
+	CHECK((walk.modules & (WEAPON_MODULE_RECOIL | WEAPON_MODULE_CASING | WEAPON_MODULE_MUZZLE_FLASH))
+		== (WEAPON_MODULE_RECOIL | WEAPON_MODULE_CASING | WEAPON_MODULE_MUZZLE_FLASH));
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 1);
+	missionGraphProgramFree(program);
+
+	// Registration names what a casing takes.
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	std::string casing = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1);
+	casing.insert(casing.find("], \"edges\""), ",{ \"id\": \"primary_casing\", \"kind\": \"og.weapon.casing\", "
+		"\"type\": \"brass\" }");
+	casing.insert(casing.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_use_ammo\", \"output\": "
+		"\"out\", \"to\": \"primary_casing\", \"input\": \"exec\" },");
+	weaponGraphRuntimeClearAll();
+	CHECK(weaponGraphRuntimeRegisterWeaponSourceJson(5, "base:test__weapon", casing.data(), (u32)casing.size(),
+		secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, err, sizeof(err)) != 0);
+	INFO(err);
+	CHECK(std::string(err).find("og.weapon.casing needs type none, standard, reaper, rifle or shotgun, got brass")
+		!= std::string::npos);
+	weaponGraphRuntimeClearAll();
+
+	// The seams: the flash and the casing read the attack's plan; the gun
+	// loads the casing its function's press plans; the extractor writes both.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("if (!plan->flash) {\n\t\thand->flashon = false;") != std::string::npos);
+	CHECK(bondgun.find("if (funcflags & FUNCFLAG_NOMUZZLEFLASH) {") == std::string::npos);
+	// PR 49 review: the selected function's press casing first, then a model
+	// for every other casing either function can eject (the next case), and
+	// each attack ejects its own type's.
+	REQUIRE(bondgun.find("const s32 first = weaponFunctionCasing(weaponnum, selected);") != std::string::npos);
+	REQUIRE(bondgun.find("bgunQueueModelLoad(player, g_CartFileNums[first], &player->gunctrl.cartmodeldef,")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("memset(s_BgunCartModeldefs[g_Vars.currentplayernum], 0,") != std::string::npos);
+	CHECK(bondgun.find("? weaponFunctionCasing(hand->gset.weaponnum, hand->gset.weaponfunc) : -1;") == std::string::npos);
+	REQUIRE(bondgun.find("out->casing = (s32) def->ammos[out->ammo_slot]->casingeject + 1;") != std::string::npos);
+	const std::string gunfx = readSource("src/game/gunfx.c");
+	REQUIRE(gunfx.find("casingtype = weaponRulesCasingEject(bgunHandPlan(handnum));") != std::string::npos);
+	REQUIRE(gunfx.find(": bgunGetCartModeldefForCasing(casingtype);") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("\"use_ammo\", \"shot\", \"recoil\", \"casing\", \"flash\",") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldCasingNode(w, ids[i], plan, last);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldFlashNode(w, ids[i], plan, last);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldProgramEdge(w, recoil, \"out\", casing, 0);\n"
+		"\t\t\ts_emitHeldProgramEdge(w, casing, \"out\", flash, 0);") != std::string::npos);
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("weaponRuleCasingOf(weaponnum, out);") != std::string::npos);
+}
+
+// PR 49 review: one function can eject more than one casing (its program's
+// casing nodes on the two branches of a state gate), while the press plan,
+// walked with no states, holds one of them; the gun loads a model for every
+// casing either function can eject (weaponFunctionCasings).
+TEST_CASE("a function's casings are each casing node its program holds, a state gate's other branch included",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	// One node: its type; nothing for none; the function's own when it names
+	// no type or one it does not know (which keeps the default).
+	CHECK(weaponRulesCasingNodeMask("rifle", CASING_STANDARD) == (1u << CASING_RIFLE));
+	CHECK(weaponRulesCasingNodeMask("shotgun", -1) == (1u << CASING_SHOTGUN));
+	CHECK(weaponRulesCasingNodeMask("none", CASING_STANDARD) == 0u);
+	CHECK(weaponRulesCasingNodeMask(nullptr, CASING_STANDARD) == (1u << CASING_STANDARD));
+	CHECK(weaponRulesCasingNodeMask("brass", CASING_REAPER) == (1u << CASING_REAPER));
+	CHECK(weaponRulesCasingNodeMask(nullptr, -1) == 0u);
+
+	// Codex's case: after the shot a state gate sends the attack to a rifle
+	// casing when the hand's "alt" state is set and to a shotgun casing when
+	// it is not.
+	weapon_rule_function_t record = recoilRecord();
+	record.casing = CASING_STANDARD + 1;
+	std::string json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1,
+		"\"kind\": \"og.weapon.hitscan\"");
+	json.insert(json.find("], \"edges\""), ",{ \"id\": \"primary_alt\", \"kind\": \"gate.weapon.state_is\", "
+		"\"key\": \"alt\", \"equals\": true },{ \"id\": \"primary_rifle\", \"kind\": \"og.weapon.casing\", "
+		"\"type\": \"rifle\" },{ \"id\": \"primary_shell\", \"kind\": \"og.weapon.casing\", \"type\": \"shotgun\" }");
+	json.insert(json.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_shot\", \"output\": \"out\", "
+		"\"to\": \"primary_alt\", \"input\": \"exec\" },{ \"from\": \"primary_alt\", \"output\": \"pass\", "
+		"\"to\": \"primary_rifle\", \"input\": \"exec\" },{ \"from\": \"primary_alt\", \"output\": \"fail\", "
+		"\"to\": \"primary_shell\", \"input\": \"exec\" },");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err,
+		sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	int instance = 0;
+	// The press plan's walk (weaponProgramPressPlan: a ready hand, no states)
+	// takes the gate's fail branch.
+	weapon_rule_walk_t press{};
+	press.weaponnum = -1;
+	weaponRulesReadyHand(&press.hand);
+	press.function = &record;
+	press.param_text = weaponGraphRuntimeHeldParamText;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, "base:test__weapon",
+		&instance, &press) == 1);
+	CHECK(weaponRulesCasingEject(&press.plan) == CASING_SHOTGUN);
+	// A hand with "alt" set ejects the other.
+	weapon_rule_states_t states{};
+	states.count = 1;
+	std::strcpy(states.keys[0], "alt");
+	states.values[0] = 1;
+	weapon_rule_walk_t live{};
+	live.weaponnum = -1;
+	live.hand = weapon_rule_hand_t{ 1, 8, 8, 1, 1 };
+	live.states = &states;
+	live.function = &record;
+	live.param_text = weaponGraphRuntimeHeldParamText;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon",
+		&instance, &live) == 1);
+	CHECK(weaponRulesCasingEject(&live.plan) == CASING_RIFLE);
+	// Every casing node counts, as weaponFunctionCasings visits them, and so
+	// does the function's own: rifle, shotgun and standard.
+	struct Visit {
+		s32 native;
+		u32 mask;
+	} visit{ CASING_STANDARD, weaponRulesCasingNodeMask(nullptr, CASING_STANDARD) };
+	REQUIRE(missionGraphProgramVisitModuleParams(program,
+		[](const char *kind, const mission_graph_params_t *params, void *user) -> s32 {
+			Visit *v = static_cast<Visit *>(user);
+			char text[32];
+			if (kind && std::string(kind) == weaponRulesModuleKind(WEAPON_MODULE_CASING)) {
+				v->mask |= weaponRulesCasingNodeMask(weaponGraphRuntimeHeldParamText(-1, params,
+					WEAPON_RULE_CASING_TYPE_PARAM, text, sizeof(text)), v->native);
+			}
+			return 1;
+		}, &visit) == 1);
+	CHECK(visit.mask == ((1u << CASING_RIFLE) | (1u << CASING_SHOTGUN) | (1u << CASING_STANDARD)));
+	missionGraphProgramFree(program);
+
+	// The seams: weapon_events.c visits every casing node the same way, and
+	// the gun loads a model for each casing either function can eject and
+	// finds an attack's by its type.
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("missionGraphProgramVisitModuleParams(program, weaponCasingVisit, &visit);")
+		!= std::string::npos);
+	REQUIRE(events.find("visit->mask |= weaponRulesCasingNodeMask(weaponGraphRuntimeHeldParamText(visit->weaponnum, "
+		"params,") != std::string::npos);
+	REQUIRE(events.find("visit.mask = weaponRulesCasingNodeMask(NULL, visit.native);") != std::string::npos);
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("casings = weaponFunctionCasings(weaponnum, FUNC_PRIMARY) | "
+		"weaponFunctionCasings(weaponnum, FUNC_SECONDARY);") != std::string::npos);
+	REQUIRE(bondgun.find("bgunQueueModelLoad(player, g_CartFileNums[type], &s_BgunCartModeldefs[p][type],")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("if (casingtype < ARRAYCOUNT(g_CartFileNums) && s_BgunCartModeldefs[p][casingtype] != NULL) {")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("|| bgunCartModeldefIsOther(carts, casing->modeldef)) {") != std::string::npos);
+}
+
+namespace {
+
+// One audio catalog id for the walks below (weapon_events.c resolves them
+// through catalogResolveAudio).
+s32 shotSoundNumber(const char *catalog_id)
+{
+	return catalog_id && std::string(catalog_id) == "base:sfx_fire_shotgun" ? 0x8051 : -1;
+}
+
+} // namespace
+
+// held-weapon-events.md slice 7b: a shot's sound and the frames its fire
+// slot keeps it are its program's, else its function's own.
+TEST_CASE("a shot's sound is its function's own unless its program's sound node names it",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	weapon_rule_function_t record = recoilRecord();
+	record.casing = CASING_STANDARD + 1;
+	record.shoot_sound = 0x8051;
+	record.shot_duration = 6;
+	weapon_rule_trigger_t native;
+	weaponRulesNativeTrigger(&record, &native);
+	CHECK(native.shot_sound == 0x8051);
+	CHECK(native.shot_duration == 6);
+	// The original's accessors read the held graph's sound for any function,
+	// so the record's is the plan's whatever the function's type.
+	weapon_rule_function_t thrown = record;
+	thrown.functype = 0x0002;
+	weapon_rule_trigger_t plan;
+	weaponRulesNativeTrigger(&thrown, &plan);
+	CHECK(plan.shot_sound == 0x8051);
+	CHECK(plan.shot_duration == 6);
+	weapon_rule_trigger_t zero{};
+	CHECK(zero.shot_sound == 0);
+	// Both are part of the attack's plan.
+	plan = native;
+	plan.shot_sound = 1;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+	plan = native;
+	plan.shot_duration = 7;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts none;
+	REQUIRE(weaponRulesApplySoundSettings(Texts::get, &none, shotSoundNumber, &record, &plan) == 1);
+	CHECK(plan.shot_sound == 0x8051);
+	CHECK(plan.shot_duration == 6);
+	Texts quiet;
+	quiet.values = { { "sound", "none" }, { "duration", "0" } };
+	REQUIRE(weaponRulesApplySoundSettings(Texts::get, &quiet, shotSoundNumber, &record, &plan) == 1);
+	CHECK(plan.shot_sound == 0);
+	CHECK(plan.shot_duration == 0);
+	weapon_rule_function_t silent = record;
+	silent.shoot_sound = 0;
+	silent.shot_duration = 0;
+	Texts named;
+	named.values = { { "sound", "base:sfx_fire_shotgun" }, { "duration", "255" } };
+	REQUIRE(weaponRulesApplySoundSettings(Texts::get, &named, shotSoundNumber, &silent, &plan) == 1);
+	CHECK(plan.shot_sound == 0x8051);
+	CHECK(plan.shot_duration == 255);
+	// A sound the catalog does not have, or no catalog, keeps the function's.
+	Texts unknown;
+	unknown.values = { { "sound", "base:sfx_nothing" } };
+	CHECK(weaponRulesApplySoundSettings(Texts::get, &unknown, shotSoundNumber, &silent, &plan) == 0);
+	CHECK(plan.shot_sound == 0);
+	CHECK(weaponRulesApplySoundSettings(Texts::get, &named, nullptr, &silent, &plan) == 0);
+	CHECK(plan.shot_sound == 0);
+	CHECK(plan.shot_duration == 255);
+	Texts wrong;
+	wrong.values = { { "sound", "Bang!" }, { "duration", "256" } };
+	CHECK(weaponRulesApplySoundSettings(Texts::get, &wrong, shotSoundNumber, &record, &plan) == 0);
+	CHECK(plan.shot_sound == 0x8051);
+	CHECK(plan.shot_duration == 6);
+	const weapon_rule_setting_t *sound = nullptr;
+	const weapon_rule_setting_t *duration = nullptr;
+	for (s32 i = 0; weaponRulesSettingAt(i); i++) {
+		const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
+		if (setting->module == WEAPON_MODULE_SHOT_SOUND && std::string(setting->key) == "sound") sound = setting;
+		if (setting->module == WEAPON_MODULE_SHOT_SOUND && std::string(setting->key) == "duration") duration = setting;
+	}
+	REQUIRE(sound != nullptr);
+	REQUIRE(duration != nullptr);
+	CHECK(weaponRulesSettingValid(sound, "none") == 1);
+	CHECK(weaponRulesSettingValid(sound, "base:sfx_fire_shotgun") == 1);
+	CHECK(weaponRulesSettingValid(sound, "Bang!") == 0);
+	CHECK(weaponRulesSettingValid(duration, "255") == 1);
+	CHECK(weaponRulesSettingValid(duration, "256") == 0);
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_SHOT_SOUND)) == "og.weapon.shot_sound");
+	CHECK((WEAPON_MODULE_FEEL & WEAPON_MODULE_SHOT_SOUND) != 0);
+
+	// The base wiring's chain (shot, recoil, casing, flash, sound), as the
+	// extractor writes it, plans the original's.
+	int instance = 0;
+	std::string json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1,
+		"\"kind\": \"og.weapon.hitscan\"");
+	json.insert(json.find("], \"edges\""), ",{ \"id\": \"primary_recoil\", \"kind\": \"og.weapon.recoil\"" +
+		recoilNodeSettings(native) + " },{ \"id\": \"primary_casing\", \"kind\": \"og.weapon.casing\", \"type\": \"" +
+		weaponRulesCasingName(native.casing) + "\" },{ \"id\": \"primary_flash\", \"kind\": \"og.weapon.muzzle_flash\", "
+		"\"on\": true },{ \"id\": \"primary_sound\", \"kind\": \"og.weapon.shot_sound\", \"sound\": "
+		"\"base:sfx_fire_shotgun\", \"duration\": 6 }");
+	json.insert(json.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_shot\", \"output\": \"out\", "
+		"\"to\": \"primary_recoil\", \"input\": \"exec\" },{ \"from\": \"primary_recoil\", \"output\": \"out\", "
+		"\"to\": \"primary_casing\", \"input\": \"exec\" },{ \"from\": \"primary_casing\", \"output\": \"out\", "
+		"\"to\": \"primary_flash\", \"input\": \"exec\" },{ \"from\": \"primary_flash\", \"output\": \"out\", "
+		"\"to\": \"primary_sound\", \"input\": \"exec\" },");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err,
+		sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	weapon_rule_states_t states{};
+	const auto walked = [&](weapon_rule_item_fn sounds) {
+		weapon_rule_walk_t walk{};
+		walk.weaponnum = -1;
+		walk.hand = weapon_rule_hand_t{ 1, 8, 8, 1, 1 };
+		walk.states = &states;
+		walk.function = &record;
+		walk.param_text = weaponGraphRuntimeHeldParamText;
+		walk.sound_number = sounds;
+		REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon",
+			&instance, &walk) == 1);
+		return walk;
+	};
+	weapon_rule_walk_t walk = walked(shotSoundNumber);
+	CHECK((walk.modules & WEAPON_MODULE_FEEL) == WEAPON_MODULE_FEEL);
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 1);
+	// With no catalog the node keeps the function's own.
+	walk = walked(nullptr);
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 1);
+	missionGraphProgramFree(program);
+	// A program that names no sound plans silence.
+	std::string hushed = json;
+	hushed.replace(hushed.find("\"sound\": \"base:sfx_fire_shotgun\""), std::strlen("\"sound\": \"base:sfx_fire_shotgun\""),
+		"\"sound\": \"none\"");
+	program = missionGraphProgramCompileWeapon(hushed.data(), hushed.size(), heldKnown, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	walk = walked(shotSoundNumber);
+	CHECK(walk.plan.shot_sound == 0);
+	CHECK(walk.plan.shot_duration == 6);
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 0);
+	missionGraphProgramFree(program);
+
+	// Registration names what a sound takes, and a sound resolves in the
+	// audio catalog when its weapon registers.
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	const auto withSound = [&](const std::string &settings) {
+		std::string text = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1);
+		text.insert(text.find("], \"edges\""), ",{ \"id\": \"primary_sound\", \"kind\": \"og.weapon.shot_sound\"" +
+			settings + " }");
+		text.insert(text.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_use_ammo\", \"output\": "
+			"\"out\", \"to\": \"primary_sound\", \"input\": \"exec\" },");
+		return text;
+	};
+	const auto registers = [&](const std::string &primary) {
+		err[0] = 0;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(5, "base:test__weapon", primary.data(), (u32)primary.size(),
+			secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, err,
+			sizeof(err)) == 0;
+	};
+	weaponGraphRuntimeClearAll();
+	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{
+			{ ", \"sound\": \"Bang!\"",
+				"og.weapon.shot_sound needs sound none or an audio catalog id such as base:sfx_fire_shotgun, got Bang!" },
+			{ ", \"duration\": 256", "og.weapon.shot_sound needs duration from 0 to 255, got 256" },
+			{ ", \"sound\": \"base:sfx_fire_shotgun\"",
+				"og.weapon.shot_sound cannot resolve sound base:sfx_fire_shotgun in the audio catalog" } }) {
+		INFO(bad.first);
+		CHECK_FALSE(registers(withSound(bad.first)));
+		INFO(err);
+		CHECK(std::string(err).find(bad.second) != std::string::npos);
+	}
+	testStubEffectAudio("base:sfx_fire_shotgun", 0, 0x8051);
+	CHECK(registers(withSound(", \"sound\": \"base:sfx_fire_shotgun\", \"duration\": 6")));
+	INFO(err);
+	CHECK(registers(withSound(", \"sound\": \"none\"")));
+	testStubEffectAudio(nullptr, 0, 0);
+	weaponGraphRuntimeClearAll();
+
+	// The seams: a player's shot plays its hand's plan's sound; a simulant's
+	// and a guard's read their function's press plan through the original's
+	// accessors; every walk resolves sounds; the extractor writes the node.
+	const auto count = [](const std::string &text, const std::string &needle) {
+		size_t n = 0;
+		for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) n++;
+		return n;
+	};
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("bgunPlanShotSound(hand, plan, &shotsound, &slotframes);") != std::string::npos);
+	REQUIRE(bondgun.find("hand->allowshootframe = g_Vars.lvframe60 + slotframes;") != std::string::npos);
+	REQUIRE(bondgun.find("*slotframes = gsetFireslotTicks(plan->shot_duration);") != std::string::npos);
+	REQUIRE(bondgun.find("handle = sndStart(var80095200, shotsound, &hand->audiohandle2,") != std::string::npos);
+	CHECK(bondgun.find("gsetGetSingleShootSound(&hand->gset), &hand->audiohandle") == std::string::npos);
+	const std::string gset = readSource("src/game/game_0b0fd0.c");
+	REQUIRE(gset.find("duration = weaponProgramShotDuration(gset->weaponnum, gset->weaponfunc, duration);")
+		!= std::string::npos);
+	REQUIRE(gset.find("sound = weaponProgramShotSound(gset->weaponnum, gset->weaponfunc, sound);") != std::string::npos);
+	REQUIRE(gset.find("return gsetFireslotTicks(duration);") != std::string::npos);
+	const std::string events = readSource("port/src/weapon_events.c");
+	CHECK(count(events, "walk.sound_number = weaponSoundNumber;") == count(events, "walk.item_number = weaponItemNumber;"));
+	CHECK(count(events, "walk.sound_number = weaponSoundNumber;") == 4);
+	REQUIRE(events.find("weaponRuleSoundOf(weaponnum, func, held, out);") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("\"casing\", \"flash\", \"sound\",") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldSoundNode(w, ids[i], plan, last);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldProgramEdge(w, flash, \"out\", sound, 0);") != std::string::npos);
+	REQUIRE(extractor.find("record.shoot_sound = sh->shootsound;") != std::string::npos);
+}
+
+namespace {
+
+// Stand-ins for two gun command scripts and the catalog that names them
+// (weapon_events.c resolves ids through the loader pool).
+const int s_testFireAnimation = 1;
+const int s_testPunchAnimation = 2;
+
+const void *testAnimationRef(const char *catalog_id)
+{
+	if (!catalog_id) return nullptr;
+	if (std::string(catalog_id) == "base:invanim_falcon2_shoot") return &s_testFireAnimation;
+	if (std::string(catalog_id) == "base:invanim_punch") return &s_testPunchAnimation;
+	return nullptr;
+}
+
+} // namespace
+
+// held-weapon-events.md slice 7c: an attack's fire animation is its
+// program's, else its function's own.
+TEST_CASE("an attack's fire animation is its function's own unless its program's animation node names it",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	weapon_rule_function_t record = recoilRecord();
+	record.casing = CASING_STANDARD + 1;
+	record.fire_animation = &s_testFireAnimation;
+	weapon_rule_trigger_t native;
+	weaponRulesNativeTrigger(&record, &native);
+	CHECK(native.fire_animation == &s_testFireAnimation);
+	weapon_rule_trigger_t plan = native;
+	plan.fire_animation = &s_testPunchAnimation;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+	weapon_rule_trigger_t zero{};
+	CHECK(zero.fire_animation == nullptr);
+	// An attack's: a shot's, a throw's or a strike's.
+	CHECK(weaponRulesAnimationFits(0x0001) == 1);
+	CHECK(weaponRulesAnimationFits(0x0101) == 1);
+	CHECK(weaponRulesAnimationFits(0x0201) == 1);
+	CHECK(weaponRulesAnimationFits(0x0002) == 1);
+	CHECK(weaponRulesAnimationFits(0x0003) == 1);
+	CHECK(weaponRulesAnimationFits(0x0004) == 0);
+	CHECK(weaponRulesAnimationFits(0x0005) == 0);
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_PLAY_ANIMATION)) == "og.weapon.play_animation");
+	CHECK((weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED) & WEAPON_MODULE_PLAY_ANIMATION) != 0);
+	CHECK((weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED) & WEAPON_MODULE_PLAY_ANIMATION) == 0);
+	CHECK((WEAPON_MODULE_FEEL & WEAPON_MODULE_PLAY_ANIMATION) == 0);
+
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts none;
+	REQUIRE(weaponRulesApplyAnimationSettings(Texts::get, &none, testAnimationRef, &record, &plan) == 1);
+	CHECK(plan.fire_animation == &s_testFireAnimation);
+	Texts off;
+	off.values = { { "animation", "none" } };
+	REQUIRE(weaponRulesApplyAnimationSettings(Texts::get, &off, testAnimationRef, &record, &plan) == 1);
+	CHECK(plan.fire_animation == nullptr);
+	Texts punch;
+	punch.values = { { "animation", "base:invanim_punch" } };
+	REQUIRE(weaponRulesApplyAnimationSettings(Texts::get, &punch, testAnimationRef, &record, &plan) == 1);
+	CHECK(plan.fire_animation == &s_testPunchAnimation);
+	// One the catalog does not have, or no catalog, keeps the function's.
+	Texts unknown;
+	unknown.values = { { "animation", "base:invanim_nothing" } };
+	CHECK(weaponRulesApplyAnimationSettings(Texts::get, &unknown, testAnimationRef, &record, &plan) == 0);
+	CHECK(plan.fire_animation == &s_testFireAnimation);
+	CHECK(weaponRulesApplyAnimationSettings(Texts::get, &punch, nullptr, &record, &plan) == 0);
+	CHECK(plan.fire_animation == &s_testFireAnimation);
+	Texts wrong;
+	wrong.values = { { "animation", "Fire!" } };
+	CHECK(weaponRulesApplyAnimationSettings(Texts::get, &wrong, testAnimationRef, &record, &plan) == 0);
+	CHECK(plan.fire_animation == &s_testFireAnimation);
+	const weapon_rule_setting_t *animation = nullptr;
+	for (s32 i = 0; weaponRulesSettingAt(i); i++) {
+		const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
+		if (setting->module == WEAPON_MODULE_PLAY_ANIMATION && std::string(setting->key) == "animation") {
+			animation = setting;
+		}
+	}
+	REQUIRE(animation != nullptr);
+	CHECK(weaponRulesSettingValid(animation, "none") == 1);
+	CHECK(weaponRulesSettingValid(animation, "base:invanim_punch") == 1);
+	CHECK(weaponRulesSettingValid(animation, "Fire!") == 0);
+
+	// The base wiring, as the extractor writes it, plans the original's: a
+	// shot's full chain (shot, recoil, casing, flash, sound, animation) and a
+	// strike's (the attack, the strike, the animation).
+	char err[256] = { 0 };
+	int instance = 0;
+	weapon_rule_states_t states{};
+	const auto walked = [&](const mission_graph_program_t *program, const weapon_rule_function_t *function) {
+		weapon_rule_walk_t walk{};
+		walk.weaponnum = -1;
+		walk.hand = weapon_rule_hand_t{ 1, 8, 8, 1, 1 };
+		walk.states = &states;
+		walk.function = function;
+		walk.param_text = weaponGraphRuntimeHeldParamText;
+		walk.sound_number = shotSoundNumber;
+		walk.animation_ref = testAnimationRef;
+		REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon",
+			&instance, &walk) == 1);
+		return walk;
+	};
+	record.shoot_sound = 0x8051;
+	record.shot_duration = 6;
+	weaponRulesNativeTrigger(&record, &native);
+	std::string json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1,
+		"\"kind\": \"og.weapon.hitscan\"");
+	json.insert(json.find("], \"edges\""), ",{ \"id\": \"primary_recoil\", \"kind\": \"og.weapon.recoil\"" +
+		recoilNodeSettings(native) + " },{ \"id\": \"primary_casing\", \"kind\": \"og.weapon.casing\", \"type\": \"" +
+		weaponRulesCasingName(native.casing) + "\" },{ \"id\": \"primary_flash\", \"kind\": \"og.weapon.muzzle_flash\", "
+		"\"on\": true },{ \"id\": \"primary_sound\", \"kind\": \"og.weapon.shot_sound\", \"sound\": "
+		"\"base:sfx_fire_shotgun\", \"duration\": 6 },{ \"id\": \"primary_animation\", \"kind\": "
+		"\"og.weapon.play_animation\", \"animation\": \"base:invanim_falcon2_shoot\" }");
+	json.insert(json.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_shot\", \"output\": \"out\", "
+		"\"to\": \"primary_recoil\", \"input\": \"exec\" },{ \"from\": \"primary_recoil\", \"output\": \"out\", "
+		"\"to\": \"primary_casing\", \"input\": \"exec\" },{ \"from\": \"primary_casing\", \"output\": \"out\", "
+		"\"to\": \"primary_flash\", \"input\": \"exec\" },{ \"from\": \"primary_flash\", \"output\": \"out\", "
+		"\"to\": \"primary_sound\", \"input\": \"exec\" },{ \"from\": \"primary_sound\", \"output\": \"out\", "
+		"\"to\": \"primary_animation\", \"input\": \"exec\" },");
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err,
+		sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	weapon_rule_walk_t walk = walked(program, &record);
+	CHECK((walk.modules & WEAPON_MODULE_PRESENTATION) == WEAPON_MODULE_PRESENTATION);
+	CHECK(walk.plan.fire_animation == &s_testFireAnimation);
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 1);
+	missionGraphProgramFree(program);
+	// A program that names none plays none.
+	std::string still = json;
+	still.replace(still.find("\"animation\": \"base:invanim_falcon2_shoot\""),
+		std::strlen("\"animation\": \"base:invanim_falcon2_shoot\""), "\"animation\": \"none\"");
+	program = missionGraphProgramCompileWeapon(still.data(), still.size(), heldKnown, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	walk = walked(program, &record);
+	CHECK(walk.plan.fire_animation == nullptr);
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 0);
+	missionGraphProgramFree(program);
+	// A strike's chain.
+	weapon_rule_function_t strike{};
+	strike.weaponnum = WEAPON_UNARMED;
+	strike.func = FUNC_PRIMARY;
+	strike.functype = 0x0003;
+	strike.ammo_slot = -1;
+	strike.fire_animation = &s_testPunchAnimation;
+	weapon_rule_trigger_t strikeNative;
+	weaponRulesNativeTrigger(&strike, &strikeNative);
+	CHECK(strikeNative.fire_animation == &s_testPunchAnimation);
+	std::string melee = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 0,
+		"\"kind\": \"og.weapon.melee\"");
+	melee.insert(melee.find("], \"edges\""), ",{ \"id\": \"primary_animation\", \"kind\": \"og.weapon.play_animation\", "
+		"\"animation\": \"base:invanim_punch\" }");
+	melee.insert(melee.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_shot\", \"output\": \"out\", "
+		"\"to\": \"primary_animation\", \"input\": \"exec\" },");
+	program = missionGraphProgramCompileWeapon(melee.data(), melee.size(), heldKnown, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	walk = walked(program, &strike);
+	CHECK((walk.modules & WEAPON_MODULE_PLAY_ANIMATION) != 0);
+	CHECK(walk.plan.fire_animation == &s_testPunchAnimation);
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &strikeNative) == 1);
+	missionGraphProgramFree(program);
+
+	// Registration names what an animation takes and refuses one on a
+	// function whose attack plays none.
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	const auto withAnimation = [&](const std::string &settings) {
+		std::string text = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1);
+		text.insert(text.find("], \"edges\""), ",{ \"id\": \"primary_animation\", \"kind\": \"og.weapon.play_animation\"" +
+			settings + " }");
+		text.insert(text.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_use_ammo\", \"output\": "
+			"\"out\", \"to\": \"primary_animation\", \"input\": \"exec\" },");
+		return text;
+	};
+	const auto registers = [&](const std::string &primary) {
+		err[0] = 0;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(5, "base:test__weapon", primary.data(), (u32)primary.size(),
+			secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, err,
+			sizeof(err)) == 0;
+	};
+	weaponGraphRuntimeClearAll();
+	CHECK(registers(withAnimation(", \"animation\": \"base:invanim_falcon2_shoot\"")));
+	INFO(err);
+	CHECK(registers(withAnimation(", \"animation\": \"none\"")));
+	CHECK_FALSE(registers(withAnimation(", \"animation\": \"Fire!\"")));
+	CHECK(std::string(err).find("og.weapon.play_animation needs animation none or an animation catalog id such as "
+		"base:invanim_falcon2_shoot, got Fire!") != std::string::npos);
+	std::string special = withAnimation("");
+	const std::string shootRecord = "\"kind\": \"fire.hitscan\", \"subgraph\": \"primary\", \"params\": { \"mode\": "
+		"\"primary\", \"function_type\": \"shoot_single\", \"ammo_slot\": 0";
+	REQUIRE(special.find(shootRecord) != std::string::npos);
+	special.replace(special.find(shootRecord), shootRecord.size(), "\"kind\": \"special.weapon_state\", \"subgraph\": "
+		"\"primary\", \"params\": { \"mode\": \"primary\", \"function_type\": \"special\", \"ammo_slot\": -1");
+	CHECK_FALSE(registers(special));
+	CHECK(std::string(err).find("og.weapon.play_animation fits only a shooting, throwing or melee function")
+		!= std::string::npos);
+	weaponGraphRuntimeClearAll();
+
+	// The seams: the shot, the throw and the strike start the attack's
+	// animation and wait on the same one; a generated mesh with no skeleton
+	// plays none the function does not have; every walk resolves animations;
+	// the extractor writes the node last in the attack's chain.
+	const auto count = [](const std::string &text, const std::string &needle) {
+		size_t n = 0;
+		for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) n++;
+		return n;
+	};
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	CHECK(count(bondgun, "bgunPlanFireAnimation(hand, ") == 3);
+	CHECK(count(bondgun, "bgunStartAnimation(fireanim, handnum, hand);") == 3);
+	CHECK(bondgun.find("func->base.fire_animation") == std::string::npos);
+	CHECK(bondgun.find("if (func->fire_animation) {") == std::string::npos);
+	REQUIRE(bondgun.find("&& (hand->gunmodel.definition == NULL || hand->gunmodel.definition->skel == NULL)")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("out->fire_animation = func ? (const void *) func->fire_animation : NULL;") != std::string::npos);
+	const std::string events = readSource("port/src/weapon_events.c");
+	CHECK(count(events, "walk.animation_ref = weaponAnimationRef;") == 4);
+	REQUIRE(events.find("loaderPoolFindAnimationByCatalogId(catalog_id)") != std::string::npos);
+	const std::string runtime = readSource("port/src/weapon_graph_runtime.c");
+	REQUIRE(runtime.find("!weaponRulesAnimationFits(check->functype)") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("\"sound\", \"animation\",") != std::string::npos);
+	REQUIRE(extractor.find("(i == 14 && !s_heldAnimationName(plan))") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldAnimationNode(w, ids[i], plan, last);") != std::string::npos);
+	REQUIRE(extractor.find("record.fire_animation = weaponRulesAnimationFits(f->type)") != std::string::npos);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

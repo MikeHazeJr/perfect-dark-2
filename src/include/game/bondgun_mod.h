@@ -111,8 +111,11 @@ u32 bgunModRollUcmd(void);
 
 /* For coordTriggerProxies: a mod mine's own radius and owner/team/target
  * filters. chr is the candidate (NULL for a moving object). Returns 1 to
- * trigger, 0 not to, -1 when the native fixed-range rule applies. */
-s32 bgunModProxyDecision(struct weaponobj *weapon, struct chrdata *chr, struct coord *pos);
+ * trigger, 0 not to, -1 when the native fixed-range rule applies.
+ * held-weapon-events.md slice 6b: `filtered` is the verdict of the filter
+ * its program's arm names (1 passes, 0 refused), which then replaces the
+ * record's filters within its radius; -1 when its arm names none. */
+s32 bgunModProxyDecision(struct weaponobj *weapon, struct chrdata *chr, struct coord *pos, s32 filtered);
 
 #ifdef __cplusplus
 }

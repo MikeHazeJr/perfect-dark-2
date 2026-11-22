@@ -19,6 +19,9 @@
 #include "mission_graph_runner.h"
 #include "weapon_rules.h"
 #include "weapon_events.h"
+#include "game/sight.h"
+#include "assetcatalog.h"
+#include "loader_pool.h"
 
 /* Each player hand: a press waiting for the idle seam, the named states of
  * the function it holds (every state is false when the hand takes a weapon
@@ -35,6 +38,9 @@ typedef struct weapon_hand_record {
 	u8 reload_planned;            /* slice 4b: the reload its idle seam last started */
 	weapon_rule_reload_t reload;
 	weapon_rule_reload_t native_reload;
+	u8 lock_planned;              /* slice 6b: the lock its last aiming walk chose */
+	weapon_rule_lock_t lock;
+	weapon_rule_lock_t native_lock;
 } weapon_hand_record_t;
 static weapon_hand_record_t s_WeaponHands[MAX_PLAYERS][2];
 
@@ -43,6 +49,8 @@ static weapon_hand_record_t s_WeaponHands[MAX_PLAYERS][2];
 static s32 s_WeaponEventTotals[WEAPON_EVENT_TOTALS];
 static s32 s_WeaponRuleCompared;
 static s32 s_WeaponRuleDiffer;
+static s32 s_WeaponAimingTotal; /* slice 6b: the aiming walks */
+static s32 s_WeaponLocksTaken;  /* slice 6c: the targets the sight took */
 
 /* The first choice for a weapon, function and event logs a line; later ones
  * only count. Bounded, so an automatic weapon cannot flood the log. The
@@ -105,6 +113,25 @@ static s32 weaponItemNumber(const char *catalog_id)
 		}
 	}
 	return -1;
+}
+
+/* slice 7b: a shot's sound by its audio catalog id ("base:sfx_fire_shotgun"),
+ * -1 for none. */
+static s32 weaponSoundNumber(const char *catalog_id)
+{
+	catalog_audio_result_t audio;
+
+	if (!catalog_id || !catalogResolveAudio(catalog_id, &audio) || audio.sound_id <= 0) {
+		return -1;
+	}
+	return audio.sound_id;
+}
+
+/* slice 7c: a fire animation's gun commands by its catalog id
+ * ("base:invanim_falcon2_shoot"), NULL for none. */
+static const void *weaponAnimationRef(const char *catalog_id)
+{
+	return catalog_id ? (const void *)loaderPoolFindAnimationByCatalogId(catalog_id) : NULL;
 }
 
 /* The current player's record of this hand, its states and plan reset when
@@ -296,6 +323,8 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 	walk.function = function;
 	walk.param_text = weaponGraphRuntimeHeldParamText;
 	walk.item_number = weaponItemNumber;
+	walk.sound_number = weaponSoundNumber;
+	walk.animation_ref = weaponAnimationRef;
 	handled = weaponRulesWalk(program, kind, g_Vars.currentplayernum, weaponEventWeaponId(weaponnum), hand, &walk);
 	if (plan && (walk.modules & WEAPON_MODULE_TRIGGERS)) {
 		*plan = walk.plan;
@@ -339,15 +368,37 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 					style ? style : "-", native_style ? native_style : "-");
 			}
 		}
-		if (weaponEventFirst(weaponnum, func, (s32)(kind - MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED))) {
+		if (weaponEventFirst(weaponnum, func, weaponRulesEventIndex(kind))) {
 			char reload_text[64] = "";
+
+			char recoil_text[192] = "";
+			char animation_text[96] = "";
 
 			if (style || native_style) {
 				snprintf(reload_text, sizeof(reload_text), " reload=%s native_reload=%s",
 					style ? style : "-", native_style ? native_style : "-");
 			}
+			if ((chosen & WEAPON_MODULE_TRIGGERS) && walk.plan.recoil) {
+				/* slice 7a: the attack's recoil. */
+				snprintf(recoil_text, sizeof(recoil_text),
+					" recoil=%d/%d/%d refire=%s cut=%d/%d distance=%.9g angle=%.9g slide=%.9g shake=%s spin=%s"
+					" sound=%d slot=%d",
+					walk.plan.recoil_kick, walk.plan.recoil_return, walk.plan.recoil_recovery,
+					walk.plan.recoil_refire ? "yes" : "no", walk.plan.recoil_cut_after, walk.plan.recoil_cut_return,
+					(double)walk.plan.recoil_distance, (double)walk.plan.recoil_angle,
+					(double)walk.plan.recoil_slide, walk.plan.recoil_has_shake ? "yes" : "no",
+					walk.plan.recoil_has_spin_shake ? "yes" : "no", walk.plan.shot_sound, walk.plan.shot_duration);
+			}
+			if (chosen & WEAPON_MODULE_TRIGGERS) {
+				/* slice 7c: the attack's fire animation. */
+				const char *name = walk.plan.fire_animation
+					? loaderPoolAnimationNameForCmds((const struct guncmd *)walk.plan.fire_animation) : NULL;
+
+				snprintf(animation_text, sizeof(animation_text), " animation=%s",
+					!walk.plan.fire_animation ? "none" : name ? name : "unnamed");
+			}
 			sysLogPrintf(LOG_NOTE,
-				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s plan=%s native_plan=%s%s",
+				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s plan=%s native_plan=%s%s%s%s",
 				weaponRuleName(kind), weaponEventWeaponId(weaponnum),
 				func == FUNC_SECONDARY ? "secondary" : "primary",
 				weaponModulesText(chosen, chose, sizeof(chose)),
@@ -355,7 +406,7 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 				weaponPlanText(&walk.plan, chose_plan, sizeof(chose_plan)),
 				weaponPlanText((native & WEAPON_MODULE_TRIGGERS) ? native_plan : NULL,
 					orig_plan, sizeof(orig_plan)),
-				reload_text);
+				reload_text, recoil_text, animation_text);
 		}
 	}
 	return walk.modules;
@@ -483,6 +534,30 @@ const struct weapon_rule_trigger *weaponHandTrigger(struct hand *hand, const str
 	return &s_Native;
 }
 
+/* slice 7b: its ammo's casing (CASING_* plus one, 0 none). */
+static void weaponRuleCasingOf(s32 weaponnum, weapon_rule_function_t *out)
+{
+	struct weapon *def = (out->ammo_slot == 0 || out->ammo_slot == 1) ? weaponFindById(weaponnum) : NULL;
+
+	if (def && def->ammos[out->ammo_slot] && (s32)def->ammos[out->ammo_slot]->casingeject >= 0) {
+		out->casing = (s32)def->ammos[out->ammo_slot]->casingeject + 1;
+	}
+}
+
+/* slice 7b: its shot sound and the frames a fire slot keeps it, as
+ * gsetGetSingleShootSound and gsetGetFireslotDuration read them (the held
+ * graph's first, else the shooting function's). */
+static void weaponRuleSoundOf(s32 weaponnum, s32 func, const weapon_graph_held_function_t *held,
+	weapon_rule_function_t *out)
+{
+	struct weaponfunc *f = func >= 0 && func <= 1 ? weaponGetFunctionById(weaponnum, func) : NULL;
+	const struct weaponfunc_shoot *s = f && (f->type & 0xff) == INVENTORYFUNCTYPE_SHOOT
+		? (const struct weaponfunc_shoot *)f : NULL;
+
+	out->shoot_sound = held && held->has_shootsound ? held->shootsound : (s ? s->shootsound : 0);
+	out->shot_duration = held && held->has_duration_ticks60 ? held->duration_ticks60 : (s ? s->duration60 : 0);
+}
+
 /* A function's record as the cadence code reads it: its held graph record
  * (a function with a program always has one), else the function itself. */
 static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_function_t *out)
@@ -506,6 +581,22 @@ static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_functi
 		out->max_rpm = held->has_max_rpm ? held->max_rpm : 0.0f;
 		out->accel = held->has_turret_accel ? held->turret_accel : 0;
 		out->decel = held->has_turret_decel ? held->turret_decel : 0;
+		/* slice 7a: its recoil. */
+		out->recoil_kick = held->has_recoil_anim_unk24 ? held->recoil_anim_unk24 : 0;
+		out->recoil_return = held->has_recoil_anim_unk25 ? held->recoil_anim_unk25 : 0;
+		out->recoil_cut_after = held->has_recoil_anim_unk26 ? held->recoil_anim_unk26 : 0;
+		out->recoil_cut_return = held->has_recoil_anim_unk27 ? held->recoil_anim_unk27 : 0;
+		out->recoil_recovery = held->has_recoverytime_ticks60 ? held->recoverytime_ticks60 : 0;
+		out->recoil_distance = held->has_recoildist ? held->recoildist : 0.0f;
+		out->recoil_angle = held->has_recoilangle ? held->recoilangle : 0.0f;
+		out->recoil_slide = held->has_slidemax ? held->slidemax : 0.0f;
+		out->recoil_has_shake = held->has_recoil_shake;
+		out->recoil_shake[0] = held->recoil_shake[0];
+		out->recoil_shake[1] = held->recoil_shake[1];
+		out->recoil_shake[2] = held->recoil_shake[2];
+		out->recoil_has_spin_shake = held->has_spin_shake;
+		out->recoil_spin_from = held->spin_shake_from;
+		out->recoil_spin_to = held->spin_shake_to;
 	} else if (weaponnum >= 0 && weaponnum < WEAPON_CUSTOM_START && func >= 0 && func <= 1) {
 		struct weaponfunc *f = weaponGetFunctionById(weaponnum, func);
 
@@ -528,7 +619,45 @@ static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_functi
 				out->accel = a->turretaccel;
 				out->decel = a->turretdecel;
 			}
+			if ((f->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+				/* slice 7a: its recoil. */
+				const struct weaponfunc_shoot *s = (const struct weaponfunc_shoot *)f;
+
+				out->recoil_kick = s->unk24;
+				out->recoil_return = s->unk25;
+				out->recoil_cut_after = s->unk26;
+				out->recoil_cut_return = s->unk27;
+				out->recoil_recovery = s->recoverytime60;
+				out->recoil_distance = s->recoildist;
+				out->recoil_angle = s->recoilangle;
+				out->recoil_slide = s->slidemax;
+				if (s->recoilsettings) {
+					out->recoil_has_shake = 1;
+					out->recoil_shake[0] = s->recoilsettings->xrange;
+					out->recoil_shake[1] = s->recoilsettings->yrange;
+					out->recoil_shake[2] = s->recoilsettings->zrange;
+				}
+				if (f->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
+					const struct weaponfunc_shootauto *a = (const struct weaponfunc_shootauto *)f;
+
+					if (a->vibrationstart && a->vibrationmax) {
+						out->recoil_has_spin_shake = 1;
+						out->recoil_spin_from = a->vibrationstart[0];
+						out->recoil_spin_to = a->vibrationmax[0];
+					}
+				}
+			}
 		}
+	}
+	if ((out->functype & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+		weaponRuleCasingOf(weaponnum, out);
+	}
+	weaponRuleSoundOf(weaponnum, func, held, out);
+	{
+		/* slice 7c: its fire animation. */
+		struct weaponfunc *f = func >= 0 && func <= 1 ? weaponGetFunctionById(weaponnum, func) : NULL;
+
+		out->fire_animation = f ? (const void *)f->fire_animation : NULL;
 	}
 }
 
@@ -556,6 +685,8 @@ static s32 weaponProgramReloadWalk(s32 weaponnum, s32 func, const weapon_rule_fu
 	walk.function = record;
 	walk.param_text = weaponGraphRuntimeHeldParamText;
 	walk.item_number = weaponItemNumber;
+	walk.sound_number = weaponSoundNumber;
+	walk.animation_ref = weaponAnimationRef;
 	weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY, -1, weaponEventWeaponId(weaponnum), &walk, &walk);
 	if (!(walk.modules & WEAPON_MODULE_RELOAD)) {
 		return 0;
@@ -641,6 +772,8 @@ s32 weaponProgramPressPlan(s32 weaponnum, s32 func, struct weapon_rule_trigger *
 		walk.function = &record;
 		walk.param_text = weaponGraphRuntimeHeldParamText;
 		walk.item_number = weaponItemNumber;
+		walk.sound_number = weaponSoundNumber;
+		walk.animation_ref = weaponAnimationRef;
 		weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, weaponEventWeaponId(weaponnum),
 			&walk, &walk);
 		cache->program = program;
@@ -721,6 +854,87 @@ s32 weaponCloakToggle(s32 weaponnum, f32 *drain, s32 *ammo_slot)
 	return 0;
 }
 
+s32 weaponFunctionCasing(s32 weaponnum, s32 func)
+{
+	weapon_rule_trigger_t plan;
+
+	weaponFunctionPlan(weaponnum, func, &plan);
+	return weaponRulesCasingEject(&plan);
+}
+
+/* PR 49 review: the press plan is walked with no states, so it holds only
+ * the casing of the branch a state gate takes with none set, while the hand
+ * walks its live states; so every casing node counts, wherever it sits. */
+typedef struct weapon_casing_visit {
+	s32 weaponnum;
+	s32 native;
+	u32 mask;
+} weapon_casing_visit_t;
+
+static s32 weaponCasingVisit(const char *kind, const mission_graph_params_t *params, void *userdata)
+{
+	weapon_casing_visit_t *visit = (weapon_casing_visit_t *)userdata;
+	char text[32];
+
+	if (kind && strcmp(kind, weaponRulesModuleKind(WEAPON_MODULE_CASING)) == 0) {
+		visit->mask |= weaponRulesCasingNodeMask(weaponGraphRuntimeHeldParamText(visit->weaponnum, params,
+			WEAPON_RULE_CASING_TYPE_PARAM, text, sizeof(text)), visit->native);
+	}
+	return 1;
+}
+
+u32 weaponFunctionCasings(s32 weaponnum, s32 func)
+{
+	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, func);
+	weapon_rule_function_t record;
+	weapon_rule_trigger_t own;
+	weapon_casing_visit_t visit;
+
+	weaponRuleFunctionOfHeld(weaponnum, func, &record);
+	memset(&own, 0, sizeof(own));
+	weaponRulesNativeCasing(&record, &own);
+	visit.weaponnum = weaponnum;
+	visit.native = weaponRulesCasingEject(&own);
+	visit.mask = weaponRulesCasingNodeMask(NULL, visit.native);
+	if (program) {
+		missionGraphProgramVisitModuleParams(program, weaponCasingVisit, &visit);
+	}
+	return visit.mask;
+}
+
+s32 weaponProgramRecoilFrames(s32 weaponnum, s32 func, s32 native)
+{
+	weapon_rule_trigger_t plan;
+
+	if (!weaponGraphRuntimeHeldProgram(weaponnum, func)) {
+		return native;
+	}
+	if (!weaponProgramPressPlan(weaponnum, func, &plan) || !plan.recoil) {
+		return native;
+	}
+	return plan.recoil_kick + plan.recoil_return;
+}
+
+s32 weaponProgramShotSound(s32 weaponnum, s32 func, s32 native)
+{
+	weapon_rule_trigger_t plan;
+
+	if (!weaponGraphRuntimeHeldProgram(weaponnum, func) || !weaponProgramPressPlan(weaponnum, func, &plan)) {
+		return native;
+	}
+	return plan.shot_sound;
+}
+
+s32 weaponProgramShotDuration(s32 weaponnum, s32 func, s32 native)
+{
+	weapon_rule_trigger_t plan;
+
+	if (!weaponGraphRuntimeHeldProgram(weaponnum, func) || !weaponProgramPressPlan(weaponnum, func, &plan)) {
+		return native;
+	}
+	return plan.shot_duration;
+}
+
 s32 weaponProgramBurstRounds(s32 weaponnum, s32 func, s32 native)
 {
 	weapon_rule_trigger_t plan;
@@ -734,6 +948,150 @@ s32 weaponProgramBurstRounds(s32 weaponnum, s32 func, s32 native)
 	return plan.count;
 }
 
+/* "locks=4 aim_follows=false filter={ ... }" for a lock, for the log. */
+static const char *weaponLockText(const weapon_rule_lock_t *lock, char *buf, size_t cap)
+{
+	char filter[320];
+
+	if (lock->locks > 0 && targetFilterSettingsText(&lock->filter, filter, (s32)sizeof(filter)) > 0) {
+		snprintf(buf, cap, "locks=%d aim_follows=%s filter={%s }", lock->locks,
+			lock->aim_follows ? "true" : "false", filter + 1);
+	} else {
+		snprintf(buf, cap, "locks=%d aim_follows=%s", lock->locks, lock->aim_follows ? "true" : "false");
+	}
+	return buf;
+}
+
+/* slice 6b: the aiming event for the current player's right hand: 1 with
+ * *out the lock its function's program chose (locks 0 when it reached none),
+ * 0 when the function has no program or its program does not handle the
+ * event. A base function's lock is compared with the original's. */
+static s32 weaponRuleLockDecide(struct hand *hand, s32 tracktype, const weapon_rule_lock_t *native,
+	weapon_rule_lock_t *out)
+{
+	const s32 weaponnum = hand->gset.weaponnum;
+	const s32 func = hand->gset.weaponfunc;
+	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, func);
+	weapon_hand_record_t *record;
+	weapon_rule_function_t function;
+	weapon_rule_walk_t walk;
+
+	if (!program || !missionGraphProgramHandlesEvent(program, MISSION_GRAPH_EVENT_WEAPON_AIMING)) {
+		return 0;
+	}
+	s_WeaponAimingTotal++;
+	record = weaponHandRecord(HAND_RIGHT, hand);
+	weaponRuleFunctionOfHeld(weaponnum, func, &function);
+	memset(&walk, 0, sizeof(walk));
+	walk.weaponnum = weaponnum;
+	weaponRuleHandOf(hand, &walk.hand);
+	walk.states = record ? &record->states : NULL;
+	walk.function = &function;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	walk.item_number = weaponItemNumber;
+	walk.sound_number = weaponSoundNumber;
+	walk.animation_ref = weaponAnimationRef;
+	if (!weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_AIMING, g_Vars.currentplayernum,
+			weaponEventWeaponId(weaponnum), hand, &walk)) {
+		return 0;
+	}
+	*out = walk.lock;
+	out->tracktype = weaponRulesLockTrackType(out, tracktype);
+	/* A mod weapon's number has no original rule: its lock is logged, not
+	 * counted. */
+	if (weaponnum < WEAPON_CUSTOM_START) {
+		s_WeaponRuleCompared++;
+		if (!weaponRulesLockEqual(out, native)) {
+			s_WeaponRuleDiffer++;
+			if (s_WeaponRuleDiffer <= 8) {
+				char chose[400];
+				char orig[400];
+
+				sysLogPrintf(LOG_WARNING, "WEAPON.RULE differs: aiming weapon=%s func=%s lock=%s native_lock=%s",
+					weaponEventWeaponId(weaponnum), func == FUNC_SECONDARY ? "secondary" : "primary",
+					weaponLockText(out, chose, sizeof(chose)), weaponLockText(native, orig, sizeof(orig)));
+			}
+		}
+	}
+	if (weaponEventFirst(weaponnum, func, weaponRulesEventIndex(MISSION_GRAPH_EVENT_WEAPON_AIMING))) {
+		char chose[400];
+		char orig[400];
+
+		sysLogPrintf(LOG_NOTE, "WEAPON.RULE: aiming weapon=%s func=%s program=yes lock=%s native_lock=%s",
+			weaponEventWeaponId(weaponnum), func == FUNC_SECONDARY ? "secondary" : "primary",
+			weaponLockText(out, chose, sizeof(chose)), weaponLockText(native, orig, sizeof(orig)));
+	}
+	return 1;
+}
+
+const struct weapon_rule_lock *weaponSightLock(s32 aiming)
+{
+	static weapon_rule_lock_t s_NativeLock;
+	struct hand *hand;
+	struct invaimsettings *aim;
+	weapon_hand_record_t *kept;
+	weapon_rule_lock_t native;
+	weapon_rule_lock_t lock;
+	s32 tracktype;
+
+	if (!g_Vars.currentplayer) {
+		weaponRulesNativeLock(-1, FUNC_PRIMARY, SIGHTTRACKTYPE_NONE, &s_NativeLock);
+		return &s_NativeLock;
+	}
+	hand = &g_Vars.currentplayer->hands[HAND_RIGHT];
+	aim = gsetGetAimSettings(&hand->gset);
+	tracktype = aim ? (s32)aim->tracktype : SIGHTTRACKTYPE_DEFAULT;
+	weaponRulesNativeLock(hand->gset.weaponnum, hand->gset.weaponfunc, tracktype, &native);
+	kept = weaponHandRecord(HAND_RIGHT, hand);
+	if (aiming && weaponRuleLockDecide(hand, tracktype, &native, &lock) && kept) {
+		kept->lock = lock;
+		kept->lock_planned = 1;
+	}
+	if (kept && kept->lock_planned) {
+		return &kept->lock;
+	}
+	if (kept) {
+		kept->native_lock = native;
+		return &kept->native_lock;
+	}
+	s_NativeLock = native;
+	return &s_NativeLock;
+}
+
+s32 weaponSightLockAuthored(void)
+{
+	const weapon_rule_lock_t *lock = weaponSightLock(0);
+	const struct hand *hand;
+	struct invaimsettings *aim;
+	weapon_rule_lock_t native;
+
+	if (!g_Vars.currentplayer || !lock || lock->locks <= 0) {
+		return 0;
+	}
+	hand = &g_Vars.currentplayer->hands[HAND_RIGHT];
+	aim = gsetGetAimSettings((struct gset *)&hand->gset);
+	weaponRulesNativeLock(hand->gset.weaponnum, hand->gset.weaponfunc,
+		aim ? (s32)aim->tracktype : SIGHTTRACKTYPE_DEFAULT, &native);
+	return weaponRulesLockEqual(lock, &native) ? 0 : 1;
+}
+
+void weaponSightLockTaken(s32 slot, struct prop *prop)
+{
+	s_WeaponLocksTaken++;
+	if (s_WeaponLocksTaken <= 16 && g_Vars.currentplayer && prop) {
+		const struct hand *hand = &g_Vars.currentplayer->hands[HAND_RIGHT];
+		const weapon_rule_lock_t *lock = weaponSightLock(0);
+		target_facts_t facts;
+
+		sightTargetFacts(prop, &facts);
+		sysLogPrintf(LOG_NOTE,
+			"SIGHT.LOCK: player=%d weapon=%s func=%s slot=%d of %d kind=%s occupied=%d relation=%s",
+			g_Vars.currentplayernum, weaponEventWeaponId(hand->gset.weaponnum),
+			hand->gset.weaponfunc == FUNC_SECONDARY ? "secondary" : "primary", slot + 1, lock->locks,
+			targetFilterKindName(facts.kind), facts.occupied, targetFilterRelationName(facts.relation));
+	}
+}
+
 void weaponEventReloadDone(s32 handnum, struct hand *hand)
 {
 	if (hand && hand->inuse) {
@@ -745,13 +1103,15 @@ void weaponEventsReport(const char *why)
 {
 	sysLogPrintf(LOG_NOTE,
 		"WEAPON.EVENTS: %s trigger_pressed=%d ready_while_held=%d clip_empty=%d"
-		" trigger_released=%d reload_done=%d rules.compared=%d rules.differ=%d",
+		" trigger_released=%d reload_done=%d rules.compared=%d rules.differ=%d aiming=%d locks=%d",
 		why ? why : "report",
 		s_WeaponEventTotals[0], s_WeaponEventTotals[1], s_WeaponEventTotals[2],
 		s_WeaponEventTotals[3], s_WeaponEventTotals[4],
-		s_WeaponRuleCompared, s_WeaponRuleDiffer);
+		s_WeaponRuleCompared, s_WeaponRuleDiffer, s_WeaponAimingTotal, s_WeaponLocksTaken);
 	memset(s_WeaponEventTotals, 0, sizeof(s_WeaponEventTotals));
 	s_WeaponRuleCompared = 0;
 	s_WeaponRuleDiffer = 0;
+	s_WeaponAimingTotal = 0;
+	s_WeaponLocksTaken = 0;
 	s_WeaponEventSeenCount = 0;
 }

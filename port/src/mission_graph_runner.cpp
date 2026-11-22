@@ -189,6 +189,8 @@ const struct {
 	{ "event.weapon.clip_empty", MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY },
 	{ "event.weapon.trigger_released", MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED },
 	{ "event.weapon.reload_done", MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE },
+	// Slice 6b: the aiming event, numbered after the projectile flight event.
+	{ "event.weapon.aiming", MISSION_GRAPH_EVENT_WEAPON_AIMING },
 };
 
 // The weapon event kind of a node kind, or 0 for none.
@@ -202,8 +204,9 @@ s32 weaponEventKindOf(const std::string &kind)
 
 bool isWeaponEventKind(s32 kind)
 {
-	return kind >= MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED &&
-		kind <= MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE;
+	return (kind >= MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED &&
+			kind <= MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE)
+		|| kind == MISSION_GRAPH_EVENT_WEAPON_AIMING;
 }
 
 // The mode events by name (gamemode-graphs.md slice 2), in kind order.

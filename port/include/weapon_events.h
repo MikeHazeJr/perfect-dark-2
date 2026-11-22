@@ -47,6 +47,7 @@ struct hand;
 struct weapon_rule_function;
 struct weapon_rule_trigger;
 struct weapon_rule_reload;
+struct weapon_rule_lock;
 
 /* bgunSetTriggerOn: the hand's trigger is `on` now and was `previous`. A
  * press waits for the idle seam; a release drops a waiting press and is the
@@ -94,6 +95,30 @@ s32 weaponProgramPressPlan(s32 weaponnum, s32 func, struct weapon_rule_trigger *
  * ticks_per_shot ...". */
 s32 weaponProgramTicksPerShot(s32 weaponnum, s32 func, s32 native);
 
+/* slice 7a: a simulant's shot interval (botactGetShootInterval60): the
+ * kick and return frames of the recoil a press plans, `native` for a
+ * function with no program or one whose press plans no recoil. */
+s32 weaponProgramRecoilFrames(s32 weaponnum, s32 func, s32 native);
+
+/* slice 7b: the casing a function's shots eject (CASING_*, -1 none): its
+ * program's og.weapon.casing, else its ammo's; the gun loads that casing's
+ * model when it is equipped. */
+s32 weaponFunctionCasing(s32 weaponnum, s32 func);
+
+/* PR 49 review (slice 7b): every casing a function's attacks can eject, as
+ * (1 << CASING_*): each og.weapon.casing its program holds, on either branch
+ * of any gate (a gate.weapon.state_is branch the press plan never takes
+ * included), and the function's own, which a branch with no casing node
+ * ejects. The gun loads a model for each (bgunQueueCartModels). */
+u32 weaponFunctionCasings(s32 weaponnum, s32 func);
+
+/* slice 7b: a simulant's or a guard's shot sound and the frames its fire
+ * slot keeps it (gsetGetSingleShootSound, gsetGetFireslotDuration): the
+ * og.weapon.shot_sound a press plans, `native` for a function with no
+ * program or a press that starts no attack. */
+s32 weaponProgramShotSound(s32 weaponnum, s32 func, s32 native);
+s32 weaponProgramShotDuration(s32 weaponnum, s32 func, s32 native);
+
 /* A simulant's burst (bot.c): the rounds of the og.weapon.burst a press
  * starts, 0 for any other trigger; `native` for a function with no
  * program. */
@@ -121,9 +146,31 @@ s32 weaponCloakToggle(s32 weaponnum, f32 *drain, s32 *ammo_slot);
  * a record). */
 void weaponEventReloadDone(s32 handnum, struct hand *hand);
 
+/* slice 6b: the sight's lock for the current player's right hand (the sight
+ * is the right hand's). While the player aims (`aiming`, sightTick), its
+ * function's program walks event.weapon.aiming and the og.weapon.lock_on it
+ * reaches is the lock (none reached: no lock, the box follows the aim); the
+ * hand keeps it while it holds that function, for the sight and auto-aim
+ * between walks. A function with no program, or whose program does not
+ * handle the event, has the original's for its weapon's aim settings
+ * (weaponRulesNativeLock). A base function's walked lock is compared with
+ * the original's (rules.compared, rules.differ). Never NULL. */
+const struct weapon_rule_lock *weaponSightLock(s32 aiming);
+/* PR 49 review: whether the current player's lock is its program's own and
+ * not the original's for its weapon (a mod's authored lock, or one a program
+ * changed): the look then lets through what that lock takes. */
+s32 weaponSightLockAuthored(void);
+
+/* slice 6c: sightTick took a target into the lock's slot (0 up): counted for
+ * WEAPON.EVENTS (locks=N), and the stage's first sixteen logged as
+ * "SIGHT.LOCK: player=0 weapon=... func=... slot=1 of 1 kind=vehicle
+ * occupied=1 relation=enemy". */
+struct prop;
+void weaponSightLockTaken(s32 slot, struct prop *prop);
+
 /* Logs "WEAPON.EVENTS: <why> trigger_pressed=N ready_while_held=N
  * clip_empty=N trigger_released=N reload_done=N rules.compared=N
- * rules.differ=N" and starts the counts again. */
+ * rules.differ=N aiming=N locks=N" and starts the counts again. */
 void weaponEventsReport(const char *why);
 
 #endif

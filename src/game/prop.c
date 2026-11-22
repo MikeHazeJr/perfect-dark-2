@@ -54,6 +54,7 @@
 #include "weapon_graph_v2_runtime.h"
 #include "weapon_nested_runtime_harness.h"
 #include "weapon_rules.h"
+#include "weapon_events.h"
 
 #include <stdint.h>
 
@@ -3268,8 +3269,10 @@ void autoaimTick(void)
 		farsightChooseTarget();
 	}
 
-	if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_CMP150
-			&& g_Vars.currentplayer->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY) {
+	/* held-weapon-events.md slice 6b: the aim follows the sight's held
+	 * targets when its lock says so (og.weapon.lock_on aim_follows; the
+	 * original's lock gives it to the CMP150's secondary). */
+	if (weaponSightLock(0)->aim_follows) {
 		iscmpsec = true;
 	}
 
@@ -3370,9 +3373,15 @@ void autoaimTick(void)
 		struct coord sp94;
 		f32 sp8c[2];
 		f32 sp84[2];
-		struct chrdata *chr;
 		f32 sp78[2];
 		struct prop **ptr = g_Vars.endonscreenprops - 1;
+		target_filter_t aimfilter;
+
+		/* held-weapon-events.md slice 6a: auto-aim's filter (its native one:
+		 * a character or another player who is not a friend and is armed);
+		 * chrCalculateAutoAim then tests its state, its cloak and the
+		 * screen. */
+		targetFilterNative(TARGET_PICKER_AUTOAIM, bgunGetWeaponNum(HAND_RIGHT), &aimfilter);
 
 		// Iterate onscreen props near to far
 		while (ptr >= g_Vars.onscreenprops) {
@@ -3381,13 +3390,11 @@ void autoaimTick(void)
 			if (prop && prop->chr) {
 				if (prop->type == PROPTYPE_CHR
 						|| (prop->type == PROPTYPE_PLAYER && playermgrGetPlayerNumByProp(prop) != g_Vars.currentplayernum)) {
-					chr = prop->chr;
+					target_facts_t facts;
 
-					if (!chrCompareTeams(g_Vars.currentplayer->prop->chr, chr, COMPARE_FRIENDS)
-							&& (chrGetHeldProp(chr, HAND_RIGHT)
-								|| chrGetHeldProp(chr, HAND_LEFT)
-								|| (chr->chrflags & CHRCFLAG_FORCEAUTOAIM)
-								|| chr->gunprop)
+					sightTargetFacts(prop, &facts);
+
+					if (targetFilterAccepts(&aimfilter, &facts)
 							&& chrCalculateAutoAim(prop, &sp94, sp8c, sp84)) {
 						f32 thing = func0f06438c(prop, &sp94, sp8c, sp84, sp78, false, cangangsta, 0);
 

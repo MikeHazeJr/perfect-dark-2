@@ -421,6 +421,173 @@ class FlightRule(unittest.TestCase):
         self.assertTrue(any("has no effect on" in m for m in messages), messages)
 
 
+class HomeFilter(unittest.TestCase):
+    """Held slice 6b: og.projectile.home's target filter settings."""
+
+    def _program(self, module: dict) -> dict:
+        return {
+            "schema": "pd.projectile_graph.v2", "asset_id": "base:test__projectile", "graph_id": "flight",
+            "nodes": [{"id": "flight", "kind": "event.projectile.in_flight"}, dict(module, id="flight_home")],
+            "edges": [{"from": "flight", "output": "out", "to": "flight_home", "input": "exec"}],
+        }
+
+    def test_mikes_enemy_vehicles(self):
+        self.assertEqual(conf.validate_projectile_graph_program("test", self._program(
+            {"kind": "og.projectile.home", "kinds": "vehicle", "vehicles": "occupied", "relation": "enemy",
+             "alive": True, "cloaked": "never", "lost": "straight"})), [])
+        self.assertEqual(conf.validate_projectile_graph_program("test", self._program(
+            {"kind": "og.projectile.home"})), [])
+
+    def test_malformed(self):
+        for module, why in (({"kind": "og.projectile.home", "kinds": "tank"}, "needs kinds player"),
+                            ({"kind": "og.projectile.home", "relation": "rival"}, "needs relation anyone"),
+                            ({"kind": "og.projectile.home", "alive": "yes"}, "needs alive true or false"),
+                            ({"kind": "og.projectile.home", "lost": "spiral"}, "needs lost straight")):
+            with self.subTest(module=module):
+                messages = conf.validate_projectile_graph_program("test", self._program(module))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+
+
+class ArmFilter(unittest.TestCase):
+    """Held slice 6b: what sets a mine off, og.projectile.arm_proximity's filter."""
+
+    def _program(self, arm: dict) -> dict:
+        return {
+            "schema": "pd.projectile_graph.v2", "asset_id": "base:test__projectile", "graph_id": "mine",
+            "nodes": [{"id": "armed", "kind": "event.projectile.armed"}, dict(arm, id="armed_arm")],
+            "edges": [{"from": "armed", "output": "out", "to": "armed_arm", "input": "exec"}],
+        }
+
+    def test_the_original_and_a_filter(self):
+        for arm in ({"kind": "og.projectile.arm_proximity"},
+                    {"kind": "og.projectile.arm_proximity", "kinds": "characters", "relation": "not_friend"},
+                    {"kind": "og.projectile.arm_proximity", "kinds": "vehicle", "vehicles": "occupied",
+                     "relation": "enemy", "alive": True}):
+            with self.subTest(arm=arm):
+                self.assertEqual(conf.validate_projectile_graph_program("test", self._program(arm)), [])
+
+    def test_malformed(self):
+        for arm, why in (({"kind": "og.projectile.arm_proximity", "relation": "rival"}, "needs relation anyone"),
+                         ({"kind": "og.projectile.arm_proximity", "kinds": "tank"}, "needs kinds player"),
+                         ({"kind": "og.projectile.arm_proximity", "alive": "yes"}, "needs alive true or false")):
+            with self.subTest(arm=arm):
+                messages = conf.validate_projectile_graph_program("test", self._program(arm))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+
+
+class Recoil(unittest.TestCase):
+    """Held slice 7a: og.weapon.recoil on the attack's walk."""
+
+    def _with_recoil(self, recoil: dict, function_type: str = "shoot_single") -> dict:
+        graph = copy.deepcopy(V2_HELD)
+        for node in graph["nodes"]:
+            if node["id"] == "primary_action":
+                node["params"]["function_type"] = function_type
+        graph["nodes"].append(dict(recoil, id="primary_recoil"))
+        graph["edges"].append({"from": "primary_use_ammo", "output": "out", "to": "primary_recoil", "input": "exec"})
+        return graph
+
+    def test_the_settings(self):
+        self.assertEqual(weapon_errors(self._with_recoil({"kind": "og.weapon.recoil"})), [])
+        self.assertEqual(weapon_errors(self._with_recoil(
+            {"kind": "og.weapon.recoil", "kick": 6, "return": 18, "recovery": 0, "refire_early": True, "cut_after": 2,
+             "cut_return": 8, "distance": 5, "angle": 2, "slide": 0.0, "shake_x": 0.6, "shake_y": 0.6, "shake_z": 2.6,
+             "spin_shake_from": 0, "spin_shake_to": 1})), [])
+
+    def test_malformed_and_misfit(self):
+        for recoil, why in (({"kind": "og.weapon.recoil", "kick": 200}, "needs kick from 0 to 127"),
+                            ({"kind": "og.weapon.recoil", "angle": -5}, "needs angle from 0 up to 360"),
+                            ({"kind": "og.weapon.recoil", "refire_early": "yes"}, "needs refire_early true or false"),
+                            ({"kind": "og.weapon.recoil", "shake_x": "a"}, "needs shake_x from 0 up to 100")):
+            with self.subTest(recoil=recoil):
+                messages = weapon_errors(self._with_recoil(recoil))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+        messages = weapon_errors(self._with_recoil({"kind": "og.weapon.recoil"}, "melee"))
+        self.assertTrue(any("fits only a shooting function" in m for m in messages), messages)
+
+
+class CasingAndFlash(unittest.TestCase):
+    """Held slice 7b: og.weapon.casing and og.weapon.muzzle_flash."""
+
+    def _with(self, nodes: list) -> dict:
+        graph = copy.deepcopy(V2_HELD)
+        prev = "primary_use_ammo"
+        for i, node in enumerate(nodes):
+            graph["nodes"].append(dict(node, id=f"primary_feel{i}"))
+            graph["edges"].append({"from": prev, "output": "out", "to": f"primary_feel{i}", "input": "exec"})
+            prev = f"primary_feel{i}"
+        return graph
+
+    def test_the_settings(self):
+        self.assertEqual(weapon_errors(self._with([{"kind": "og.weapon.casing", "type": "rifle"},
+                                                   {"kind": "og.weapon.muzzle_flash", "on": False}])), [])
+
+    def test_malformed(self):
+        messages = weapon_errors(self._with([{"kind": "og.weapon.casing", "type": "brass"}]))
+        self.assertEqual(len(messages), 1, messages)
+        self.assertIn("needs type none, standard, reaper, rifle, shotgun", messages[0])
+        messages = weapon_errors(self._with([{"kind": "og.weapon.muzzle_flash", "on": "yes"}]))
+        self.assertEqual(len(messages), 1, messages)
+        self.assertIn("needs on true or false", messages[0])
+
+
+class ShotSound(unittest.TestCase):
+    """Held slice 7b: og.weapon.shot_sound, the attack's sound and the frames
+    its fire slot keeps it."""
+
+    def _with(self, sound: dict, function_type: str = "shoot_single") -> dict:
+        return Recoil._with_recoil(self, dict(sound, kind="og.weapon.shot_sound"), function_type)
+
+    def test_the_settings(self):
+        for sound in ({"sound": "base:sfx_fire_shotgun", "duration": 12}, {"sound": "none"}, {"duration": 0}, {}):
+            with self.subTest(sound=sound):
+                self.assertEqual(weapon_errors(self._with(sound)), [])
+
+    def test_malformed_and_misfit(self):
+        for sound, why in (({"sound": "Bang!"}, "needs sound none or an audio catalog id"),
+                           ({"sound": 7}, "needs sound none or an audio catalog id"),
+                           ({"sound": "base:" + "a" * 60}, "needs sound none or an audio catalog id"),
+                           ({"duration": 256}, "needs duration from 0 to 255"),
+                           ({"duration": True}, "needs duration from 0 to 255")):
+            with self.subTest(sound=sound):
+                messages = weapon_errors(self._with(sound))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+        messages = weapon_errors(self._with({}, "melee"))
+        self.assertTrue(any("fits only a shooting function" in m for m in messages), messages)
+
+
+class PlayAnimation(unittest.TestCase):
+    """Held slice 7c: og.weapon.play_animation, the attack's fire animation."""
+
+    def _with(self, animation: dict, function_type: str = "shoot_single") -> dict:
+        return Recoil._with_recoil(self, dict(animation, kind="og.weapon.play_animation"), function_type)
+
+    def test_the_settings(self):
+        for animation in ({"animation": "base:invanim_falcon2_shoot"}, {"animation": "none"}, {}):
+            with self.subTest(animation=animation):
+                self.assertEqual(weapon_errors(self._with(animation)), [])
+        for family in ("shoot_automatic", "shoot_projectile", "throw", "melee"):
+            with self.subTest(family=family):
+                messages = weapon_errors(self._with({"animation": "base:invanim_punch"}, family))
+                self.assertFalse(any("og.weapon.play_animation" in m for m in messages), messages)
+
+    def test_malformed_and_misfit(self):
+        for animation in ({"animation": "Fire!"}, {"animation": 3}, {"animation": "base:" + "a" * 60}):
+            with self.subTest(animation=animation):
+                messages = weapon_errors(self._with(animation))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn("needs animation none or an animation catalog id", messages[0])
+        for family in ("special", "device"):
+            with self.subTest(family=family):
+                messages = weapon_errors(self._with({}, family))
+                self.assertTrue(any("fits only a shooting, throwing or melee function" in m for m in messages),
+                                messages)
+
+
 class Archives(unittest.TestCase):
     def rebuilt(self, relative: str, graph_edit) -> bytes:
         """The example archive with its behavior.graph.json edited."""
@@ -827,6 +994,58 @@ class HeldWeaponPrograms(unittest.TestCase):
                 with self.subTest(module=kind, setting=key):
                     self.assertIn('_PARAM "' + key + '"', rules)
 
+
+class HeldLock(unittest.TestCase):
+    """Held slice 6b: the sight's lock, og.weapon.lock_on at event.weapon.aiming."""
+
+    def _with_lock(self, lock: dict, event: str = "event.weapon.aiming") -> dict:
+        graph = copy.deepcopy(V2_HELD)
+        graph["nodes"].insert(2, {"id": "primary_aiming", "kind": event})
+        graph["nodes"].insert(3, dict(lock, id="primary_lock"))
+        graph["edges"].insert(1, {"from": "primary_aiming", "output": "out", "to": "primary_lock", "input": "exec"})
+        return graph
+
+    def test_the_original_locks_and_mikes_enemy_vehicles(self):
+        for lock in ({"kind": "og.weapon.lock_on", "locks": 1, "aim_follows": False, "kinds": "all",
+                      "sight_targets_only": False, "vehicles": "any", "relation": "anyone", "alive": False,
+                      "cloaked": "always"},
+                     {"kind": "og.weapon.lock_on", "locks": 4, "aim_follows": True, "sight_targets_only": True},
+                     {"kind": "og.weapon.lock_on", "kinds": "vehicle", "vehicles": "occupied", "relation": "enemy",
+                      "alive": True, "cloaked": "never"},
+                     {"kind": "og.weapon.lock_on", "relation": "$side"}):
+            with self.subTest(lock=lock):
+                self.assertEqual(weapon_errors(self._with_lock(lock)), [])
+
+    def test_only_at_aiming_and_only_the_lock_there(self):
+        graph = copy.deepcopy(V2_HELD)
+        for node in graph["nodes"]:
+            if node["id"] == "primary_dry_fire":
+                node["kind"] = "og.weapon.lock_on"
+        messages = weapon_errors(graph)
+        self.assertTrue(any("og.weapon.lock_on 'primary_dry_fire' has no effect on event.weapon.trigger_pressed" in m
+                            for m in messages), messages)
+        messages = weapon_errors(self._with_lock({"kind": "og.weapon.dry_fire"}))
+        self.assertTrue(any("has no effect on event.weapon.aiming" in m for m in messages), messages)
+
+    def test_malformed(self):
+        for lock, why in (({"kind": "og.weapon.lock_on", "locks": 5}, "needs locks from 1 to 4"),
+                          ({"kind": "og.weapon.lock_on", "aim_follows": "yes"}, "needs aim_follows true or false"),
+                          ({"kind": "og.weapon.lock_on", "kinds": "tank"}, "needs kinds player"),
+                          ({"kind": "og.weapon.lock_on", "sight_targets_only": "yes"},
+                           "needs sight_targets_only true or false"),
+                          ({"kind": "og.weapon.lock_on", "relation": "rival"}, "needs relation anyone")):
+            with self.subTest(lock=lock):
+                messages = weapon_errors(self._with_lock(lock))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+
+    def test_the_filter_settings_are_the_filters(self):
+        header = (REPO / "port" / "include" / "target_filter.h").read_text(encoding="utf-8")
+        for key in conf.TARGET_FILTER_SETTINGS:
+            with self.subTest(setting=key):
+                self.assertIn('_PARAM "' + key + '"', header)
+        self.assertEqual(conf.PROJECTILE_GRAPH_FLIGHT_SETTINGS["og.projectile.home"]["sight_targets_only"],
+                         conf.TARGET_FILTER_SETTINGS["sight_targets_only"])
 
 if __name__ == "__main__":
     unittest.main()

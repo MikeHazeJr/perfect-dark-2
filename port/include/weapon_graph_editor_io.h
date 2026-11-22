@@ -68,6 +68,92 @@ char *weaponGraphEditorCompose(const char *primary_json, const char *secondary_j
 		const char *shared_context_json, const char *asset_id,
 		char *err, size_t err_cap);
 
+/*
+ * held-weapon-events.md slice 8a: the creator's designer nodes. Every node a
+ * function's program can hold (weapon_rules.h: the weapon events, the gates
+ * and the modules), in palette order, with the name and the group a designer
+ * sees it under. A record node (a function's own, `fire.hitscan`) is none of
+ * these.
+ */
+typedef struct weapon_graph_designer_node {
+	const char *kind;   /* "og.weapon.automatic" */
+	const char *label;  /* "Automatic" */
+	const char *group;  /* "Events", "Checks", "Trigger", "Ammo", "Shot", "Aim", "Feel" or "State" */
+} weapon_graph_designer_node_t;
+
+s32 weaponGraphDesignerNodeCount(void);
+const weapon_graph_designer_node_t *weaponGraphDesignerNodeAt(s32 index);
+/* slice 8b: the designer nodes of a projectile's program (projectile_rules.h:
+ * its events, gates and modules), for the creator's projectile canvas. */
+s32 weaponGraphProjectileDesignerNodeCount(void);
+const weapon_graph_designer_node_t *weaponGraphProjectileDesignerNodeAt(s32 index);
+/* A weapon's or a projectile's designer node; NULL when the kind is not a
+ * program node. */
+const weapon_graph_designer_node_t *weaponGraphDesignerNodeFor(const char *kind);
+
+/*
+ * A node's execution ports. A program node (a weapon's or a projectile's)
+ * other than an event takes an execution input, and its outputs are "out", a
+ * gate's "pass" and "fail". A record node keeps the one unnamed input and
+ * output of its record links.
+ */
+s32 weaponGraphNodeIsProgram(const char *kind);
+s32 weaponGraphNodeTakesExec(const char *kind);
+s32 weaponGraphNodeOutputCount(const char *kind);
+/* The output's port: "" for a record node's; NULL past the last. */
+const char *weaponGraphNodeOutputName(const char *kind, s32 index);
+
+/* held-weapon-events.md slice 8a: what a designer node's setting takes. */
+#define WEAPON_GRAPH_INPUT_WHOLE  1 /* a whole number from lo to hi */
+#define WEAPON_GRAPH_INPUT_NUMBER 2 /* a number up to hi: above lo, or from lo when lo_included */
+#define WEAPON_GRAPH_INPUT_SWITCH 3 /* true or false */
+#define WEAPON_GRAPH_INPUT_CHOICE 4 /* one of `choices` ('|' between; a choice of digits is a number) */
+#define WEAPON_GRAPH_INPUT_ID     5 /* a catalog id (namespace:name), or one of `choices` */
+#define WEAPON_GRAPH_INPUT_NAME   6 /* a name: a state's key */
+#define WEAPON_GRAPH_INPUT_KINDS  7 /* some of `choices`, written with commas between */
+
+typedef struct weapon_graph_designer_setting {
+	const char *key;      /* "rate" */
+	const char *label;    /* "Rate (rounds per minute)" */
+	s32 input;            /* WEAPON_GRAPH_INPUT_* */
+	f32 lo;
+	f32 hi;
+	s32 lo_included;      /* a NUMBER's: whether lo itself is allowed */
+	const char *choices;  /* a CHOICE's, an ID's and KINDS' */
+} weapon_graph_designer_setting_t;
+
+/*
+ * A designer node's settings, in the order the inspector lists them: the
+ * rule table's for a module (weaponRulesSettingAt), has_ammo's rounds,
+ * state_is's and set_state's key and value, and the lock's target filter;
+ * slice 8b: a projectile module's (the thrust's, the trail's, the hit
+ * sound's, the bounce smoke's, the explosion's, the home's and the
+ * proximity arm's target filter).
+ * Fills up to `cap` of `out` (which may be NULL) and returns how many there
+ * are.
+ */
+s32 weaponGraphDesignerSettings(const char *kind, weapon_graph_designer_setting_t *out, s32 cap);
+
+/* A target filter's "kinds" text (PR 49 review) as the inspector's
+ * checkboxes take it: bit i set when it names `choices`' i-th kind, its groups
+ * expanded as the filter reads them ("characters" names player, simulant and
+ * guard; "all" every kind). 0 when the text is not a kinds list. */
+u32 weaponGraphDesignerKindsMask(const char *text, const char *choices);
+
+/*
+ * held-weapon-events.md slice 8b: one node's settings in a graph's text (a
+ * projectile's program, edited outside the canvas): the members it carries
+ * besides id, kind, subgraph and params, written as the editor keeps them
+ * ("\"kinds\": \"vehicle\", ..."; "" for none). Returns malloc'd text, or
+ * NULL with a reason when the graph does not parse or has no such node.
+ */
+char *weaponGraphEditorNodeSettings(const char *graph_json, const char *node_id, char *err, size_t err_cap);
+/* The graph's text with that node's settings replaced by `settings` (the
+ * same form; "" for none) and everything else kept. Returns malloc'd text,
+ * or NULL with a reason. */
+char *weaponGraphEditorSetNodeSettings(const char *graph_json, const char *node_id, const char *settings,
+		char *err, size_t err_cap);
+
 #ifdef __cplusplus
 }
 

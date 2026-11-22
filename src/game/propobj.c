@@ -108,6 +108,8 @@ extern void statIncrement(const char *key, u64 amount);
 #include "scenario_source_runtime.h"
 #include "weapondata_authored.h"
 #include "projectile_events.h"
+#include "target_filter.h"
+#include "game/sight.h"
 #include "projectile_rules.h"
 #include <stdio.h>
 
@@ -2662,7 +2664,7 @@ void func0f069c70(struct defaultobj *obj, bool arg1, bool arg2)
 
 	prop = obj->prop;
 	propCalculateShadeInfo(prop, obj->nextcol, obj->floorcol);
-	coordTriggerProxies(&obj->prop->pos, false);
+	coordTriggerProxiesBy(obj->prop, &obj->prop->pos, false);
 }
 
 /**
@@ -7952,6 +7954,26 @@ void platformDisplaceProps2(struct prop *platform, Mtxf *arg1)
 /**
  * Tick a Slayer fly-by-wire rocket that's being controlled by a bot.
  */
+/* held-weapon-events.md slice 6a: a character's facts as the bot that
+ * flies a Slayer rocket reads them (COMPARE_ENEMIES, chrIsDead, and
+ * botIsTargetInvisible as the cloak). */
+static void rocketFbwTargetFacts(struct chrdata *chr, struct chrdata *owner, target_facts_t *out)
+{
+	out->kind = chr->prop && chr->prop->type == PROPTYPE_PLAYER ? TARGET_KIND_PLAYER
+		: (chr->aibot ? TARGET_KIND_SIMULANT : TARGET_KIND_GUARD);
+	out->reacts_to_sight = 0;
+	out->training_target = 0;
+	out->occupied = 0;
+	out->relation = chr == owner ? TARGET_RELATION_OWNER
+		: (chrCompareTeams(owner, chr, COMPARE_ENEMIES) ? TARGET_RELATION_ENEMY : TARGET_RELATION_FRIEND);
+	out->alive = chrIsDead(chr) ? 0 : 1;
+	out->cloaked = chr->prop && botIsTargetInvisible(NULL, chr) ? 1 : 0;
+	out->owner_ir = 0;
+	out->drugged = 0;
+	out->unexplodable = 0;
+	out->armed = 0;
+}
+
 bool rocketTickFbw(struct weaponobj *rocket)
 {
 	bool cdresult;
@@ -8101,13 +8123,19 @@ bool rocketTickFbw(struct weaponobj *rocket)
 			? projectile->flyproxradius : 250.0f;
 		f32 fbwproxradiussq = fbwproxradius * fbwproxradius;
 
+		/* held-weapon-events.md slice 6a: the bot Slayer's filter (its
+		 * native one: an enemy of the bot, alive, not invisible to bots). */
+		target_filter_t fbwfilter;
+
+		targetFilterNative(TARGET_PICKER_BOT_SLAYER, rocket->weaponnum, &fbwfilter);
+
 		for (i = 0; i < g_MpNumChrs; i++) {
 			struct chrdata *chr = mpGetChrFromPlayerIndex(i);
+			target_facts_t facts;
 
-			if (chr != ownerchr
-					&& !chrIsDead(chr)
-					&& chrCompareTeams(ownerchr, chr, COMPARE_ENEMIES)
-					&& !botIsTargetInvisible(NULL, chr)) {
+			rocketFbwTargetFacts(chr, ownerchr, &facts);
+
+			if (targetFilterAccepts(&fbwfilter, &facts)) {
 				// Explode if within 250 units
 				xdist = rocketprop->pos.x - chr->prop->pos.x;
 				ydist = rocketprop->pos.y - chr->prop->pos.y;
@@ -8747,6 +8775,21 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 					struct coord sp2f8 = {0, 0, 0};
 					struct coord sp2ec = {0, 0, 1};
 					struct coord sp2e0 = {0, 1, 0};
+
+					/* held-weapon-events.md slice 6b: og.projectile.home's
+					 * filter, re-checked while it flies; a target that fails it
+					 * is lost and the rocket flies straight. The original's home
+					 * names none and never re-checks. */
+					if (projectile->targetprop && flightset->home_filtered) {
+						target_facts_t homefacts;
+
+						sightTargetFactsFor(projectile->targetprop, projectile->ownerprop,
+							sightOwnerUsesIr(projectile->ownerprop), &homefacts);
+
+						if (!targetFilterAccepts(&flightset->home_filter, &homefacts)) {
+							projectile->targetprop = NULL;
+						}
+					}
 
 					if (obj && obj->prop && projectile->targetprop) {
 						Mtxf mtx;
@@ -10866,6 +10909,25 @@ void fanUpdateModel(struct prop *prop)
 	mtx3Copy(sp24, fan->base.realrot);
 }
 
+/* held-weapon-events.md slice 6a: a character's facts as a sentry with a
+ * team mask reads them (its search already chose the team; hidden and
+ * cloaked are the cloak). */
+static void autogunTargetFacts(struct chrdata *chr, target_facts_t *out)
+{
+	out->kind = chr->prop && chr->prop->type == PROPTYPE_PLAYER ? TARGET_KIND_PLAYER
+		: (chr->aibot ? TARGET_KIND_SIMULANT : TARGET_KIND_GUARD);
+	out->reacts_to_sight = 0;
+	out->training_target = 0;
+	out->occupied = 0;
+	out->relation = TARGET_RELATION_ENEMY;
+	out->alive = chrIsDead(chr) ? 0 : 1;
+	out->cloaked = (chr->chrflags & CHRCFLAG_HIDDEN) || (chr->hidden & CHRHFLAG_CLOAKED) ? 1 : 0;
+	out->owner_ir = 0;
+	out->drugged = 0;
+	out->unexplodable = 0;
+	out->armed = 0;
+}
+
 void autogunTick(struct prop *prop)
 {
 	// In netplay, only the server handles autogun AI (targeting, rotation).
@@ -11000,6 +11062,13 @@ void autogunTick(struct prop *prop)
 			if (1);
 		} else if (autogun->targetteam != 0) {
 			// Autogun (solo or MP) configured to attack specific teams
+			/* held-weapon-events.md slice 6a: the sentry's filter (its
+			 * native one: a character of a team it attacks, alive, neither
+			 * hidden nor cloaked). */
+			target_filter_t sentryfilter;
+
+			targetFilterNative(TARGET_PICKER_SENTRY, -1, &sentryfilter);
+
 			if (g_Vars.normmplayerisrunning) {
 				numchrs = g_MpNumChrs;
 			} else {
@@ -11050,11 +11119,15 @@ void autogunTick(struct prop *prop)
 					}
 				}
 
-				if ((chr->chrflags & CHRCFLAG_HIDDEN) == 0
-						&& (chr->hidden & CHRHFLAG_CLOAKED) == 0
-						&& !chrIsDead(chr)) {
-					target = chr->prop;
-					break;
+				{
+					target_facts_t facts;
+
+					autogunTargetFacts(chr, &facts);
+
+					if (targetFilterAccepts(&sentryfilter, &facts)) {
+						target = chr->prop;
+						break;
+					}
 				}
 
 				if (1);
@@ -21811,10 +21884,28 @@ void weaponUnregisterProxy(struct weaponobj *weapon)
 	}
 }
 
+/* held-weapon-events.md slice 6b: the prop of the player or simulant who
+ * owns a mine (its player number in the weapon's hidden bits), or NULL. */
+static struct prop *weaponProxyOwnerProp(struct weaponobj *weapon)
+{
+	const s32 owner = (weapon->base.hidden & 0xf0000000) >> 28;
+
+	if (g_Vars.normmplayerisrunning) {
+		struct chrdata *chr = mpGetChrFromPlayerIndex(owner);
+
+		return chr ? chr->prop : NULL;
+	}
+	return owner >= 0 && owner < MAX_PLAYERS && g_Vars.players[owner] ? g_Vars.players[owner]->prop : NULL;
+}
+
 /* T-MODDING-008: the proxy sweep, knowing which chr (or NULL: a moving
  * object) is the candidate, so a mod mine can apply its own radius and
- * filters. coordTriggerProxies keeps its signature for the other callers. */
-static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool arg1)
+ * filters. coordTriggerProxies keeps its signature for the other callers.
+ * Held slice 6b: and what came near (`candidate`, NULL when the caller does
+ * not name it), for a mine whose arm names a filter
+ * (og.projectile.arm_proximity), judged as the mine's owner sees it; one it
+ * cannot judge does not set that mine off. */
+static void coordTriggerProxiesFor(struct chrdata *chr, struct prop *candidate, struct coord *pos, bool arg1)
 {
 	s32 i;
 
@@ -21827,9 +21918,19 @@ static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool 
 			f32 zdiff;
 			f32 distsq;
 			f32 range = 250 * 250;
+			const target_filter_t *armfilter = projectileArmProximityFilter(&weapon->base);
+			s32 filtered = -1;
+
+			if (armfilter) {
+				target_facts_t facts;
+				struct prop *owner = weaponProxyOwnerProp(weapon);
+
+				sightTargetFactsFor(candidate, owner, sightOwnerUsesIr(owner), &facts);
+				filtered = candidate && targetFilterAccepts(armfilter, &facts) ? 1 : 0;
+			}
 
 			if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
-				s32 decision = bgunModProxyDecision(weapon, chr, pos);
+				s32 decision = bgunModProxyDecision(weapon, chr, pos, filtered);
 
 				if (decision == 1) {
 					weapon->timer240 = 0;
@@ -21844,6 +21945,11 @@ static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool 
 			ydiff = pos->y - weapon->base.prop->pos.y;
 			zdiff = pos->z - weapon->base.prop->pos.z;
 			distsq = xdiff * xdiff + ydiff * ydiff + zdiff * zdiff;
+
+			if (filtered == 0) {
+				/* Slice 6b: its arm does not listen for this. */
+				continue;
+			}
 
 			if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
 				/* A mod weapon whose record makes no decision: the plain
@@ -21875,7 +21981,12 @@ static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool 
 
 void coordTriggerProxies(struct coord *pos, bool arg1)
 {
-	coordTriggerProxiesFor(NULL, pos, arg1);
+	coordTriggerProxiesFor(NULL, NULL, pos, arg1);
+}
+
+void coordTriggerProxiesBy(struct prop *prop, struct coord *pos, bool arg1)
+{
+	coordTriggerProxiesFor(NULL, prop, pos, arg1);
 }
 
 void chrsTriggerProxies(void)
@@ -21898,7 +22009,7 @@ void chrsTriggerProxies(void)
 				&& (chr->prop->flags & PROPFLAG_ENABLED)
 				&& !chrIsDead(chr)) {
 			chrCalculatePosition(chr, &pos);
-			coordTriggerProxiesFor(chr, &pos, true);
+			coordTriggerProxiesFor(chr, chr->prop, &pos, true);
 		}
 
 		if (chr);

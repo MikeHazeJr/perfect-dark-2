@@ -21,6 +21,8 @@
  * chosen, where that code has always run.
  */
 
+#include "target_filter.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -185,6 +187,7 @@ u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks
  * and "pinball". A setting left out is the original's for the object's
  * weapon number, else the defaults below.
  */
+#define PROJECTILE_HOME_LOST_PARAM "lost" /* slice 6b: what a homing rocket does when its target fails its filter: straight */
 #define PROJECTILE_THRUST_MAX_SPEED_PARAM "max_speed"
 #define PROJECTILE_THRUST_EXHAUST_PARAM "exhaust"
 #define PROJECTILE_SMOKE_PARAM "smoke"
@@ -198,6 +201,12 @@ u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks
 #define PROJECTILE_MAX_SPEED_LIMIT 10000
 
 typedef struct projectile_flight {
+	/* home (held-weapon-events.md slice 6b): the filter its target is
+	 * re-checked by while it flies; the original's home has none and
+	 * never re-checks. A target that fails it is lost: the rocket flies
+	 * straight. */
+	target_filter_t home_filter;
+	s8 home_filtered;
 	f32 max_speed;    /* thrust: its cap, units a tick */
 	s16 exhaust;      /* thrust: the smoke it leaves while powered, -1 none */
 	s16 trail_smoke;  /* trail: its smoke */
@@ -228,6 +237,26 @@ s32 projectileRulesFlightSettingsText(u32 module, const projectile_flight_t *fli
 s32 projectileRulesFlightSame(u32 modules, const projectile_flight_t *a, const projectile_flight_t *b);
 /* A smoke's name ("rocket"), NULL for none of these. */
 const char *projectileRulesSmokeName(s32 smoketype);
+
+/*
+ * held-weapon-events.md slice 6b: the arms' settings, chosen with the arm
+ * (event.projectile.armed). og.projectile.arm_proximity takes the target
+ * filter's settings (target_filter.h): what sets the mine off. The
+ * original's names none: anything that comes near, which its proximity
+ * rule's gates then judge (close, a character). A mod mine's record keeps
+ * its own filters unless its program's arm names one.
+ */
+typedef struct projectile_arm {
+	target_filter_t proximity_filter;
+	s8 proximity_filtered;
+} projectile_arm_t;
+/* The original's: no filter. */
+void projectileRulesNativeArm(s32 weaponnum, s32 gunfunc, projectile_arm_t *out);
+/* An arm module's settings, read by `get`, over *arm. Returns 1, or 0 when
+ * a setting is malformed (*bad_key, when given, names it;
+ * projectileRulesFlightSettingHelp says what it takes). */
+s32 projectileRulesArmSettings(u32 module, projectile_text_fn get, void *user, projectile_arm_t *arm,
+	const char **bad_key);
 
 /*
  * The explosion og.projectile.explode makes. Its node may name one with a

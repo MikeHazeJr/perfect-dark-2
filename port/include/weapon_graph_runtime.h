@@ -285,6 +285,15 @@ typedef struct weapon_graph_held_function {
 	f32 recoilangle;
 	s32 has_slidemax;
 	f32 slidemax;
+	/* held-weapon-events.md slice 7a: the jitter's ranges (the record's
+	 * recoilsettings xrange, yrange, zrange) and an automatic's jitter
+	 * multiplier from no spin to full (vibration_start and vibration_max,
+	 * element 0; the Reaper's). */
+	s32 has_recoil_shake;
+	f32 recoil_shake[3];
+	s32 has_spin_shake;
+	f32 spin_shake_from;
+	f32 spin_shake_to;
 	s32 has_impactforce;
 	f32 impactforce;
 	s32 has_duration_ticks60;
