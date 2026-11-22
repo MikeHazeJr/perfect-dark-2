@@ -1,5 +1,19 @@
 # Bug Tracker
 
+## 2026-11-22 B-1309 `release.ps1` would commit Codex's memory from a fresh clone of this public repository (T-RELEASE-006, open: Mike's decision)
+
+Found by claude-pd-integration-20261121 while preparing step 9's release in a fresh clone. Before
+building and again before pushing, `release.ps1` calls `Sync-ProjectMindState`
+(`devtools/project-state-sync.ps1`). That copies `%USERPROFILE%\.codex\memories\MEMORY.md` to
+`Tools/Workbench/exports/codex-memory-snapshot.md`; the script then runs `git add -A`, commits and pushes.
+No tracked rule ignores that path (a simulated clone with dev's ignore files did not ignore it), and the
+GitHub repository is public. Only the main checkout is protected, by an untracked
+`Tools/Workbench/exports/.gitignore` containing `*`, which ignores itself and so was never committed. The
+mirror has never been in any commit. The sync's commit body says code, Workbench state and Codex memory
+are meant to move together, so publishing it was once the design. Step 9's dry run and release use a
+clone that excludes `/Tools/Workbench/exports/` in `.git/info/exclude`. Open, for Mike: commit an ignore
+rule for the exports folder, stop the sync from copying the memory, or keep publishing it on purpose.
+
 ## 2026-11-22 B-1308 The build queue's landing note targeted the job's issue, which the Workbench refuses when it is a bug id (T-TOOLING-020, fixed through the build queue)
 
 Found by claude-pd-integration-20261121 in Milestone 4: the worker's notes for q1 (B-1307) and q3
