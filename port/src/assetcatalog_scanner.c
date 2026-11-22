@@ -5884,7 +5884,8 @@ static s32 registerArenaEmbeddedScenario(const char *arena_id, const char *mod_i
 	/* The manifest's language bank wins; a scenario.ini field of the same
 	 * name, bound with the rest of the descriptor, answers when it names none. */
 	{
-		char text_bank[sizeof(row->ext.scenario.text_bank)];
+		/* Zeroed: the row's whole field is copied, bytes after the NUL too. */
+		char text_bank[sizeof(row->ext.scenario.text_bank)] = { 0 };
 
 		if (scenarioArchiveManifestTextBank(bytes, size, text_bank, sizeof(text_bank))) {
 			memcpy(row->ext.scenario.text_bank, text_bank, sizeof(text_bank));
