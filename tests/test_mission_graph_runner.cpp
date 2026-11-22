@@ -5298,6 +5298,94 @@ TEST_CASE("an attack's fire animation is its function's own unless its program's
 	REQUIRE(extractor.find("record.fire_animation = weaponRulesAnimationFits(f->type)") != std::string::npos);
 }
 
+// B-1317 (Integration, 2026-11-22): an animation started on a gun whose model
+// runs no animation tick (no WEAPONFLAG_00002000: a public mod weapon, a v2
+// graph weapon) was never applied, so animload stayed set and every wait on it
+// hung (mod_author_weapon_play_smoke's shot after slice 7c). pd-tests does not
+// build bondgun.c, so these pins prove it on the source: one helper asks the
+// tick's own question, the tick and every start ask it, the states that choose
+// an animation take their no-animation path when it says no, and a refused
+// start leaves the hand with nothing loaded and idle, which every wait reads as
+// done.
+TEST_CASE("a gun that runs no gun animations starts none, and a refused start leaves the hand done",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules][b1317]")
+{
+	const auto count = [](const std::string &text, const std::string &needle) {
+		size_t n = 0;
+		for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) n++;
+		return n;
+	};
+	const std::string bondgun = readSource("src/game/bondgun.c");
+
+	// One question, the tick's own; the tick asks it, and nothing else tests
+	// the flag.
+	REQUIRE(bondgun.find("static bool bgunHandRunsGunAnimations(s32 handnum)\n{\n"
+		"\treturn weaponHasFlag(bgunGetWeaponNum2(handnum), WEAPONFLAG_00002000);\n}") != std::string::npos);
+	REQUIRE(bondgun.find("\t\tif (bgunHandRunsGunAnimations(handnum)) {\n\t\t\tbgun0f0981e8(hand, modeldef);\n")
+		!= std::string::npos);
+	CHECK(count(bondgun, ", WEAPONFLAG_00002000)") == 1);
+	CHECK(count(bondgun, "bgun0f0981e8(hand, modeldef);") == 1);
+	REQUIRE(bondgun.find("\tif (cmd && !bgunHandRunsGunAnimations(handnum)) {\n"
+		"\t\tbgunLogRefusedAnimation(handnum, cmd);\n\t\treturn NULL;\n\t}\n\n\treturn cmd;") != std::string::npos);
+	REQUIRE(bondgun.find("\"BONDGUN.ANIM: weapon=%d id=%s animation=%s not played: its gun runs no gun animations (B-1317)\"")
+		!= std::string::npos);
+
+	// A refused start leaves the hand as bgunResetAnim does, before anything
+	// is loaded: nothing loaded and idle.
+	const size_t start = bondgun.find("void bgunStartAnimation(struct guncmd *cmd, s32 handnum, struct hand *hand)\n{");
+	const size_t refuse = bondgun.find("\tif (!bgunHandAnimation(handnum, cmd)) {\n\t\tbgunResetAnim(hand);\n\t\treturn;\n\t}");
+	const size_t load = bondgun.find("\t\thand->animload = cmd->unk02;\n\t\thand->animmode = HANDANIMMODE_IDLE;");
+	REQUIRE(start != std::string::npos);
+	REQUIRE(refuse != std::string::npos);
+	REQUIRE(load != std::string::npos);
+	CHECK(start < refuse);
+	CHECK(refuse < load);
+	CHECK(bondgun.find("GUNCMD_PLAYANIMATION", start) > refuse);
+	REQUIRE(bondgun.find("void bgunResetAnim(struct hand *hand)\n{\n\thand->animload = -1;\n"
+		"\thand->animmode = HANDANIMMODE_IDLE;\n") != std::string::npos);
+
+	// Every wait reads that as done: the keyframe wait (the shot's, the
+	// throw's, the strike's, the reload's) with nothing loaded, and the waits
+	// on animmode (the reload's end, the unequip, the equip).
+	REQUIRE(bondgun.find("\tif (hand->animmode == HANDANIMMODE_IDLE) {\n\t\treturn (hand->animload == -1);\n\t}")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("\t\t\tif (hand->animmode != HANDANIMMODE_BUSY) {\n"
+		"\t\t\t\tif (bgunSetState(handnum, HANDSTATE_IDLE)) {") != std::string::npos);
+	REQUIRE(bondgun.find("\t\t\t\t} else if (hand->animmode == HANDANIMMODE_IDLE) {\n"
+		"\t\t\t\t\thand->stateminor++; // to HANDSTATEMINOR_CHANGEGUN_LOWER") != std::string::npos);
+	REQUIRE(bondgun.find("\t\t\tif (hand->animmode == HANDANIMMODE_IDLE) {\n"
+		"\t\t\t\tif (bgunSetState(handnum, HANDSTATE_IDLE)) {") != std::string::npos);
+
+	// The states that choose an animation ask first, so a gun that runs none
+	// goes the way a weapon without that animation goes: the attack's fire
+	// animation (the shot, the throw, the strike), the reload (lower, the
+	// reload sound, raise), the unequip and the lower, the equip, the raise
+	// and the equip's wait.
+	CHECK(count(bondgun, "bgunHandAnimation(handnum, ") == 8);
+	REQUIRE(bondgun.find("\treturn bgunHandAnimation(handnum, cmds);\n}") != std::string::npos);
+	CHECK(count(bondgun, "bgunPlanFireAnimation(hand, ") == 3);
+	CHECK(count(bondgun, "bgunHandPlan(handnum), handnum);") == 1);
+	CHECK(count(bondgun, " plan, handnum); /* slice 7c */") == 2);
+	REQUIRE(bondgun.find("if (bgunHandAnimation(handnum, info->definition->ammos[func->ammoindex]->reload_animation)\n"
+		"\t\t\t\t\t\t&& info->weaponnum != WEAPON_COMBATKNIFE) {") != std::string::npos);
+	REQUIRE(bondgun.find("if (bgunHandAnimation(handnum, weapon->unequip_animation)\n\t\t\t\t\t&& hand->inuse == true")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("if (bgunHandAnimation(handnum, weapon->unequip_animation)\n"
+		"\t\t\t\t&& (hand->stateflags & HANDSTATEFLAG_00000001) == 0) {") != std::string::npos);
+	REQUIRE(bondgun.find("if (bgunHandAnimation(handnum, info->definition->equip_animation)) {\n"
+		"\t\t\t\t\t\tbgunStartAnimation(info->definition->equip_animation, handnum, hand);") != std::string::npos);
+	REQUIRE(bondgun.find("} else if (bgunHandAnimation(handnum, weapon->equip_animation)) {") != std::string::npos);
+	REQUIRE(bondgun.find("if (bgunHandAnimation(handnum, info->definition->equip_animation)\n"
+		"\t\t\t\t&& !weaponHasFlag(hand->gset.weaponnum, WEAPONFLAG_00004000)) {") != std::string::npos);
+	CHECK(bondgun.find("if (weapon->unequip_animation") == std::string::npos);
+	CHECK(bondgun.find("if (info->definition->equip_animation") == std::string::npos);
+	CHECK(bondgun.find("} else if (weapon->equip_animation) {") == std::string::npos);
+
+	// The play smoke shows the refusal.
+	const std::string smoke = readSource("tools/smoke-verify/tests/mod_author_weapon_play_smoke.json");
+	REQUIRE(smoke.find("not played: its gun runs no gun animations \\\\(B-1317\\\\)") != std::string::npos);
+}
+
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
 	"[mission][graph][runner]")
 {

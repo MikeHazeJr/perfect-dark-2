@@ -947,6 +947,68 @@ bool bgun0f098884(struct guncmd *cmd, struct gset *gset)
 	return result;
 }
 
+/*
+ * B-1317: whether hand `handnum`'s gun runs its model's animation tick. The
+ * tick (bgun0f0981e8, from bgun0f0a5550) runs only for a weapon flagged
+ * WEAPONFLAG_00002000, and it is what turns a started animation (animload)
+ * into a playing one: an animation started on any other gun is never applied,
+ * so every wait on it (bgun0f098a44: the shot's, the throw's, the strike's,
+ * the reload's) waits forever. Every held base weapon that has an animation
+ * carries the flag; a public (mod) weapon (loader_pool.c) and a v2 graph
+ * weapon (weapon_graph_v2_equipped.cpp) never do. The tick and every start
+ * ask this one question, so they cannot disagree.
+ */
+static bool bgunHandRunsGunAnimations(s32 handnum)
+{
+	return weaponHasFlag(bgunGetWeaponNum2(handnum), WEAPONFLAG_00002000);
+}
+
+/* B-1317: a refused animation is logged once per weapon and animation. */
+static void bgunLogRefusedAnimation(s32 handnum, const struct guncmd *cmd)
+{
+	static struct { s32 weaponnum; const struct guncmd *cmd; } logged[16];
+	static s32 numlogged = 0;
+	const s32 weaponnum = bgunGetWeaponNum2(handnum);
+	const char *weapon = loaderPoolGetWeaponCatalogId(weaponnum);
+	const char *anim = loaderPoolAnimationNameForCmds(cmd);
+	s32 i;
+
+	for (i = 0; i < numlogged; i++) {
+		if (logged[i].weaponnum == weaponnum && logged[i].cmd == cmd) {
+			return;
+		}
+	}
+
+	if (numlogged >= ARRAYCOUNT(logged)) {
+		return;
+	}
+
+	logged[numlogged].weaponnum = weaponnum;
+	logged[numlogged].cmd = cmd;
+	numlogged++;
+
+	if (!weapon && weaponnum >= 0 && weaponnum < g_WeaponDataCount) {
+		weapon = g_WeaponDataCatalogIds[weaponnum];
+	}
+
+	sysLogPrintf(LOG_NOTE,
+		"BONDGUN.ANIM: weapon=%d id=%s animation=%s not played: its gun runs no gun animations (B-1317)",
+		weaponnum, weapon ? weapon : "?", anim ? anim : "unnamed");
+}
+
+/* B-1317: the animation hand `handnum` plays for `cmd`: `cmd`, or NULL when
+ * its gun runs no gun animations, so the state that asks goes the way it goes
+ * for a weapon without that animation. */
+static struct guncmd *bgunHandAnimation(s32 handnum, struct guncmd *cmd)
+{
+	if (cmd && !bgunHandRunsGunAnimations(handnum)) {
+		bgunLogRefusedAnimation(handnum, cmd);
+		return NULL;
+	}
+
+	return cmd;
+}
+
 void bgunStartAnimation(struct guncmd *cmd, s32 handnum, struct hand *hand)
 {
 	/* Defensive guard: cmd may be NULL when the equip/unequip/etc.
@@ -964,6 +1026,16 @@ void bgunStartAnimation(struct guncmd *cmd, s32 handnum, struct hand *hand)
 			"(handnum=%d) -- skipping; likely an unresolved INCLUDE/RANDOM "
 			"animation reference in the active weapon",
 			(s32)handnum);
+		return;
+	}
+	/* B-1317: a start on a gun that runs no gun animations is refused, and
+	 * the hand is left as bgunResetAnim leaves it: nothing loaded (animload
+	 * -1) and idle, which every wait reads as done (bgun0f098a44 with nothing
+	 * loaded, and the waits on animmode). The states that choose an animation
+	 * ask bgunHandAnimation first; this keeps any other start from leaving a
+	 * hand waiting forever. */
+	if (!bgunHandAnimation(handnum, cmd)) {
+		bgunResetAnim(hand);
 		return;
 	}
 	{
@@ -1760,7 +1832,8 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 	if (hand->stateminor == HANDSTATEMINOR_RELOAD_MAIN) {
 		if (hand->statecycles == 0) {
 			if (func && (func->ammoindex == 0 || func->ammoindex == 1)) {
-				if (info->definition->ammos[func->ammoindex]->reload_animation
+				/* B-1317: a gun that runs no gun animations reloads as one with none. */
+				if (bgunHandAnimation(handnum, info->definition->ammos[func->ammoindex]->reload_animation)
 						&& info->weaponnum != WEAPON_COMBATKNIFE) {
 					bgunStartAnimation(info->definition->ammos[func->ammoindex]->reload_animation, handnum, hand);
 
@@ -2404,11 +2477,12 @@ static void bgunPlanShotSound(struct hand *hand, const weapon_rule_trigger_t *pl
  * plan's og.weapon.play_animation (the function's own with no program). One
  * the function does not have plays only on a held model with a skeleton: a
  * generated mesh has none, and an animation would move all of it by its
- * first part's channel. The attack then goes on as one with no animation. */
+ * first part's channel. The attack then goes on as one with no animation,
+ * as it does on a gun that runs no gun animations (B-1317). */
 static s32 s_BgunFireAnimationSkips = 0;
 
 static struct guncmd *bgunPlanFireAnimation(struct hand *hand, struct weaponfunc *func,
-		const weapon_rule_trigger_t *plan)
+		const weapon_rule_trigger_t *plan, s32 handnum)
 {
 	struct guncmd *cmds = (struct guncmd *) plan->fire_animation;
 
@@ -2423,7 +2497,7 @@ static struct guncmd *bgunPlanFireAnimation(struct hand *hand, struct weaponfunc
 		}
 		return NULL;
 	}
-	return cmds;
+	return bgunHandAnimation(handnum, cmds);
 }
 
 /*
@@ -2812,7 +2886,7 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 
 		if (hand->statecycles == 0) {
 			/* slice 7c: the attack's fire animation. */
-			struct guncmd *fireanim = bgunPlanFireAnimation(hand, func, bgunHandPlan(handnum));
+			struct guncmd *fireanim = bgunPlanFireAnimation(hand, func, bgunHandPlan(handnum), handnum);
 
 			hand->gs_float1 = 0;
 
@@ -2926,7 +3000,7 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	 * (og.weapon.use_ammo; 1 for a base throw with a clip). */
 	bgunRuleFunctionOf(hand, &func->base, &record);
 	plan = weaponHandTrigger(hand, &record);
-	fireanim = bgunPlanFireAnimation(hand, &func->base, plan); /* slice 7c */
+	fireanim = bgunPlanFireAnimation(hand, &func->base, plan, handnum); /* slice 7c */
 	activationtime60 = graph && graph->has_activation_time_ticks60 ?
 		graph->activation_time_ticks60 : func->activatetime60;
 	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
@@ -3060,7 +3134,7 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 	 * (og.weapon.use_ammo; the Tranquilizer's sedative strike 4). */
 	bgunRuleFunctionOf(hand, func, &record);
 	plan = weaponHandTrigger(hand, &record);
-	fireanim = bgunPlanFireAnimation(hand, func, plan); /* slice 7c */
+	fireanim = bgunPlanFireAnimation(hand, func, plan, handnum); /* slice 7c */
 
 	if (hand->gset.weaponnum == WEAPON_REAPER) {
 		if (hand->statecycles == 0) {
@@ -3639,7 +3713,8 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 		hand->count = 0;
 
 		if (!skipanim) {
-			if (weapon->unequip_animation
+			/* B-1317: a gun that runs no gun animations changes as one with none. */
+			if (bgunHandAnimation(handnum, weapon->unequip_animation)
 					&& hand->inuse == true
 					&& !(hand->ejectstate != EJECTSTATE_INACTIVE && hand->ejecttype == EJECTTYPE_GUN)) {
 				if (hand->statecycles == 0) {
@@ -3678,7 +3753,8 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 			delay = TICKS(12);
 		}
 
-		if (weapon->unequip_animation && (hand->stateflags & HANDSTATEFLAG_00000001) == 0) {
+		if (bgunHandAnimation(handnum, weapon->unequip_animation)
+				&& (hand->stateflags & HANDSTATEFLAG_00000001) == 0) {
 			delay = 1;
 		}
 
@@ -3763,7 +3839,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 				}
 			} else {
 				if (bgunIsLoaded()) {
-					if (info->definition->equip_animation) {
+					if (bgunHandAnimation(handnum, info->definition->equip_animation)) {
 						bgunStartAnimation(info->definition->equip_animation, handnum, hand);
 						hand->unk0cc8_02 = true;
 					}
@@ -3791,7 +3867,7 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 
 		if (weaponHasFlag(hand->gset.weaponnum, WEAPONFLAG_00004000)) {
 			hand->animmode = HANDANIMMODE_IDLE;
-		} else if (weapon->equip_animation) {
+		} else if (bgunHandAnimation(handnum, weapon->equip_animation)) {
 			delay = 1;
 		}
 
@@ -3971,7 +4047,8 @@ s32 bgunTickIncChangeGun(struct handweaponinfo *info, s32 handnum, struct hand *
 
 	// Wait for equip animation to finish then go to idle state
 	if (hand->stateminor == HANDSTATEMINOR_CHANGEGUN_EQUIP) {
-		if (info->definition->equip_animation && !weaponHasFlag(hand->gset.weaponnum, WEAPONFLAG_00004000)) {
+		if (bgunHandAnimation(handnum, info->definition->equip_animation)
+				&& !weaponHasFlag(hand->gset.weaponnum, WEAPONFLAG_00004000)) {
 			if (hand->animmode == HANDANIMMODE_IDLE) {
 				if (bgunSetState(handnum, HANDSTATE_IDLE)) {
 					return lvupdate;
@@ -9784,7 +9861,8 @@ void bgun0f0a5550(s32 handnum)
 
 		bgun0f098030(hand, modeldef);
 
-		if (weaponHasFlag(weaponnum, WEAPONFLAG_00002000)) {
+		/* B-1317: the question every animation start asks. */
+		if (bgunHandRunsGunAnimations(handnum)) {
 			bgun0f0981e8(hand, modeldef);
 		}
 	}
