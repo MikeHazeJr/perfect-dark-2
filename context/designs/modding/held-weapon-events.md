@@ -1040,6 +1040,19 @@ it: the Super Dragon equipped in grenade mode now ejects its rifle casings
 once switched to its primary. The profile executor's weapons keep their
 path.
 
+**PR 49 review, casings by state (2026-11-22):** one function can also eject
+more than one casing type: its program can hold `og.weapon.casing` nodes on
+the two branches of a `gate.weapon.state_is`, and the press plan the gun
+took its models from is walked with no states, so it named only the casing
+of the branch taken with none set; a hand with the state set asked for the
+other and found no model. The gun now loads a model for every casing either
+function can eject (`weaponFunctionCasings`: each casing node the program
+holds, wherever it sits, plus the function's own, which a branch with no
+casing node ejects; one node's casings are `weaponRulesCasingNodeMask`), one
+model a type and at most the four casing models, with `cartmodeldef` still
+the selected function's press casing, loaded first. Casings still load in
+one-player games only, as in the original.
+
 **PR 49 review, locks (2026-11-22):** a weapon whose lock takes targets
 (`weaponSightLock(0)->locks > 0`) now picks them in multiplayer and has
 their bounds and deaths refreshed, as the aim-tracking base weapons do;

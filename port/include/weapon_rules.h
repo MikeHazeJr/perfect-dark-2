@@ -779,6 +779,19 @@ static inline s32 weaponRulesCasingEject(const weapon_rule_trigger_t *plan)
 	return plan && plan->casing > 0 ? plan->casing - 1 : -1;
 }
 
+/* PR 49 review (slice 7b): what one og.weapon.casing node can make an attack
+ * eject, as (1 << CASING_*): its type's; nothing for "none"; and the
+ * function's own (`native`, CASING_* or -1) when it names no type or one it
+ * does not know, which keeps the default (weaponRulesApplyCasingSettings). */
+static inline u32 weaponRulesCasingNodeMask(const char *type_text, s32 native)
+{
+	const s32 casing = type_text ? weaponRulesCasingFromText(type_text) : -2;
+
+	if (casing > 0) return 1u << (casing - 1);
+	if (casing == 0) return 0;
+	return native >= 0 && native < 32 ? 1u << native : 0;
+}
+
 static inline void weaponRulesNativeCasing(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
 {
 	out->casing = f && weaponRulesFunctionShoots(f) && f->casing > 0 && f->casing < WEAPON_RULE_CASING_NAMES

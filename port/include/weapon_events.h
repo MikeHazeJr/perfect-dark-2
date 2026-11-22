@@ -105,6 +105,13 @@ s32 weaponProgramRecoilFrames(s32 weaponnum, s32 func, s32 native);
  * model when it is equipped. */
 s32 weaponFunctionCasing(s32 weaponnum, s32 func);
 
+/* PR 49 review (slice 7b): every casing a function's attacks can eject, as
+ * (1 << CASING_*): each og.weapon.casing its program holds, on either branch
+ * of any gate (a gate.weapon.state_is branch the press plan never takes
+ * included), and the function's own, which a branch with no casing node
+ * ejects. The gun loads a model for each (bgunQueueCartModels). */
+u32 weaponFunctionCasings(s32 weaponnum, s32 func);
+
 /* slice 7b: a simulant's or a guard's shot sound and the frames its fire
  * slot keeps it (gsetGetSingleShootSound, gsetGetFireslotDuration): the
  * og.weapon.shot_sound a press plans, `native` for a function with no

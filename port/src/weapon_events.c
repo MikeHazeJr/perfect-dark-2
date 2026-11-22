@@ -862,6 +862,46 @@ s32 weaponFunctionCasing(s32 weaponnum, s32 func)
 	return weaponRulesCasingEject(&plan);
 }
 
+/* PR 49 review: the press plan is walked with no states, so it holds only
+ * the casing of the branch a state gate takes with none set, while the hand
+ * walks its live states; so every casing node counts, wherever it sits. */
+typedef struct weapon_casing_visit {
+	s32 weaponnum;
+	s32 native;
+	u32 mask;
+} weapon_casing_visit_t;
+
+static s32 weaponCasingVisit(const char *kind, const mission_graph_params_t *params, void *userdata)
+{
+	weapon_casing_visit_t *visit = (weapon_casing_visit_t *)userdata;
+	char text[32];
+
+	if (kind && strcmp(kind, weaponRulesModuleKind(WEAPON_MODULE_CASING)) == 0) {
+		visit->mask |= weaponRulesCasingNodeMask(weaponGraphRuntimeHeldParamText(visit->weaponnum, params,
+			WEAPON_RULE_CASING_TYPE_PARAM, text, sizeof(text)), visit->native);
+	}
+	return 1;
+}
+
+u32 weaponFunctionCasings(s32 weaponnum, s32 func)
+{
+	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, func);
+	weapon_rule_function_t record;
+	weapon_rule_trigger_t own;
+	weapon_casing_visit_t visit;
+
+	weaponRuleFunctionOfHeld(weaponnum, func, &record);
+	memset(&own, 0, sizeof(own));
+	weaponRulesNativeCasing(&record, &own);
+	visit.weaponnum = weaponnum;
+	visit.native = weaponRulesCasingEject(&own);
+	visit.mask = weaponRulesCasingNodeMask(NULL, visit.native);
+	if (program) {
+		missionGraphProgramVisitModuleParams(program, weaponCasingVisit, &visit);
+	}
+	return visit.mask;
+}
+
 s32 weaponProgramRecoilFrames(s32 weaponnum, s32 func, s32 native)
 {
 	weapon_rule_trigger_t plan;

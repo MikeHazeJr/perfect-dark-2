@@ -4707,13 +4707,13 @@ TEST_CASE("a shot's casing and flash are its function's own unless its program n
 	const std::string bondgun = readSource("src/game/bondgun.c");
 	REQUIRE(bondgun.find("if (!plan->flash) {\n\t\thand->flashon = false;") != std::string::npos);
 	CHECK(bondgun.find("if (funcflags & FUNCFLAG_NOMUZZLEFLASH) {") == std::string::npos);
-	// PR 49 review: a model for each casing the weapon's functions name, the
-	// selected function's first, and each attack ejects its own type's.
+	// PR 49 review: the selected function's press casing first, then a model
+	// for every other casing either function can eject (the next case), and
+	// each attack ejects its own type's.
 	REQUIRE(bondgun.find("const s32 first = weaponFunctionCasing(weaponnum, selected);") != std::string::npos);
-	REQUIRE(bondgun.find("types[1] = first >= 0 && other >= 0 && other != first ? other : -1;") != std::string::npos);
-	REQUIRE(bondgun.find("bgunQueueModelLoad(player, g_CartFileNums[types[1]], &s_BgunCartModeldef2[p],")
+	REQUIRE(bondgun.find("bgunQueueModelLoad(player, g_CartFileNums[first], &player->gunctrl.cartmodeldef,")
 		!= std::string::npos);
-	REQUIRE(bondgun.find("s_BgunCartModeldef2[g_Vars.currentplayernum] = NULL;") != std::string::npos);
+	REQUIRE(bondgun.find("memset(s_BgunCartModeldefs[g_Vars.currentplayernum], 0,") != std::string::npos);
 	CHECK(bondgun.find("? weaponFunctionCasing(hand->gset.weaponnum, hand->gset.weaponfunc) : -1;") == std::string::npos);
 	REQUIRE(bondgun.find("out->casing = (s32) def->ammos[out->ammo_slot]->casingeject + 1;") != std::string::npos);
 	const std::string gunfx = readSource("src/game/gunfx.c");
@@ -4727,6 +4727,104 @@ TEST_CASE("a shot's casing and flash are its function's own unless its program n
 		"\t\t\ts_emitHeldProgramEdge(w, casing, \"out\", flash, 0);") != std::string::npos);
 	const std::string events = readSource("port/src/weapon_events.c");
 	REQUIRE(events.find("weaponRuleCasingOf(weaponnum, out);") != std::string::npos);
+}
+
+// PR 49 review: one function can eject more than one casing (its program's
+// casing nodes on the two branches of a state gate), while the press plan,
+// walked with no states, holds one of them; the gun loads a model for every
+// casing either function can eject (weaponFunctionCasings).
+TEST_CASE("a function's casings are each casing node its program holds, a state gate's other branch included",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	// One node: its type; nothing for none; the function's own when it names
+	// no type or one it does not know (which keeps the default).
+	CHECK(weaponRulesCasingNodeMask("rifle", CASING_STANDARD) == (1u << CASING_RIFLE));
+	CHECK(weaponRulesCasingNodeMask("shotgun", -1) == (1u << CASING_SHOTGUN));
+	CHECK(weaponRulesCasingNodeMask("none", CASING_STANDARD) == 0u);
+	CHECK(weaponRulesCasingNodeMask(nullptr, CASING_STANDARD) == (1u << CASING_STANDARD));
+	CHECK(weaponRulesCasingNodeMask("brass", CASING_REAPER) == (1u << CASING_REAPER));
+	CHECK(weaponRulesCasingNodeMask(nullptr, -1) == 0u);
+
+	// Codex's case: after the shot a state gate sends the attack to a rifle
+	// casing when the hand's "alt" state is set and to a shotgun casing when
+	// it is not.
+	weapon_rule_function_t record = recoilRecord();
+	record.casing = CASING_STANDARD + 1;
+	std::string json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1,
+		"\"kind\": \"og.weapon.hitscan\"");
+	json.insert(json.find("], \"edges\""), ",{ \"id\": \"primary_alt\", \"kind\": \"gate.weapon.state_is\", "
+		"\"key\": \"alt\", \"equals\": true },{ \"id\": \"primary_rifle\", \"kind\": \"og.weapon.casing\", "
+		"\"type\": \"rifle\" },{ \"id\": \"primary_shell\", \"kind\": \"og.weapon.casing\", \"type\": \"shotgun\" }");
+	json.insert(json.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_shot\", \"output\": \"out\", "
+		"\"to\": \"primary_alt\", \"input\": \"exec\" },{ \"from\": \"primary_alt\", \"output\": \"pass\", "
+		"\"to\": \"primary_rifle\", \"input\": \"exec\" },{ \"from\": \"primary_alt\", \"output\": \"fail\", "
+		"\"to\": \"primary_shell\", \"input\": \"exec\" },");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err,
+		sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	int instance = 0;
+	// The press plan's walk (weaponProgramPressPlan: a ready hand, no states)
+	// takes the gate's fail branch.
+	weapon_rule_walk_t press{};
+	press.weaponnum = -1;
+	weaponRulesReadyHand(&press.hand);
+	press.function = &record;
+	press.param_text = weaponGraphRuntimeHeldParamText;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, "base:test__weapon",
+		&instance, &press) == 1);
+	CHECK(weaponRulesCasingEject(&press.plan) == CASING_SHOTGUN);
+	// A hand with "alt" set ejects the other.
+	weapon_rule_states_t states{};
+	states.count = 1;
+	std::strcpy(states.keys[0], "alt");
+	states.values[0] = 1;
+	weapon_rule_walk_t live{};
+	live.weaponnum = -1;
+	live.hand = weapon_rule_hand_t{ 1, 8, 8, 1, 1 };
+	live.states = &states;
+	live.function = &record;
+	live.param_text = weaponGraphRuntimeHeldParamText;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon",
+		&instance, &live) == 1);
+	CHECK(weaponRulesCasingEject(&live.plan) == CASING_RIFLE);
+	// Every casing node counts, as weaponFunctionCasings visits them, and so
+	// does the function's own: rifle, shotgun and standard.
+	struct Visit {
+		s32 native;
+		u32 mask;
+	} visit{ CASING_STANDARD, weaponRulesCasingNodeMask(nullptr, CASING_STANDARD) };
+	REQUIRE(missionGraphProgramVisitModuleParams(program,
+		[](const char *kind, const mission_graph_params_t *params, void *user) -> s32 {
+			Visit *v = static_cast<Visit *>(user);
+			char text[32];
+			if (kind && std::string(kind) == weaponRulesModuleKind(WEAPON_MODULE_CASING)) {
+				v->mask |= weaponRulesCasingNodeMask(weaponGraphRuntimeHeldParamText(-1, params,
+					WEAPON_RULE_CASING_TYPE_PARAM, text, sizeof(text)), v->native);
+			}
+			return 1;
+		}, &visit) == 1);
+	CHECK(visit.mask == ((1u << CASING_RIFLE) | (1u << CASING_SHOTGUN) | (1u << CASING_STANDARD)));
+	missionGraphProgramFree(program);
+
+	// The seams: weapon_events.c visits every casing node the same way, and
+	// the gun loads a model for each casing either function can eject and
+	// finds an attack's by its type.
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("missionGraphProgramVisitModuleParams(program, weaponCasingVisit, &visit);")
+		!= std::string::npos);
+	REQUIRE(events.find("visit->mask |= weaponRulesCasingNodeMask(weaponGraphRuntimeHeldParamText(visit->weaponnum, "
+		"params,") != std::string::npos);
+	REQUIRE(events.find("visit.mask = weaponRulesCasingNodeMask(NULL, visit.native);") != std::string::npos);
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("casings = weaponFunctionCasings(weaponnum, FUNC_PRIMARY) | "
+		"weaponFunctionCasings(weaponnum, FUNC_SECONDARY);") != std::string::npos);
+	REQUIRE(bondgun.find("bgunQueueModelLoad(player, g_CartFileNums[type], &s_BgunCartModeldefs[p][type],")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("if (casingtype < ARRAYCOUNT(g_CartFileNums) && s_BgunCartModeldefs[p][casingtype] != NULL) {")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("|| bgunCartModeldefIsOther(carts, casing->modeldef)) {") != std::string::npos);
 }
 
 namespace {

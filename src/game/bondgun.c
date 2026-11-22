@@ -5372,27 +5372,41 @@ const char var7f1ac10c[] = "BriGun: Set Master State: MASTER_GUN_LOADSTATE_LOADE
 const char var7f1ac144[] = "GunLockTimer: %d\n";
 
 /* held-weapon-events.md slice 7b (PR 49 review): the casing models a held
- * weapon's functions name. cartmodeldef holds the selected function's (or,
- * when it names none, the other's); a weapon whose two functions name
- * different casings loads the second here, so each attack ejects its own and
- * a function that names one has its model whichever function was selected
- * when the gun was equipped. The types are CASING_* plus one, 0 for none
- * (as the plan keeps a casing). */
-static struct modeldef *s_BgunCartModeldef2[MAX_PLAYERS];
-static s8 s_BgunCartTypes[MAX_PLAYERS][2];
+ * weapon's attacks can eject. cartmodeldef holds the selected function's
+ * press casing (or, when that ejects none, the other function's), loaded
+ * first; every other casing either function can eject (weaponFunctionCasings:
+ * each og.weapon.casing its program holds, a state gate's other branch
+ * included, and the function's own) gets a model here, one a type, so each
+ * attack ejects its own type's model whatever the hand's states and
+ * whichever function was selected when the gun was equipped.
+ * s_BgunCartType is cartmodeldef's CASING_* plus one, 0 for none (as the
+ * plan keeps a casing). */
+static struct modeldef *s_BgunCartModeldefs[MAX_PLAYERS][ARRAYCOUNT(g_CartFileNums)];
+static s8 s_BgunCartType[MAX_PLAYERS];
 
-/* The casing types a held weapon's functions name (its programs'
- * og.weapon.casing, else their ammo's), the selected function's first, the
- * second only when it differs. */
-static void bgunCartCasingTypes(struct player *player, s32 types[2])
+/* The casing cartmodeldef holds: the selected function's press plan's, else
+ * the other function's. */
+static s32 bgunCartFirstCasing(struct player *player)
 {
 	const s32 weaponnum = player->gunctrl.weaponnum;
 	const s32 selected = player->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY ? FUNC_SECONDARY : FUNC_PRIMARY;
 	const s32 first = weaponFunctionCasing(weaponnum, selected);
-	const s32 other = weaponFunctionCasing(weaponnum, selected == FUNC_PRIMARY ? FUNC_SECONDARY : FUNC_PRIMARY);
 
-	types[0] = first >= 0 ? first : other;
-	types[1] = first >= 0 && other >= 0 && other != first ? other : -1;
+	return first >= 0 ? first
+		: weaponFunctionCasing(weaponnum, selected == FUNC_PRIMARY ? FUNC_SECONDARY : FUNC_PRIMARY);
+}
+
+/* Whether a model is one of the other casing models (not cartmodeldef). */
+static bool bgunCartModeldefIsOther(struct modeldef **carts, const struct modeldef *modeldef)
+{
+	s32 type;
+
+	for (type = 0; carts != NULL && modeldef != NULL && type < ARRAYCOUNT(g_CartFileNums); type++) {
+		if (carts[type] == modeldef) {
+			return true;
+		}
+	}
+	return false;
 }
 
 /* Queues the next casing model the weapon still needs; true when one was
@@ -5400,22 +5414,28 @@ static void bgunCartCasingTypes(struct player *player, s32 types[2])
 static bool bgunQueueCartModels(struct player *player)
 {
 	const s32 p = g_Vars.currentplayernum;
-	s32 types[2];
+	const s32 weaponnum = player->gunctrl.weaponnum;
+	s32 first;
+	u32 casings;
+	s32 type;
 
 	if (p < 0 || p >= MAX_PLAYERS) return false;
-	bgunCartCasingTypes(player, types);
-	if (player->gunctrl.cartmodeldef == NULL && types[0] >= 0 && types[0] < ARRAYCOUNT(g_CartFileNums)) {
-		s_BgunCartTypes[p][0] = (s8)(types[0] + 1);
+	first = bgunCartFirstCasing(player);
+	if (player->gunctrl.cartmodeldef == NULL && first >= 0 && first < ARRAYCOUNT(g_CartFileNums)) {
+		s_BgunCartType[p] = (s8)(first + 1);
 		player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
-		bgunQueueModelLoad(player, g_CartFileNums[types[0]], &player->gunctrl.cartmodeldef,
+		bgunQueueModelLoad(player, g_CartFileNums[first], &player->gunctrl.cartmodeldef,
 			&player->gunctrl.memloadptr, &player->gunctrl.memloadremaining);
 		return true;
 	}
-	if (player->gunctrl.cartmodeldef != NULL && s_BgunCartModeldef2[p] == NULL
-			&& types[1] >= 0 && types[1] < ARRAYCOUNT(g_CartFileNums)) {
-		s_BgunCartTypes[p][1] = (s8)(types[1] + 1);
+	casings = weaponFunctionCasings(weaponnum, FUNC_PRIMARY) | weaponFunctionCasings(weaponnum, FUNC_SECONDARY);
+	for (type = 0; type < ARRAYCOUNT(g_CartFileNums); type++) {
+		if (!(casings & (1u << type)) || s_BgunCartModeldefs[p][type] != NULL
+				|| (player->gunctrl.cartmodeldef != NULL && s_BgunCartType[p] == type + 1)) {
+			continue;
+		}
 		player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
-		bgunQueueModelLoad(player, g_CartFileNums[types[1]], &s_BgunCartModeldef2[p],
+		bgunQueueModelLoad(player, g_CartFileNums[type], &s_BgunCartModeldefs[p][type],
 			&player->gunctrl.memloadptr, &player->gunctrl.memloadremaining);
 		return true;
 	}
@@ -5519,14 +5539,14 @@ void bgunTickMasterLoad(void)
 					}
 
 					if (player->gunctrl.masterloadstate == MASTERLOADSTATE_FLUX) {
-						struct modeldef *cart2 = g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS
-							? s_BgunCartModeldef2[g_Vars.currentplayernum] : NULL;
+						struct modeldef **carts = g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS
+							? s_BgunCartModeldefs[g_Vars.currentplayernum] : NULL;
 
 						casing = g_Casings;
 
 						while (casing < &g_Casings[ARRAYCOUNT(g_Casings)]) {
 							if (casing->modeldef == player->gunctrl.cartmodeldef
-									|| (cart2 && casing->modeldef == cart2)) {
+									|| bgunCartModeldefIsOther(carts, casing->modeldef)) {
 								casing->modeldef = NULL;
 							}
 
@@ -5547,10 +5567,10 @@ void bgunTickMasterLoad(void)
 
 						player->gunctrl.cartmodeldef = NULL;
 						if (g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS) {
-							/* slice 7b (PR 49 review): and the second casing model. */
-							s_BgunCartModeldef2[g_Vars.currentplayernum] = NULL;
-							s_BgunCartTypes[g_Vars.currentplayernum][0] = 0;
-							s_BgunCartTypes[g_Vars.currentplayernum][1] = 0;
+							/* slice 7b (PR 49 review): and the other casing models. */
+							memset(s_BgunCartModeldefs[g_Vars.currentplayernum], 0,
+								sizeof(s_BgunCartModeldefs[g_Vars.currentplayernum]));
+							s_BgunCartType[g_Vars.currentplayernum] = 0;
 						}
 						player->gunctrl.masterloadstate = MASTERLOADSTATE_HANDS;
 
@@ -5873,11 +5893,11 @@ struct modeldef *bgunGetCartModeldefForCasing(s32 casingtype)
 	const s32 p = g_Vars.currentplayernum;
 
 	if (p < 0 || p >= MAX_PLAYERS || casingtype < 0) return NULL;
-	if (g_Vars.currentplayer->gunctrl.cartmodeldef && s_BgunCartTypes[p][0] == casingtype + 1) {
+	if (g_Vars.currentplayer->gunctrl.cartmodeldef && s_BgunCartType[p] == casingtype + 1) {
 		return g_Vars.currentplayer->gunctrl.cartmodeldef;
 	}
-	if (s_BgunCartModeldef2[p] && s_BgunCartTypes[p][1] == casingtype + 1) {
-		return s_BgunCartModeldef2[p];
+	if (casingtype < ARRAYCOUNT(g_CartFileNums) && s_BgunCartModeldefs[p][casingtype] != NULL) {
+		return s_BgunCartModeldefs[p][casingtype];
 	}
 	return NULL;
 }
