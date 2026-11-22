@@ -47,8 +47,22 @@ starts also release `MENU_TYPE_ROOM` before `pdguiSoloRoomClose()`, as Leave doe
 slot. The release is idempotent, and a shared slot does not pop. Propagation: every caller of `pdguiSoloRoomClose()`
 releases first. Networked starts release at the lobby state boundary (B-1042) and in
 `netServerPrepareInClientStageTransition` (B-1076). Tests: `[b1312]` in `tests/test_net_mission_end_static.cpp`. Not yet
-seen with a human in normal play; the rerun is `coop_ai_buddies_offline_smoke` on candidate 4. Severity: high if a
-player's start leaves the layer up (absolute mouse; gameplay-only actions suppressed, per B-1042), otherwise test only.
+seen with a human in normal play; the rerun is `coop_ai_buddies_offline_smoke` on candidate 4.
+
+Severity: high in play. This is from code, not a run:
+- Which starts. The layer stays only when the Room owns it. That happens on a co-op start from a Room the player came
+  back to from a Combat Simulator match's results. The CI reload pushes the legacy Combat Simulator dialog, which
+  attaches no input context, so the Room is first to claim `imgui_menu`. On a first visit from the Main Menu, the
+  Main Menu owns the layer. `menuReset` at the stage load empties the legacy stack, and the first `menuTick`'s watchdog
+  frees the Main Menu's slot, so that start recovers within a frame.
+- What the player sees. Every gameplay control is dead for the whole mission, on keyboard, mouse and pad, and the
+  mouse cursor is free (`gameplayInputSuppressed`; the gameplay input maps are ignored).
+- Ways out. A controller's Start still pauses: it is bound in the menu map too, and the pause menu's
+  `menuPushRootDialog` releases every slot, so Resume recovers. Keyboard Esc does not pause: Esc is bound to pause only
+  in the gameplay map, so keyboard and mouse players stay stuck until the mission ends.
+
+Combat Simulator starts were never affected. Integration carries this to Mike for v0.1.106's notes (candidate 3 ships
+without the fix).
 
 ## 2026-11-22 B-1309 `release.ps1` would commit Codex's memory from a fresh clone of this public repository (T-RELEASE-006, open: Mike's decision)
 
