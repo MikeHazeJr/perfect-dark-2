@@ -203,8 +203,18 @@ switch ($Command) {
             if (-not (Test-Path -LiteralPath $baseFile)) { [IO.File]::WriteAllText($baseFile, (Get-Pd2qDevHead)) }
             $base = ([IO.File]::ReadAllText($baseFile)).Trim()
             $dest = Join-Path $dir $rel
+            # Editing a path again undoes an earlier -Delete: its marker goes, or
+            # the patch would delete the file the scratch now holds.
+            $deletedList = Join-Path $dir '.pd2q-deleted'
+            if (-not $Delete -and (Test-Path -LiteralPath $deletedList)) {
+                $marked = @(Get-Content -LiteralPath $deletedList | Where-Object { $_.Trim() })
+                $kept = @($marked | Where-Object { $_ -cne $rel })
+                if ($kept.Count -ne $marked.Count) {
+                    if ($kept) { [IO.File]::WriteAllLines($deletedList, [string[]]$kept) } else { Remove-Item -LiteralPath $deletedList -Force }
+                }
+            }
             if ($Delete) {
-                Add-Content -LiteralPath (Join-Path $dir '.pd2q-deleted') -Value $rel
+                Add-Content -LiteralPath $deletedList -Value $rel
                 if (Test-Path -LiteralPath $dest) { Remove-Item -LiteralPath $dest -Force }
                 $text = "marked for deletion: $rel"
             } elseif (Test-Path -LiteralPath $dest) {

@@ -261,6 +261,18 @@ try {
         [void](Q @('release', 'T-UNIT-011', '-Lease', $nm))
     } else { $checks.Add("commit-msg check at submit skipped: no main checkout or Python here") }
 
+    # Editing a path again undoes its earlier -Delete, so the patch keeps the
+    # file's new contents instead of deleting it.
+    $o9 = Owner; $owners += $o9
+    $r = Q @('claim', 'T-UNIT-015', '-Session', 'claude-u', '-OwnerPid', $o9.Id); $nu = LeaseNumber $r.Out
+    [void](Q @('edit', 'README.md', '-Session', 'claude-u', '-Delete'))
+    $fileU = (Q @('edit', 'README.md', '-Session', 'claude-u')).Out.Trim()
+    [IO.File]::WriteAllText($fileU, "dev, edited after all`n")
+    [void](Q @('checkpoint', 'T-UNIT-015', '-Lease', $nu, '-Note', 'deleted, then edited'))
+    $patchU = Get-Content -LiteralPath (Join-Path $root 'queue\tasks\T-UNIT-015.patch') -Raw
+    Check ($patchU -match '\+dev, edited after all' -and $patchU -notmatch 'deleted file mode') "a file deleted and then edited again is edited, not deleted`n$patchU"
+    [void](Q @('release', 'T-UNIT-015', '-Lease', $nu))
+
     # submit -Patch declares both sides of a rename, names with spaces included,
     # so the worker's touched-files check accepts the rename's destination.
     [void](& $git -C $dev mv README.md 'docs/Read Me.md')
