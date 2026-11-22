@@ -69,26 +69,26 @@ controls). Also on dev, **B-1313** (PR 54, `eb3ba06d`, 2026-11-22 15:44 UTC), In
 blocker, taken while the MODS lane is paused: the bundled Maian Hover, a `.pdvehicle` inside a `.pdmod`,
 was refused at admission because `s_compileVehicleGraph` looked for `behavior/variables.json` at the
 package's root; it now reads it from the behavior graph's own archive (`assetRuntimeVehicleVariablesPath`),
-and Integration builds candidate 3c from it. **Held until Integration posts the release cut** (their ask),
-a stack of pushed branches:
-**slice 6**, the target filter (PR 44 `week-pd/core-weapons-w6` plus `w6a2`; `w6b` `93cbd77a`: home filter,
+and Integration builds candidate 3c from it. **On dev since the v0.1.106 cut** (2026-11-22 16:55 UTC: PR 44
+as `c8ff4a22`, then PR 49 as `210bafa3`, each merge tree equal to its trial merge):
+**slice 6**, the target filter (PR 44, and `w6a2` and `w6b` in PR 49: home filter,
 `og.weapon.lock_on` at `event.weapon.aiming`, the mine's arm filter, lockable vehicles, `embedded.v23`);
-**slice 7**, feel (`w7` `d774e4e1`: `og.weapon.recoil`, `og.weapon.casing`, `og.weapon.muzzle_flash`,
+**slice 7**, feel (`og.weapon.recoil`, `og.weapon.casing`, `og.weapon.muzzle_flash`,
 `og.weapon.shot_sound`, `og.weapon.play_animation`; players read the shot's plan, simulants and guards the
 press plan; an animation a function does not have plays only on a held model with a skeleton;
-`embedded.v24`, cache `_heldfeel`); **slice 8a and 8b**, the creator (`w8`: program nodes by designer name
+`embedded.v24`, cache `_heldfeel`); **slice 8a and 8b**, the creator (program nodes by designer name
 and group, their own ports, named inputs for their settings from the rule tables, Replace With, and a
 Projectile Programs tab that saves a projectile's edited program over the mod's copy of it; Mike's
 machine-gun pistol is one swap in the Falcon 2 template, his vehicle rocket is the Enemy vehicles filter on
 the rocket launcher's lock and its homing rocket's home), plus `held_weapon_cloak_smoke` and
-`held_weapon_charge_smoke` (the Mauler's charge). The whole stack
-is **PR 49** (`w8` into dev, opened 2026-11-22 09:55 UTC for CI and review only; merge PR 44 first, after the
-cut; Codex's five findings fixed on `w8`: the owner's IR scanner for homing and proximity filters, kinds-group
-checkboxes, a casing model per casing type, and authored locks that pick, refresh and pass the look; both
-PRs merged up to dev `eb3ba06d` at 15:45 UTC so their CI is fresh at the cut).
+`held_weapon_charge_smoke` (the Mauler's charge). Codex's six PR 49
+findings were fixed before the merge: the owner's IR scanner for homing and proximity filters, kinds-group
+checkboxes, a casing model per casing type and per state branch, and authored locks that pick, refresh and
+pass the look. Candidate 4 reruns the smoke rows 6a to 8b (Integration's step 9 evidence).
 **8c** (value nodes) waits on Mike's **D-058** (per shot for players and simulants, my pick; or per
 press; or players first). Open for Mike: D-057 (projectile 7c), D-058, D-059 (how the creator's two examples get their in-game
-proof), PR 31's pellet thread. Asked of Authored Mods: Mike's "Enemy vehicles" sample launcher; of MP-RULES:
+proof), PR 31's pellet thread. The lock smokes (6a/6b, 6c) wait on a smoke-runner aim aid, asked of
+Integration. Asked of Authored Mods: Mike's "Enemy vehicles" sample launcher; of MP-RULES:
 `botactGetShootInterval60` through `weaponProgramRecoilFrames`. Records and smokes:
 `context/designs/modding/held-weapon-events.md`, `context/designs/modding/projectile-events.md`.
 
