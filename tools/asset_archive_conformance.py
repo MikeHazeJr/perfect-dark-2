@@ -2422,8 +2422,9 @@ WEAPON_GRAPH_SETTINGS = {
     "og.weapon.beam": {"range": ("whole", 1, 65536)},
     "og.weapon.launch": {"item": ("item",), "item_function": ("item_function",)},
     "og.weapon.throw": {"give_up_gun": ("bool",)},
-    "og.weapon.special": {"action": ("choice", ("shoot", "launch", "throw", "melee", "detonate", "boost",
-                                                "revert_boost", "crouch", "melee_no_uncloak", "uplink"))},
+    # PR 31 review: a special carries out only a special's actions (the
+    # shoot, launch, throw and melee attack types read other families' data).
+    "og.weapon.special": {"action": ("choice", ("detonate", "boost", "revert_boost", "crouch", "uplink"))},
     "og.weapon.mode_toggle": {"mode": ("choice", ("cloak",)), "drain": ("number", WEAPON_GRAPH_MAX_RATE)},
     # Slice 5: charge then release, hold to cook.
     "og.weapon.charge": {"start": ("choice", ("while_selected", "on_press")), "time": ("whole", 1, 10000),
@@ -2533,6 +2534,16 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
                 and not _is_weapon_program_kind(node.get("kind")):
             record_type = node["params"]["function_type"]
             break
+    # PR 31 review: the record's ammo slot; a cloak drains its function's
+    # rounds, so a record with no ammunition (ammo_slot -1) cannot carry one.
+    record_ammo = None
+    for node in nodes:
+        if isinstance(node, dict) and isinstance(node.get("params"), dict) \
+                and not _is_weapon_program_kind(node.get("kind")) \
+                and isinstance(node["params"].get("ammo_slot"), int) \
+                and not isinstance(node["params"]["ammo_slot"], bool):
+            record_ammo = node["params"]["ammo_slot"]
+            break
     # Slice 5 (review): a custom weapon's function whose record is a committed
     # charge launch (its charge starts on a press unless the node says).
     asset_id = graph.get("asset_id")
@@ -2580,6 +2591,9 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
                     or not 1 <= rounds <= WEAPON_GRAPH_MAX_ROUNDS):
                 errors.append(f"{where} gate.weapon.has_ammo {node_id!r} needs rounds from 1 to "
                               f"{WEAPON_GRAPH_MAX_ROUNDS}")
+        if kind == "og.weapon.mode_toggle" and record_ammo is not None and record_ammo < 0:
+            errors.append(f"{where} og.weapon.mode_toggle {node_id!r}: its cloak drains its function's rounds, "
+                          f"and this function has no ammunition (ammo_slot {record_ammo})")
         if kind in WEAPON_GRAPH_SHOT_FAMILIES and record_type is not None \
                 and record_type not in WEAPON_GRAPH_SHOT_FAMILIES[kind]:
             errors.append(f"{where} {kind} {node_id!r} does not fit this function (its record is {record_type})")

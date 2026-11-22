@@ -709,7 +709,11 @@ class HeldWeaponPrograms(unittest.TestCase):
             ({"kind": "og.weapon.beam", "range": 0}, "shoot_single", "needs range from 1 to 65536"),
             ({"kind": "og.weapon.launch", "item": "Rocket"}, "shoot_projectile", "needs item own or an item's catalog id"),
             ({"kind": "og.weapon.launch", "item_function": 3}, "shoot_projectile", "needs item_function gun, 0, 1 or 2"),
-            ({"kind": "og.weapon.special", "action": "cloak"}, "special", "needs action shoot, launch"),
+            ({"kind": "og.weapon.special", "action": "cloak"}, "special",
+             "needs action detonate, boost, revert_boost, crouch, uplink"),
+            # PR 31 review: a special carries out only a special's actions.
+            ({"kind": "og.weapon.special", "action": "launch"}, "special", "needs action detonate, boost"),
+            ({"kind": "og.weapon.special", "action": "shoot"}, "special", "needs action detonate, boost"),
             ({"kind": "og.weapon.mode_toggle", "mode": "x"}, "special", "needs mode cloak"),
             ({"kind": "og.weapon.mode_toggle", "drain": -1}, "special", "needs drain above 0"),
         ]
@@ -718,6 +722,12 @@ class HeldWeaponPrograms(unittest.TestCase):
                 messages = weapon_errors(with_shot(node, function_type))
                 self.assertEqual(len(messages), 1, messages)
                 self.assertIn(why, messages[0])
+        # PR 31 review: a cloak drains its function's rounds.
+        graph = with_shot({"kind": "og.weapon.mode_toggle", "mode": "cloak"}, "special")
+        graph["nodes"][1]["params"]["ammo_slot"] = -1
+        messages = weapon_errors(graph)
+        self.assertEqual(len(messages), 1, messages)
+        self.assertIn("its cloak drains its function's rounds", messages[0])
         # A shot on a record event does nothing.
         graph = copy.deepcopy(V2_HELD)
         graph["nodes"].append({"id": "late", "kind": "event.weapon.reload_done"})

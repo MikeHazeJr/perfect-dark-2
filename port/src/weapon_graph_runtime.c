@@ -994,6 +994,7 @@ typedef struct held_param_check {
 	s32 functype; /* the function record's type, -1 when unknown (slice 4) */
 	s32 custom;    /* slice 5 review: 1 a custom weapon's function, 0 a base one's, -1 unknown */
 	s32 committed; /* its record is a custom weapon's committed charge launch (charge_time_ticks60) */
+	s32 ammo_slot; /* PR 31 review: its record's ammo slot, -1 none, -2 unknown */
 	char why[160];
 } held_param_check_t;
 
@@ -1023,6 +1024,13 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 			kind, (unsigned)check->functype);
 		return 0;
 	}
+	if (bit == WEAPON_MODULE_MODE_TOGGLE && check->ammo_slot == -1) {
+		/* PR 31 review: the cloak drains its function's rounds, and the
+		 * drain reads the reserve of that ammunition. */
+		snprintf(check->why, sizeof(check->why),
+			"%s: its cloak drains its function's rounds, and this function has no ammunition (ammo_slot -1)", kind);
+		return 0;
+	}
 	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_RELOAD)) {
 		for (s32 i = 0; weaponRulesSettingAt(i); i++) {
 			const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
@@ -1050,7 +1058,7 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 						kind, setting->key, raw);
 				} else if (setting->type == WEAPON_RULE_SETTING_ACTION) {
 					snprintf(check->why, sizeof(check->why),
-						"%s needs %s detonate, boost, revert_boost, crouch, uplink, shoot, launch, throw, melee or melee_no_uncloak, got %s",
+						"%s needs %s detonate, boost, revert_boost, crouch or uplink, got %s",
 						kind, setting->key, raw);
 				} else if (setting->type == WEAPON_RULE_SETTING_MODE) {
 					snprintf(check->why, sizeof(check->why), "%s needs %s cloak, got %s", kind, setting->key, raw);
@@ -1136,7 +1144,7 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
  * does, so one wired to an event whose seam does not apply it would do
  * nothing; such a program is refused, with the pair named. */
 static s32 heldProgramModulesApply(const mission_graph_program_t *program, s32 functype, s32 custom,
-	s32 committed, char *why, size_t why_cap)
+	s32 committed, s32 ammo_slot, char *why, size_t why_cap)
 {
 	held_param_check_t check;
 
@@ -1160,6 +1168,7 @@ static s32 heldProgramModulesApply(const mission_graph_program_t *program, s32 f
 	check.functype = functype;
 	check.custom = custom;
 	check.committed = committed;
+	check.ammo_slot = ammo_slot;
 	if (!missionGraphProgramVisitModuleParams(program, heldProgramParamVisit, &check)) {
 		snprintf(why, why_cap, "%s", check.why);
 		return 0;
@@ -1210,6 +1219,7 @@ static s32 heldProgramsRegister(s32 weaponnum, const weapon_graph_ir_t *ir,
 				weaponnum >= WEAPON_CUSTOM_START,
 				weaponnum >= WEAPON_CUSTOM_START && s_held_functions[weaponnum][f].valid
 					&& s_held_functions[weaponnum][f].has_charge,
+				s_held_functions[weaponnum][f].valid ? s_held_functions[weaponnum][f].ammo_slot : -2,
 				why, sizeof(why))) {
 			missionGraphProgramFree(program);
 			program = NULL;
@@ -2690,6 +2700,7 @@ void weaponGraphIrFree(weapon_graph_ir_t *ir)
 
 static s32 heldIrFunctionType(const weapon_graph_ir_t *ir, s32 f);
 static s32 heldIrFunctionCommits(const weapon_graph_ir_t *ir, s32 f);
+static s32 heldIrFunctionAmmoSlot(const weapon_graph_ir_t *ir, s32 f);
 
 /* slice 5 review: whether the IR is a custom weapon's (its asset id is not
  * base:'s), -1 when it names none. */
@@ -2723,7 +2734,7 @@ s32 weaponGraphValidateJson(asset_type_e graph_type, const char *json,
 			program = missionGraphProgramCompileWeapon(ir.held_program_json[f],
 				ir.held_program_json_size[f], heldProgramModuleKnown, why, sizeof(why));
 			if (program && !heldProgramModulesApply(program, heldIrFunctionType(&ir, f), heldIrCustom(&ir),
-					heldIrFunctionCommits(&ir, f), why, sizeof(why))) {
+					heldIrFunctionCommits(&ir, f), heldIrFunctionAmmoSlot(&ir, f), why, sizeof(why))) {
 				missionGraphProgramFree(program);
 				program = NULL;
 			}
@@ -5317,6 +5328,14 @@ static s32 heldIrFunctionCommits(const weapon_graph_ir_t *ir, s32 f)
 	weapon_graph_held_function_t held;
 
 	return heldIrFunction(ir, f, &held) && held.has_charge && heldIrCustom(ir) != 0;
+}
+
+/* PR 31 review: function f's record's ammo slot, -2 when it has none. */
+static s32 heldIrFunctionAmmoSlot(const weapon_graph_ir_t *ir, s32 f)
+{
+	weapon_graph_held_function_t held;
+
+	return heldIrFunction(ir, f, &held) ? held.ammo_slot : -2;
 }
 
 s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,
