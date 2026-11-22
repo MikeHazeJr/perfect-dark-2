@@ -80,6 +80,47 @@ The runner stages private ordinary files under `.claude/smoke-storage/`.
 Build outputs, historical smoke runs/cache/shared install, and explicit
 `-Install` templates are read-only inputs. `-Install` now creates a private copy.
 
+## Prepare, then execute in the game-runtime slot (T-TOOLING-019)
+
+The hub's `game-runtime` slot is for a ready game-test batch only (AGENTS.md
+order 7). Staging an install copies thousands of files, so do it first:
+
+```powershell
+# Outside the slot: stage, verify and hand off. Launches nothing.
+.\tools\smoke-verify\run.ps1 -Prepare -Test boot_smoke -Test listen_host_match_smoke `
+    -Install D:\PD2-wt\shared-base-14 -SourceBinary <your PerfectDark.exe>
+# Inside the slot: launch, test, tear down. Takes everything from the record.
+.\tools\smoke-verify\run.ps1 -Execute .claude\smoke-verify-runs\prepared-<utc>-<id>.json
+```
+
+`-Prepare` accepts the usual selection, template, source, `-Keep`, `-Timeout`
+and `-StoragePolicy` options. For each selected test (multi-process ones
+included) it makes a private managed install and stages every fixture. It
+checks the game binary, and then hands each install to storage with a
+one-time token. Storage keeps only the token's SHA-256 and a digest of exactly
+what was staged. Last, it writes the prepared-run record (`-PreparedRecord
+<path>` to choose where).
+
+`-Execute <record>` refuses selection, source, timeout, keep and policy options:
+they all come from the record. Before each test it adopts that test's installs.
+The token must match, the preparing runner must have exited, and the staged
+content must be unchanged. The runner, its libraries and `storage.py` must also
+be byte-identical to what prepared the record. After adoption it runs the
+test exactly as a plain run does, completion and receipts included.
+
+Each install can be adopted once. An install changed after its handoff is
+refused and stays active for review. `-Execute <record> -DiscardPrepared`
+adopts and closes every prepared install without launching anything, for a
+batch that will not run. The reviewed release (`release-interrupted`) also
+frees a prepared install whose preparer has gone, if its content is still
+exactly as handed off.
+
+Shared installs, `-Build`, reuse, retained housekeeping, native asset manifests
+and process cues are refused in both steps. A plain run (neither switch) still
+prepares and executes in one process, as before. Proof: `test-prepare-execute.ps1`
+(22 checks, Windows PowerShell 5.1 and 7, no game) and the handoff cases in
+`test-storage.py`.
+
 ## Storage policy and evidence
 
 `lib/Storage-Harness.ps1` connects both install modes and single/multi-process

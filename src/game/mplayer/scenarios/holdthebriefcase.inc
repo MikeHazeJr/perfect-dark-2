@@ -423,7 +423,7 @@ static void htbNetPresent(void)
 	net_scenario_state_t state;
 	struct prop *token = NULL;
 
-	if (scenarioNetTakePending(&state)) {
+	if (scenarioNetTakePending(NET_SCENARIO_STATE_HOLDTHEBRIEFCASE, &state)) {
 		const net_scenario_htb_state_t *in = &state.body.htb;
 		s32 holder = in->holder;
 

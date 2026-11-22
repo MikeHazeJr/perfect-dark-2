@@ -24,6 +24,24 @@ tests and finalization recipe (`tools/smoke-verify/STARTUP-AB.md`, inputs in
 A/B generator 4/4, Open Mods Folder 33 checks with the explorer start mocked. Nothing run in a game.
 Open: the finalization smokes (week note entry), Mike's look at the pistol's held view, B-1294.
 
+2026-11-21 CORE WEAPONS (claude-pd-core-weapons-20261121), 21:00 UTC onward (after the morning's
+slices 1 and 2). Mike's assignment: held weapons on behavior graphs, the eight slices of the gun-code
+audit (artifact `7fgSVVLGzHGRddzXoUJ1Xz`), in the order 1-5, projectile slice 7, 6, 7, 8; own branch
+`week-pd/core-weapons`, committed through a temporary index (canonical HEAD and index untouched). On
+dev: **slices 1 and 2** (PR 26, `1b875417`: the held v2 graph on the shared runner; the idle choice is
+each function's program, parity probe `WEAPON.RULE`), **slice 3** (PR 29, `32de66d6`: an attack's
+cadence is its program's trigger node, fire once, burst, automatic, with Use ammo; simulants' ticks per
+shot from the same programs). In review: **slice 4a** (PR 31: the shot is its program's shot node, one
+per family; the Shotgun, Farsight, Laser, launcher if-chain, Laptop gun, RCP120 cloak and Tranquilizer
+cases are node settings) and **slice 4b** (`cf76853c`: a reload's style); **slice 5** committed (`d2ac9937`: Charge then release
+and Hold to cook are trigger nodes; the Mauler, the crystal pistol and the grenade run from them). The rule table, the plan and
+the walk are header-only (`port/include/weapon_rules.h`), so pd-tests run the game's walk and a copy of
+the original cadence code tick by tick. Every slice's record, the design and the smokes for Integration's
+batch (`held_weapon_cadence_smoke` and `held_weapon_shot_smoke` are new fixtures) are in
+`context/designs/modding/held-weapon-events.md`. Open: `bot.c`'s single-shot burst still reads
+`FUNCFLAG_BURST2/3` (MP-RULES' file; `weaponProgramBurstRounds` is ready). Next: projectile slice 7 (flight,
+spawn and free as rule events), then weapon slices 6, 7 and 8.
+
 2026-11-21 MULTIPLAYER AND RULES (claude-pd-mp-rules-20261121), 04:30 to 05:15 and 21:27 UTC onward.
 Mike's order: six items, canonical checkout, own branch `week-pd/mp-rules` from dev (commits through a
 temporary index; HEAD and the shared index never switched), merge proven work to dev. Every commit was
@@ -38,13 +56,20 @@ reconnect world row now carries the host's scheduler presence and a pure planner
 `MODE.EVENT` at the twelve mode seams. **Room Load Preset and Quick Start** (PR 27, `09052ace`,
 T-MENUS-009). **Stage text banks** (PR 28, `c5738451`, T-MODDING-027): each scenario archive names its
 `text_bank`, `langGetStageBank`, scenario and arena kinds `_textbank`; decision D-054 is open for levels
-with text of their own. Open: **mode graphs slice 2** (PR 30, `ab33bde0`: `mode.graph.json` in every
+with text of their own. **Mode graphs slice 2** (PR 30, `e7fb73e6`: `mode.graph.json` in every
 `.pdgamemode`, the runner's mode domain at kinds 64 to 75, `port/src/mode_rules.c`, meta kind
-`_modegraph`, registration fails closed; B-1292 for slice 6), **slice 3** built and tested locally on
-top of it (the dispatchers run the program's plan; `MODE.PLAN` and the `MODE.PARITY` probe), slices 4
-to 7 next (T-MODDING-026). Core Weapons asked for bot.c's single-shot burst to read
-`weaponProgramBurstRounds`; that waits for their PR 29. The shared tree's runner and validator copies
-carry my hunks beside theirs (they commit by hunk). Finalization smokes for Integration: the four
+`_modegraph`, registration fails closed; B-1292 for slice 6) and **slice 3** (PR 32, `905ed513`: the
+dispatchers run the program's plan; `MODE.PLAN` and the `MODE.PARITY` probe). Open: PR 34 (slice 4: the
+code outside the table behind its events, designated `g_MpScenarios[]` rows, 64 modules, meta kind
+`_modegraph_outside`; and bot.c's single-shot burst reads `weaponProgramBurstRounds`, Core Weapons'
+ask), and built and tested locally: slice 5 `a918ea5e` (states side by side, `SVC_SCENARIO_STATE` one
+section per state in use, protocol v67) and slice 7 `da862eac` (the simulants' command choice and idle
+action as modules, `event.mode.bot_command` and `bot_idle`, 73 modules). Slice 6 (a mod's own mode)
+waits for **decision D-055** (Workbench): what the first worked example plays like, whether setup
+files remember a mod mode, how the Room offers one; my pick A (scores add up, Room only).
+The shared tree's runner and validator copies carry my hunks beside Core Weapons' (they commit by
+hunk). Mistakes to avoid next time: a full SHA typed by hand for `--match-head-commit` (use `git
+rev-parse`), and heredocs for anything with doubled backslashes (Write or Edit instead). Finalization smokes for Integration: the four
 ledge/tabletop smokes, `network_coop_reconnect_smoke`, `coop_ai_buddies_offline_smoke`, the six local
 mode smokes (now also requiring `MODE.PLAN` and `MODE.PARITY ... differ=0`), any smoke on a re-extracted
 base for the six `MODE.GRAPH: program` lines and `LANG.STAGE ... source=archive`, and a Room

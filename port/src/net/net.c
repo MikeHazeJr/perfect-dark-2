@@ -1099,7 +1099,7 @@ typedef u32 (*net_resync_writer_fn)(struct netbuf *dst);
 #if !defined(PD_SERVER)
 /* v64 (T-NETWORKING-011): the objective scenario state the host last sent,
  * so a running timer is resent at a low rate rather than every frame. */
-static net_scenario_state_t s_NetScenarioLastSent;
+static net_scenario_state_list_t s_NetScenarioLastSent;
 static s32 s_NetScenarioHaveSent;
 static u32 s_NetScenarioLastSentTick;
 
@@ -1117,7 +1117,7 @@ static void netServerScenarioStateResetSend(void)
  * Nothing goes out before the stage baseline has carried the first state. */
 static void netServerScenarioStateTick(void)
 {
-	net_scenario_state_t state;
+	net_scenario_state_list_t state;
 	s32 changed = false;
 
 	if (g_NetPendingResyncFlags & NET_RESYNC_FLAG_SCENARIO) {
@@ -1137,13 +1137,14 @@ static void netServerScenarioStateTick(void)
 
 	if (netmsgSvcScenarioStateWrite(&g_NetMsgRel, &state) != 0) {
 		sysLogPrintf(LOG_WARNING, "SCENARIO.STATE: send failed scenario=%u rev=%u; next frame retries",
-			(unsigned)state.scenario, (unsigned)state.revision);
+			(unsigned)state.sections[0].scenario, (unsigned)state.sections[0].revision);
 		return;
 	}
 
 	if (changed) {
-		sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: sent scenario=%u rev=%u reason=change",
-			(unsigned)state.scenario, (unsigned)state.revision);
+		sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: sent scenario=%u rev=%u reason=change sections=%u",
+			(unsigned)state.sections[0].scenario, (unsigned)state.sections[0].revision,
+			(unsigned)state.count);
 	}
 
 	memcpy(&s_NetScenarioLastSent, &state, sizeof(state));

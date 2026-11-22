@@ -111,6 +111,9 @@ const std::vector<std::pair<const char *, s32>> kScenarioFields = {
 	{ "droppedtokenfunc", MODE_SEAM_TOKEN_DROPPED },
 	{ "activatedpropfunc", MODE_SEAM_PROP_ACTIVATED },
 	{ "playerdiedfunc", MODE_SEAM_PLAYER_DIED },
+	// Slice 7: the simulants' mode commands.
+	{ "botcommandfunc", MODE_SEAM_BOT_COMMAND },
+	{ "botidlefunc", MODE_SEAM_BOT_IDLE },
 };
 
 // The rows of g_MpScenarios[], by their designators, in mode order.
@@ -138,7 +141,8 @@ TEST_CASE("mode programs compile in the runner's mode domain and only there",
 	// The twelve events, in slice 1's order, and nothing else is a mode event.
 	REQUIRE(modeRulesEventAt(0) == MISSION_GRAPH_EVENT_MODE_CHOSEN);
 	REQUIRE(modeRulesEventAt(11) == MISSION_GRAPH_EVENT_MODE_PLAYER_DIED);
-	REQUIRE(modeRulesEventAt(12) == -1);
+	REQUIRE(modeRulesEventAt(13) == MISSION_GRAPH_EVENT_MODE_BOT_IDLE);
+	REQUIRE(modeRulesEventAt(14) == -1);
 	for (s32 i = 0; modeRulesEventAt(i) >= 0; i++) {
 		const s32 kind = modeRulesEventAt(i);
 		REQUIRE(kind == MISSION_GRAPH_EVENT_MODE_CHOSEN + i);
@@ -155,7 +159,7 @@ TEST_CASE("mode programs compile in the runner's mode domain and only there",
 		REQUIRE(missionGraphProgramHandlesEvent(one.program, kind) == 1);
 	}
 	REQUIRE(missionGraphEventIsMode(MISSION_GRAPH_EVENT_MODE_CHOSEN - 1) == 0);
-	REQUIRE(missionGraphEventIsMode(MISSION_GRAPH_EVENT_MODE_PLAYER_DIED + 1) == 0);
+	REQUIRE(missionGraphEventIsMode(MISSION_GRAPH_EVENT_MODE_BOT_IDLE + 1) == 0);
 	REQUIRE(missionGraphEventIsMode(MISSION_GRAPH_EVENT_PROJECTILE_ARMED) == 0);
 
 	// A mode program has the mode events and no other.
@@ -275,7 +279,7 @@ TEST_CASE("the mode module table is the original mode table",
 		"og.mode.default.score");
 	REQUIRE(std::string(modeRulesModuleKind(MODE_RULES_DEFAULT, MODE_SEAM_SPAWN)) ==
 		"og.mode.default.spawn");
-	REQUIRE(modeRulesModuleCount() == 64);
+	REQUIRE(modeRulesModuleCount() == 73);
 
 	// Every module's seam is chosen by one event.
 	for (s32 seam = 0; seam < MODE_SEAM_COUNT; seam++) {
@@ -407,7 +411,7 @@ TEST_CASE("the extractor, the catalog and registration carry the mode program",
 	REQUIRE(pdmeta.find("assetArchiveWriterAddPublicMem(&writer, MODE_GRAPH_MEMBER,") != std::string::npos);
 	REQUIRE(pdmeta.find("s_existingArchiveHasEntry(relpath, MODE_GRAPH_MEMBER)") != std::string::npos);
 	REQUIRE(pdmeta.find("\"mode_graph_file = \" MODE_GRAPH_MEMBER") != std::string::npos);
-	REQUIRE(pdmeta.find("_vehiclegraph_modegraph_outside\"") != std::string::npos);
+	REQUIRE(pdmeta.find("_vehiclegraph_modegraph_outside_bots\"") != std::string::npos);
 
 	const std::string base = readRepoFile("port/src/assetcatalog_base_extended.c");
 	REQUIRE(base.find("\"mode.graph.json\", e->ext.gamemode.mode_graph_file") != std::string::npos);
@@ -546,7 +550,8 @@ TEST_CASE("the mode dispatchers run the program's plan and compare it with the o
 			"MODE_SEAM_RADAR_EXTRA", "MODE_SEAM_RADAR_CHR", "MODE_SEAM_HIGHLIGHT_PROP",
 			"MODE_SEAM_SPAWN", "MODE_SEAM_MAX_TEAMS", "MODE_SEAM_ROOM_LIGHTS", "MODE_SEAM_SAVE",
 			"MODE_SEAM_STAGE_RESET", "MODE_SEAM_INTRO_PAD", "MODE_SEAM_TOKEN_PICKED_UP",
-			"MODE_SEAM_TOKEN_DROPPED", "MODE_SEAM_PROP_ACTIVATED", "MODE_SEAM_PLAYER_DIED" }) {
+			"MODE_SEAM_TOKEN_DROPPED", "MODE_SEAM_PROP_ACTIVATED", "MODE_SEAM_PLAYER_DIED",
+			"MODE_SEAM_BOT_COMMAND", "MODE_SEAM_BOT_IDLE" }) {
 		INFO(seam);
 		REQUIRE(scenarios.find(std::string("plan, ") + seam + ");") != std::string::npos);
 		REQUIRE(scenarios.find(std::string("case ") + seam + ":") != std::string::npos);
@@ -645,4 +650,118 @@ TEST_CASE("the code outside the mode table runs through the plan",
 	REQUIRE(modeRulesModuleKind(MPSCENARIO_POPACAP, MODE_SEAM_STAGE_RESET) == nullptr);
 	REQUIRE(modeRulesSeamEvent(MODE_SEAM_TOKEN_DROPPED) == MISSION_GRAPH_EVENT_MODE_TOKEN_DROPPED);
 	REQUIRE(modeRulesSeamEvent(MODE_SEAM_INTRO_PAD) == MISSION_GRAPH_EVENT_MODE_INTRO_PAD);
+}
+
+TEST_CASE("a plan names the mode states its modules use",
+	"[gamemode-graphs][slice5][plan]")
+{
+	for (s32 mode = 0; mode < MODE_RULES_MODE_COUNT; mode++) {
+		mode_rules_plan_t plan;
+		modeRulesNativePlan(mode, &plan);
+		// A base mode uses its own state alone; Combat uses none (the defaults
+		// keep no state).
+		REQUIRE(modeRulesPlanStates(&plan) == (mode == MPSCENARIO_COMBAT ? 0u : 1u << mode));
+	}
+
+	// A program that runs King of the Hill's hill and Hold the Briefcase's
+	// token uses both states (registration refuses it until slice 6).
+	CompiledProgram mixed;
+	compileMode(mixed, "{\"nodes\":[{\"id\":\"t\",\"kind\":\"event.mode.tick\"},"
+		"{\"id\":\"k\",\"kind\":\"og.mode.koh.tick\"},{\"id\":\"h\",\"kind\":\"og.mode.htb.tick\"}],"
+		"\"edges\":[{\"from\":\"t\",\"to\":\"k\",\"input\":\"exec\"},{\"from\":\"t\",\"to\":\"h\",\"input\":\"exec\"}]}");
+	INFO(mixed.err);
+	REQUIRE(mixed.program != nullptr);
+	mode_rules_plan_t plan;
+	REQUIRE(modeRulesPlanFromProgram(mixed.program, &plan) == 1);
+	REQUIRE(modeRulesPlanStates(&plan) ==
+		((1u << MPSCENARIO_KINGOFTHEHILL) | (1u << MPSCENARIO_HOLDTHEBRIEFCASE)));
+	REQUIRE(modeRulesPlanStates(nullptr) == 0);
+}
+
+TEST_CASE("the mode states sit side by side and travel as one section each",
+	"[gamemode-graphs][slice5][static]")
+{
+	const std::string types = readRepoFile("src/include/types.h");
+	const size_t data = types.find("struct scenariodata {");
+	REQUIRE(data != std::string::npos);
+	const std::string body = types.substr(data, types.find("};", data) - data);
+	REQUIRE(body.find("union") == std::string::npos);
+	for (const char *state : { "struct scenariodata_htb htb;", "struct scenariodata_htm htm;",
+			"struct scenariodata_pac pac;", "struct scenariodata_koh koh;", "struct scenariodata_ctc ctc;" }) {
+		REQUIRE(body.find(state) != std::string::npos);
+	}
+
+	const std::string scenarios = readRepoFile("src/game/mplayer/scenarios.c");
+	REQUIRE(scenarios.find("states = modeRulesPlanStates(plan);") != std::string::npos);
+	REQUIRE(scenarios.find("section->scenario = (u8)state;") != std::string::npos);
+	REQUIRE(scenarios.find("static s32 scenarioNetTakePending(u8 state, net_scenario_state_t *out)") !=
+		std::string::npos);
+	REQUIRE(scenarios.find("if (states == 0 || received != states) {") != std::string::npos);
+	REQUIRE(scenarios.find("state.scenario = (u8)g_MpSetup.scenario;") == std::string::npos);
+	for (const char *take : { "scenarioNetTakePending(NET_SCENARIO_STATE_CAPTURETHECASE, &state)",
+			"scenarioNetTakePending(NET_SCENARIO_STATE_HACKERCENTRAL, &state)",
+			"scenarioNetTakePending(NET_SCENARIO_STATE_HOLDTHEBRIEFCASE, &state)",
+			"scenarioNetTakePending(NET_SCENARIO_STATE_KINGOFTHEHILL, &state)",
+			"scenarioNetTakePending(NET_SCENARIO_STATE_POPACAP, &state)" }) {
+		INFO(take);
+		bool found = false;
+		for (const char *inc : { "capturethecase", "hackthatmac", "holdthebriefcase", "kingofthehill", "popacap" }) {
+			const std::string text = readRepoFile((std::string("src/game/mplayer/scenarios/") + inc + ".inc").c_str());
+			found = found || text.find(take) != std::string::npos;
+		}
+		REQUIRE(found);
+	}
+
+	const std::string netmsg = readRepoFile("port/src/net/netmsg.c");
+	REQUIRE(netmsg.find("netScenarioStateListWrite(dst, list)") != std::string::npos);
+	REQUIRE(netmsg.find("status = netScenarioStateListRead(src, &state);") != std::string::npos);
+	REQUIRE(netmsg.find("SCENARIO.STATE: sent scenario=%u rev=%u reason=baseline sections=%u") !=
+		std::string::npos);
+	const std::string net = readRepoFile("port/src/net/net.c");
+	REQUIRE(net.find("static net_scenario_state_list_t s_NetScenarioLastSent;") != std::string::npos);
+	const std::string net_h = readRepoFile("port/include/net/net.h");
+	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 67") != std::string::npos);
+}
+
+TEST_CASE("the simulants' mode commands run through the plan",
+	"[gamemode-graphs][slice7][static]")
+{
+	const std::string bot = readRepoFile("src/game/bot.c");
+	REQUIRE(!bot.empty());
+	REQUIRE(bot.find("scenarioBotChooseCommand(chr, teamsize);") != std::string::npos);
+	REQUIRE(bot.find("newaction = scenarioBotIdleAction(chr);") != std::string::npos);
+	for (const char *fn : { "void htbBotChooseCommand(struct chrdata *chr, s32 teamsize)",
+			"void htmBotChooseCommand(struct chrdata *chr, s32 teamsize)",
+			"void pacBotChooseCommand(struct chrdata *chr, s32 teamsize)",
+			"void kohBotChooseCommand(struct chrdata *chr, s32 teamsize)",
+			"void ctcBotChooseCommand(struct chrdata *chr, s32 teamsize)",
+			"s32 htbBotIdleAction(struct chrdata *chr)", "s32 pacBotIdleAction(struct chrdata *chr)",
+			"s32 ctcBotIdleAction(struct chrdata *chr)", "s32 htmBotIdleAction(struct chrdata *chr)" }) {
+		INFO(fn);
+		REQUIRE(bot.find(fn) != std::string::npos);
+	}
+
+	// botTickUnpaused no longer picks commands or idle actions by mode number.
+	const size_t tick = bot.find("void botTickUnpaused(struct chrdata *chr)\n{");
+	REQUIRE(tick != std::string::npos);
+	const size_t choose = bot.find("scenarioBotChooseCommand(chr, teamsize);", tick);
+	const size_t idle = bot.find("newaction = scenarioBotIdleAction(chr);", tick);
+	REQUIRE(choose != std::string::npos);
+	REQUIRE(idle != std::string::npos);
+	const size_t choice_start = bot.rfind("s32 teamsize = botGetTeamSize(chr);", choose);
+	REQUIRE(choice_start != std::string::npos);
+	REQUIRE(bot.substr(choice_start, choose - choice_start).find("MPSCENARIO_") == std::string::npos);
+
+	const std::string scenarios = readRepoFile("src/game/mplayer/scenarios.c");
+	REQUIRE(scenarios.find("modeEventRecord(MODE_EVENT_BOT_COMMAND, chr ? chr->chrnum : -1);") != std::string::npos);
+	REQUIRE(scenarios.find("modeEventRecord(MODE_EVENT_BOT_IDLE, chr ? chr->chrnum : -1);") != std::string::npos);
+	REQUIRE(scenarios.find("\t\t.botcommandfunc = kohBotChooseCommand,") != std::string::npos);
+	REQUIRE(scenarios.find("\t\t.botidlefunc = htmBotIdleAction,") != std::string::npos);
+
+	// The modules: King of the Hill has a command choice but no idle action.
+	REQUIRE(std::string(modeRulesModuleKind(MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_BOT_COMMAND)) ==
+		"og.mode.koh.bot_command");
+	REQUIRE(modeRulesModuleKind(MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_BOT_IDLE) == nullptr);
+	REQUIRE(modeRulesSeamEvent(MODE_SEAM_BOT_IDLE) == MISSION_GRAPH_EVENT_MODE_BOT_IDLE);
+	REQUIRE(missionGraphEventIsMode(MISSION_GRAPH_EVENT_MODE_BOT_COMMAND) == 1);
 }

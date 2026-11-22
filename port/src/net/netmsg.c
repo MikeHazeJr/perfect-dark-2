@@ -10013,15 +10013,16 @@ u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl)
  * is net_scenario_state_wire.h, decoded and validated in full before use.
  * ======================================================================== */
 
-u32 netmsgSvcScenarioStateWrite(struct netbuf *dst, const struct net_scenario_state *state)
+u32 netmsgSvcScenarioStateWrite(struct netbuf *dst, const struct net_scenario_state_list *list)
 {
-	if (!dst || !state || dst->error) {
+	if (!dst || !list || dst->error) {
 		return 1;
 	}
 
 	netbufWriteU8(dst, SVC_SCENARIO_STATE);
 
-	if (!netScenarioStatePayloadWrite(dst, state)) {
+	/* gamemode-graphs.md slice 5 (v67): one section per state in use. */
+	if (!netScenarioStateListWrite(dst, list)) {
 		return dst->error ? dst->error : 1;
 	}
 
@@ -10031,7 +10032,7 @@ u32 netmsgSvcScenarioStateWrite(struct netbuf *dst, const struct net_scenario_st
 u32 netmsgSvcScenarioStateBaselineWrite(struct netbuf *dst)
 {
 #if !defined(PD_SERVER)
-	net_scenario_state_t state;
+	net_scenario_state_list_t state;
 	s32 changed;
 
 	if (!scenarioNetCaptureState(&state, &changed)) {
@@ -10042,8 +10043,9 @@ u32 netmsgSvcScenarioStateBaselineWrite(struct netbuf *dst)
 		return dst && dst->error ? dst->error : 1;
 	}
 
-	sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: sent scenario=%u rev=%u reason=baseline",
-		(unsigned)state.scenario, (unsigned)state.revision);
+	sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: sent scenario=%u rev=%u reason=baseline sections=%u",
+		(unsigned)state.sections[0].scenario, (unsigned)state.sections[0].revision,
+		(unsigned)state.count);
 
 	return 0;
 #else
@@ -10054,10 +10056,10 @@ u32 netmsgSvcScenarioStateBaselineWrite(struct netbuf *dst)
 
 u32 netmsgSvcScenarioStateRead(struct netbuf *src, struct netclient *srccl)
 {
-	net_scenario_state_t state;
+	net_scenario_state_list_t state;
 	net_scenario_state_status_e status;
 
-	status = netScenarioStatePayloadRead(src, &state);
+	status = netScenarioStateListRead(src, &state);
 
 	if (status != NET_SCENARIO_STATE_OK) {
 		sysLogPrintf(LOG_ERROR, "SCENARIO.STATE: rejected malformed state status=%d", (s32)status);

@@ -2342,7 +2342,7 @@ struct hand {
 	/*0x0da0*/ u32 ispare10;
 	/*0x0da4*/ f32 fspare1;
 	/*0x0da8*/ f32 fspare2;
-	/*0x0dac*/ f32 fspare3;
+	/*0x0dac*/ f32 chargelevel; /* held-weapon-events.md slice 5: og.weapon.charge's level in steps (the Mauler's was matmot1, which other weapons use for their own effects) */
 	/*0x0db0*/ f32 fspare4;
 	/*0x0db4*/ f32 fspare5;
 	/*0x0db8*/ f32 gunsmokepoint;
@@ -4339,14 +4339,15 @@ struct scenariodata_ctc {
 	/*0x58*/ struct prop *tokens[4];
 };
 
+/* gamemode-graphs.md slice 5: the five modes' states side by side (the
+ * original kept them in one union), so a mode's program may run the hill of
+ * one mode and the token of another. */
 struct scenariodata {
-	union {
-		struct scenariodata_htb htb;
-		struct scenariodata_htm htm;
-		struct scenariodata_pac pac;
-		struct scenariodata_koh koh;
-		struct scenariodata_ctc ctc;
-	};
+	struct scenariodata_htb htb;
+	struct scenariodata_htm htm;
+	struct scenariodata_pac pac;
+	struct scenariodata_koh koh;
+	struct scenariodata_ctc ctc;
 };
 
 struct bgportal {
