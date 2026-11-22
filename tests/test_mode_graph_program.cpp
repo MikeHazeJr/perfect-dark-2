@@ -104,15 +104,20 @@ const std::vector<std::pair<const char *, s32>> kScenarioFields = {
 	{ "unk3c", -1 },
 	{ "readsavefunc", MODE_SEAM_SAVE },
 	{ "writesavefunc", MODE_SEAM_SAVE },
+	// Slice 4: the mode code that sat outside the table.
+	{ "resetfunc", MODE_SEAM_STAGE_RESET },
+	{ "intropadfunc", MODE_SEAM_INTRO_PAD },
+	{ "pickuptokenfunc", MODE_SEAM_TOKEN_PICKED_UP },
+	{ "droppedtokenfunc", MODE_SEAM_TOKEN_DROPPED },
+	{ "activatedpropfunc", MODE_SEAM_PROP_ACTIVATED },
+	{ "playerdiedfunc", MODE_SEAM_PLAYER_DIED },
 };
 
-std::string trim(const std::string &text)
-{
-	const size_t first = text.find_first_not_of(" \t\r\n");
-	if (first == std::string::npos) return "";
-	const size_t last = text.find_last_not_of(" \t\r\n");
-	return text.substr(first, last - first + 1);
-}
+// The rows of g_MpScenarios[], by their designators, in mode order.
+const char *const kScenarioRows[MODE_RULES_MODE_COUNT] = {
+	"[MPSCENARIO_COMBAT] = {", "[MPSCENARIO_HOLDTHEBRIEFCASE] = {", "[MPSCENARIO_HACKERCENTRAL] = {",
+	"[MPSCENARIO_POPACAP] = {", "[MPSCENARIO_KINGOFTHEHILL] = {", "[MPSCENARIO_CAPTURETHECASE] = {",
+};
 
 } // namespace
 
@@ -219,44 +224,26 @@ TEST_CASE("the mode module table is the original mode table",
 		from = at + std::string(field.first).size();
 	}
 
-	// The six rows of g_MpScenarios[], as written.
+	// The six rows of g_MpScenarios[], by their designators and fields.
 	const size_t table = scenarios.find("struct mpscenario g_MpScenarios[] = {");
 	REQUIRE(table != std::string::npos);
 	const size_t table_end = scenarios.find("\n};", table);
 	REQUIRE(table_end != std::string::npos);
-	std::vector<std::vector<std::string>> rows;
-	size_t at = scenarios.find('{', table + std::string("struct mpscenario g_MpScenarios[] = ").size());
-	while (true) {
-		at = scenarios.find('{', at + 1);
-		if (at == std::string::npos || at > table_end) break;
-		const size_t close = scenarios.find('}', at);
-		REQUIRE(close != std::string::npos);
-		std::vector<std::string> fields;
-		std::stringstream row(scenarios.substr(at + 1, close - at - 1));
-		std::string item;
-		while (std::getline(row, item, ',')) {
-			// Drop line comments the row may hold.
-			std::stringstream lines(item);
-			std::string line, kept;
-			while (std::getline(lines, line)) {
-				const size_t comment = line.find("//");
-				kept += comment == std::string::npos ? line : line.substr(0, comment);
-			}
-			kept = trim(kept);
-			if (!kept.empty()) fields.push_back(kept);
-		}
-		rows.push_back(fields);
-		at = close;
-	}
-	REQUIRE(rows.size() == MODE_RULES_MODE_COUNT);
 
 	for (s32 mode = 0; mode < MODE_RULES_MODE_COUNT; mode++) {
-		const std::vector<std::string> &fields = rows[static_cast<size_t>(mode)];
-		REQUIRE(fields.size() <= kScenarioFields.size());
+		INFO(kScenarioRows[mode]);
+		const size_t row = scenarios.find(kScenarioRows[mode], table);
+		REQUIRE(row != std::string::npos);
+		REQUIRE(row < table_end);
+		const size_t row_end = scenarios.find("\n\t}", row);
+		REQUIRE(row_end != std::string::npos);
+		const std::string fields = scenarios.substr(row, row_end - row);
+		REQUIRE(fields.find("NULL") == std::string::npos);
 		bool has[MODE_SEAM_COUNT] = {};
 		bool both_or_none[MODE_SEAM_COUNT][2] = {};
 		for (size_t i = 0; i < kScenarioFields.size(); i++) {
-			const bool set = i < fields.size() && fields[i] != "NULL";
+			const bool set = fields.find(std::string("\t.") + kScenarioFields[i].first + " = ") !=
+				std::string::npos;
 			const s32 seam = kScenarioFields[i].second;
 			if (seam < 0) continue;
 			if (seam == MODE_SEAM_ROOM_LIGHTS || seam == MODE_SEAM_SAVE) {
@@ -288,7 +275,7 @@ TEST_CASE("the mode module table is the original mode table",
 		"og.mode.default.score");
 	REQUIRE(std::string(modeRulesModuleKind(MODE_RULES_DEFAULT, MODE_SEAM_SPAWN)) ==
 		"og.mode.default.spawn");
-	REQUIRE(modeRulesModuleCount() == 50);
+	REQUIRE(modeRulesModuleCount() == 64);
 
 	// Every module's seam is chosen by one event.
 	for (s32 seam = 0; seam < MODE_SEAM_COUNT; seam++) {
@@ -420,7 +407,7 @@ TEST_CASE("the extractor, the catalog and registration carry the mode program",
 	REQUIRE(pdmeta.find("assetArchiveWriterAddPublicMem(&writer, MODE_GRAPH_MEMBER,") != std::string::npos);
 	REQUIRE(pdmeta.find("s_existingArchiveHasEntry(relpath, MODE_GRAPH_MEMBER)") != std::string::npos);
 	REQUIRE(pdmeta.find("\"mode_graph_file = \" MODE_GRAPH_MEMBER") != std::string::npos);
-	REQUIRE(pdmeta.find("_vehiclegraph_modegraph\"") != std::string::npos);
+	REQUIRE(pdmeta.find("_vehiclegraph_modegraph_outside\"") != std::string::npos);
 
 	const std::string base = readRepoFile("port/src/assetcatalog_base_extended.c");
 	REQUIRE(base.find("\"mode.graph.json\", e->ext.gamemode.mode_graph_file") != std::string::npos);
@@ -557,7 +544,9 @@ TEST_CASE("the mode dispatchers run the program's plan and compare it with the o
 	for (const char *seam : { "MODE_SEAM_INIT", "MODE_SEAM_NUM_PROPS", "MODE_SEAM_INIT_PROPS",
 			"MODE_SEAM_TICK", "MODE_SEAM_TICK_CHR", "MODE_SEAM_HUD", "MODE_SEAM_SCORE",
 			"MODE_SEAM_RADAR_EXTRA", "MODE_SEAM_RADAR_CHR", "MODE_SEAM_HIGHLIGHT_PROP",
-			"MODE_SEAM_SPAWN", "MODE_SEAM_MAX_TEAMS", "MODE_SEAM_ROOM_LIGHTS", "MODE_SEAM_SAVE" }) {
+			"MODE_SEAM_SPAWN", "MODE_SEAM_MAX_TEAMS", "MODE_SEAM_ROOM_LIGHTS", "MODE_SEAM_SAVE",
+			"MODE_SEAM_STAGE_RESET", "MODE_SEAM_INTRO_PAD", "MODE_SEAM_TOKEN_PICKED_UP",
+			"MODE_SEAM_TOKEN_DROPPED", "MODE_SEAM_PROP_ACTIVATED", "MODE_SEAM_PLAYER_DIED" }) {
 		INFO(seam);
 		REQUIRE(scenarios.find(std::string("plan, ") + seam + ");") != std::string::npos);
 		REQUIRE(scenarios.find(std::string("case ") + seam + ":") != std::string::npos);
@@ -609,4 +598,51 @@ TEST_CASE("the local mode smokes require the plan and no parity difference",
 		REQUIRE(fixture.find("\"MODE\\\\.PARITY: differ\"") != std::string::npos);
 		REQUIRE(fixture.find("\"LOUDFAIL\\\\.MODE\\\\.PLAN\"") != std::string::npos);
 	}
+}
+
+TEST_CASE("the code outside the mode table runs through the plan",
+	"[gamemode-graphs][slice4][static]")
+{
+	const std::string scenarios = readRepoFile("src/game/mplayer/scenarios.c");
+	REQUIRE(!scenarios.empty());
+
+	// The table names its rows and fields.
+	REQUIRE(scenarios.find("[MPSCENARIO_CAPTURETHECASE] = {") != std::string::npos);
+	REQUIRE(scenarios.find("\t\t.droppedtokenfunc = ctcDropToken,") != std::string::npos);
+	REQUIRE(scenarios.find("\t\t.playerdiedfunc = pacHandleDeath,") != std::string::npos);
+	REQUIRE(scenarios.find("\t\t.activatedpropfunc = htmActivateProp,") != std::string::npos);
+
+	// scenarioReset asks the plan; the mode switch is gone.
+	const size_t reset = scenarios.find("void scenarioReset(void)\n{");
+	REQUIRE(reset != std::string::npos);
+	const std::string reset_body = scenarios.substr(reset, scenarios.find("\n}\n", reset) - reset);
+	REQUIRE(reset_body.find("switch (scenario)") == std::string::npos);
+	REQUIRE(reset_body.find("g_MpScenarios[owner].resetfunc();") != std::string::npos);
+	REQUIRE(reset_body.find("scenarioRunIntroPad(scenario, plan, cmd);") != std::string::npos);
+	REQUIRE(reset_body.find("ctcAddPad") == std::string::npos);
+	REQUIRE(reset_body.find("kohAddHill") == std::string::npos);
+
+	// Each token routine runs the plan's module for its own token kind.
+	REQUIRE(scenarios.find("return scenarioPlanPickUpToken(chr, prop, WEAPON_BRIEFCASE2);") != std::string::npos);
+	REQUIRE(scenarios.find("return scenarioPlanPickUpToken(chr, prop, WEAPON_DATAUPLINK);") != std::string::npos);
+	REQUIRE(scenarios.find("scenarioTokenWeaponNum(owner) == weaponnum") != std::string::npos);
+	REQUIRE(scenarios.find("g_MpScenarios[owner].droppedtokenfunc(chr, prop);") != std::string::npos);
+	REQUIRE(scenarios.find("g_MpScenarios[owner].activatedpropfunc(chr, prop);") != std::string::npos);
+	REQUIRE(scenarios.find("g_MpScenarios[owner].playerdiedfunc(aplayernum, vplayernum);") != std::string::npos);
+	REQUIRE(scenarios.find("g_MpSetup.scenario == MPSCENARIO_") == std::string::npos);
+
+	// The death hook asks the scenarios, not the mode number.
+	const std::string mpstats = readRepoFile("src/game/mpstats.c");
+	REQUIRE(mpstats.find("scenarioHandlePlayerDied(aplayernum, vplayernum);") != std::string::npos);
+	REQUIRE(mpstats.find("pacHandleDeath(") == std::string::npos);
+	const std::string setup_h = readRepoFile("src/include/game/mplayer/setup.h");
+	REQUIRE(setup_h.find("void scenarioHandlePlayerDied(s32 aplayernum, s32 vplayernum);") != std::string::npos);
+
+	// The new seams' modules are each mode's own.
+	REQUIRE(std::string(modeRulesModuleKind(MPSCENARIO_POPACAP, MODE_SEAM_PLAYER_DIED)) == "og.mode.pac.player_died");
+	REQUIRE(std::string(modeRulesModuleKind(MPSCENARIO_HACKERCENTRAL, MODE_SEAM_PROP_ACTIVATED)) ==
+		"og.mode.htm.prop_activated");
+	REQUIRE(modeRulesModuleKind(MPSCENARIO_POPACAP, MODE_SEAM_STAGE_RESET) == nullptr);
+	REQUIRE(modeRulesSeamEvent(MODE_SEAM_TOKEN_DROPPED) == MISSION_GRAPH_EVENT_MODE_TOKEN_DROPPED);
+	REQUIRE(modeRulesSeamEvent(MODE_SEAM_INTRO_PAD) == MISSION_GRAPH_EVENT_MODE_INTRO_PAD);
 }

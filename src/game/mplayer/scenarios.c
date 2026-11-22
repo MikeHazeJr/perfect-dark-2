@@ -104,6 +104,13 @@ struct mpscenario {
 	void *unk3c; // never hooked into nor fired
 	void (*readsavefunc)(struct savebuffer *buffer, u8 version);
 	void (*writesavefunc)(struct savebuffer *buffer);
+	/* gamemode-graphs.md slice 4: the mode code that sat outside the table. */
+	void (*resetfunc)(void);
+	void (*intropadfunc)(s32 *cmd);
+	s32 (*pickuptokenfunc)(struct chrdata *chr, struct prop *prop);
+	void (*droppedtokenfunc)(struct chrdata *chr, struct prop *prop);
+	void (*activatedpropfunc)(struct chrdata *chr, struct prop *prop);
+	void (*playerdiedfunc)(s32 aplayernum, s32 vplayernum);
 };
 
 #if VERSION >= VERSION_JPN_FINAL
@@ -628,81 +635,106 @@ static s32 scenarioNetTakePending(net_scenario_state_t *out)
 #include "scenarios/hackthatmac.inc"
 #include "scenarios/popacap.inc"
 
-// Define the scenario callbacks
+/* gamemode-graphs.md slice 4: what scenarioReset, the stage intro, the token
+ * pickups and drops and the terminal did per mode, defined further down. */
+static void kohReset(void);
+static void ctcReset(void);
+static void htbIntroPad(s32 *cmd);
+static void htmIntroPad(s32 *cmd);
+static void ctcIntroPad(s32 *cmd);
+static void kohIntroPad(s32 *cmd);
+static s32 htbPickUpToken(struct chrdata *chr, struct prop *prop);
+static s32 ctcPickUpToken(struct chrdata *chr, struct prop *prop);
+static s32 htmPickUpToken(struct chrdata *chr, struct prop *prop);
+static void ctcDropToken(struct chrdata *chr, struct prop *prop);
+static void htmActivateProp(struct chrdata *chr, struct prop *prop);
+
+// Define the scenario callbacks. gamemode-graphs.md: each callback is a mode
+// module (og.mode.<mode>.<seam>, port/src/mode_rules.c) and the mode's
+// program chooses which of them run; pd-tests hold the two tables equal.
 struct mpscenario g_MpScenarios[] = {
-	{
-		&g_MpCombatOptionsMenuDialog,
-	}, {
-		&g_HtbOptionsMenuDialog,
-		htbInit,
-		htbNumProps,
-		htbInitProps,
-		htbTick,
-		htbTickChr,
-		htbRenderHud,
-		htbCalculatePlayerScore,
-		htbRadarExtra,
-		htbRadarChr,
-		htbHighlightProp,
-	}, {
-		&g_HtmOptionsMenuDialog,
-		htmInit,
-		htmNumProps,
-		htmInitProps,
-		htmTick,
-		htmTickChr,
-		htmRenderHud,
-		htmCalculatePlayerScore,
-		htmRadarExtra,
-		htmRadarChr,
-		htmHighlightProp,
-	}, {
-		&g_PacOptionsMenuDialog,
-		pacInit,
-		NULL,
-		pacInitProps,
-		pacTick,
-		NULL,
-		pacRenderHud,
-		pacCalculatePlayerScore,
-		pacRadarExtra,
-		pacRadarChr,
-		pacHighlightProp,
-	}, {
-		&g_KohOptionsMenuDialog,
-		kohInit,
-		NULL,
-		kohInitProps,
-		kohTick,
-		NULL,
-		kohRenderHud,
-		kohCalculatePlayerScore,
-		kohRadarExtra,
-		NULL,
-		NULL,
-		NULL,
-		NULL,
-		kohIsRoomHighlighted,
-		kohHighlightRoom,
-		NULL,
-		kohReadSave,
-		kohWriteSave
-	}, {
-		&g_CtcOptionsMenuDialog,
-		ctcInit,
-		ctcNumProps,
-		ctcInitProps,
-		ctcTick,
-		ctcTickChr,
-		NULL,
-		ctcCalculatePlayerScore,
-		ctcRadarExtra,
-		ctcRadarChr,
-		ctcHighlightProp,
-		ctcChooseSpawnLocation,
-		ctcGetMaxTeams,
-		ctcIsRoomHighlighted,
-		ctcHighlightRoom,
+	[MPSCENARIO_COMBAT] = {
+		.optionsdialog = &g_MpCombatOptionsMenuDialog,
+	},
+	[MPSCENARIO_HOLDTHEBRIEFCASE] = {
+		.optionsdialog = &g_HtbOptionsMenuDialog,
+		.initfunc = htbInit,
+		.numpropsfunc = htbNumProps,
+		.initpropsfunc = htbInitProps,
+		.tickfunc = htbTick,
+		.tickchrfunc = htbTickChr,
+		.hudfunc = htbRenderHud,
+		.calcscorefunc = htbCalculatePlayerScore,
+		.radarextrafunc = htbRadarExtra,
+		.radarchrfunc = htbRadarChr,
+		.highlightpropfunc = htbHighlightProp,
+		.resetfunc = htbReset,
+		.intropadfunc = htbIntroPad,
+		.pickuptokenfunc = htbPickUpToken,
+	},
+	[MPSCENARIO_HACKERCENTRAL] = {
+		.optionsdialog = &g_HtmOptionsMenuDialog,
+		.initfunc = htmInit,
+		.numpropsfunc = htmNumProps,
+		.initpropsfunc = htmInitProps,
+		.tickfunc = htmTick,
+		.tickchrfunc = htmTickChr,
+		.hudfunc = htmRenderHud,
+		.calcscorefunc = htmCalculatePlayerScore,
+		.radarextrafunc = htmRadarExtra,
+		.radarchrfunc = htmRadarChr,
+		.highlightpropfunc = htmHighlightProp,
+		.resetfunc = htmReset,
+		.intropadfunc = htmIntroPad,
+		.pickuptokenfunc = htmPickUpToken,
+		.activatedpropfunc = htmActivateProp,
+	},
+	[MPSCENARIO_POPACAP] = {
+		.optionsdialog = &g_PacOptionsMenuDialog,
+		.initfunc = pacInit,
+		.initpropsfunc = pacInitProps,
+		.tickfunc = pacTick,
+		.hudfunc = pacRenderHud,
+		.calcscorefunc = pacCalculatePlayerScore,
+		.radarextrafunc = pacRadarExtra,
+		.radarchrfunc = pacRadarChr,
+		.highlightpropfunc = pacHighlightProp,
+		.playerdiedfunc = pacHandleDeath,
+	},
+	[MPSCENARIO_KINGOFTHEHILL] = {
+		.optionsdialog = &g_KohOptionsMenuDialog,
+		.initfunc = kohInit,
+		.initpropsfunc = kohInitProps,
+		.tickfunc = kohTick,
+		.hudfunc = kohRenderHud,
+		.calcscorefunc = kohCalculatePlayerScore,
+		.radarextrafunc = kohRadarExtra,
+		.isroomhighlightedfunc = kohIsRoomHighlighted,
+		.highlightroomfunc = kohHighlightRoom,
+		.readsavefunc = kohReadSave,
+		.writesavefunc = kohWriteSave,
+		.resetfunc = kohReset,
+		.intropadfunc = kohIntroPad,
+	},
+	[MPSCENARIO_CAPTURETHECASE] = {
+		.optionsdialog = &g_CtcOptionsMenuDialog,
+		.initfunc = ctcInit,
+		.numpropsfunc = ctcNumProps,
+		.initpropsfunc = ctcInitProps,
+		.tickfunc = ctcTick,
+		.tickchrfunc = ctcTickChr,
+		.calcscorefunc = ctcCalculatePlayerScore,
+		.radarextrafunc = ctcRadarExtra,
+		.radarchrfunc = ctcRadarChr,
+		.highlightpropfunc = ctcHighlightProp,
+		.spawnfunc = ctcChooseSpawnLocation,
+		.maxteamsfunc = ctcGetMaxTeams,
+		.isroomhighlightedfunc = ctcIsRoomHighlighted,
+		.highlightroomfunc = ctcHighlightRoom,
+		.resetfunc = ctcReset,
+		.intropadfunc = ctcIntroPad,
+		.pickuptokenfunc = ctcPickUpToken,
+		.droppedtokenfunc = ctcDropToken,
 	},
 };
 
@@ -751,7 +783,7 @@ static s32 scenarioGetSafeIndex(const char *caller)
  */
 static mode_rules_plan_t s_ScenarioPlans[MODE_RULES_MODE_COUNT];
 static u8 s_ScenarioPlanMade[MODE_RULES_MODE_COUNT];
-static u16 s_ScenarioParityLogged[MODE_RULES_MODE_COUNT];
+static u32 s_ScenarioParityLogged[MODE_RULES_MODE_COUNT];
 
 static void scenarioPlanMake(s32 scenario, const char *why)
 {
@@ -824,6 +856,12 @@ static void scenarioNativeSeam(s32 scenario, s32 seam, s8 out[MODE_PLAN_MAX_PER_
 		has = row->isroomhighlightedfunc != NULL || row->highlightroomfunc != NULL;
 		break;
 	case MODE_SEAM_SAVE: has = row->readsavefunc != NULL || row->writesavefunc != NULL; break;
+	case MODE_SEAM_STAGE_RESET: has = row->resetfunc != NULL; break;
+	case MODE_SEAM_INTRO_PAD: has = row->intropadfunc != NULL; break;
+	case MODE_SEAM_TOKEN_PICKED_UP: has = row->pickuptokenfunc != NULL; break;
+	case MODE_SEAM_TOKEN_DROPPED: has = row->droppedtokenfunc != NULL; break;
+	case MODE_SEAM_PROP_ACTIVATED: has = row->activatedpropfunc != NULL; break;
+	case MODE_SEAM_PLAYER_DIED: has = row->playerdiedfunc != NULL; break;
 	}
 	out[0] = MODE_PLAN_NONE;
 	out[1] = MODE_PLAN_NONE;
@@ -847,7 +885,7 @@ static void scenarioPlanCompare(s32 scenario, const mode_rules_plan_t *plan, s32
 	differ = plan->owner[seam][0] != native[0] || plan->owner[seam][1] != native[1];
 	modeParityRecord(differ);
 	if (differ && !(s_ScenarioParityLogged[scenario] & (1u << seam))) {
-		s_ScenarioParityLogged[scenario] |= (u16)(1u << seam);
+		s_ScenarioParityLogged[scenario] |= 1u << seam;
 		sysLogPrintf(LOG_WARNING, "MODE.PARITY: differ scenario=%d seam=%s native=%d,%d program=%d,%d",
 			scenario, modeRulesSeamName(seam), native[0], native[1],
 			plan->owner[seam][0], plan->owner[seam][1]);
@@ -1924,44 +1962,93 @@ s32 scenarioNetReceiveState(const net_scenario_state_t *in)
 	return true;
 }
 
-void scenarioReset(void)
+/* gamemode-graphs.md slice 4: what scenarioReset's switch did per mode. */
+static void kohReset(void)
+{
+	g_ScenarioData.koh.hillcount = 0;
+}
+
+static void ctcReset(void)
 {
 	s32 i;
 	s32 j;
+
+	for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam); i++) {
+		g_ScenarioData.ctc.spawnpadsperteam[i].homepad = -1;
+		g_ScenarioData.ctc.spawnpadsperteam[i].numspawnpads = 0;
+
+		for (j = 0; j < ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam[i].spawnpads); j++) {
+			g_ScenarioData.ctc.spawnpadsperteam[i].spawnpads[j] = -1;
+		}
+	}
+
+	for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.playercountsperteam); i++) {
+		g_ScenarioData.ctc.playercountsperteam[i] = 0;
+		g_ScenarioData.ctc.teamindexes[i] = -1;
+	}
+}
+
+/* The stage intro's case and hill pads: each mode takes the kind it uses. */
+static void htbIntroPad(s32 *cmd)
+{
+	if (cmd[0] == INTROCMD_CASE || cmd[0] == INTROCMD_CASERESPAWN) {
+		htbAddPad(cmd[2]);
+	}
+}
+
+static void htmIntroPad(s32 *cmd)
+{
+	if (cmd[0] == INTROCMD_CASE || cmd[0] == INTROCMD_CASERESPAWN) {
+		htmAddPad(cmd[2]);
+	}
+}
+
+static void ctcIntroPad(s32 *cmd)
+{
+	if (cmd[0] == INTROCMD_CASE || cmd[0] == INTROCMD_CASERESPAWN) {
+		ctcAddPad(cmd);
+	}
+}
+
+static void kohIntroPad(s32 *cmd)
+{
+	if (cmd[0] == INTROCMD_HILL) {
+		kohAddHill(cmd);
+	}
+}
+
+static void scenarioRunIntroPad(s32 scenario, const mode_rules_plan_t *plan, s32 *cmd)
+{
+	s32 k;
+
+	scenarioPlanCompare(scenario, plan, MODE_SEAM_INTRO_PAD);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_INTRO_PAD, k);
+		if (owner >= 0 && g_MpScenarios[owner].intropadfunc) {
+			g_MpScenarios[owner].intropadfunc(cmd);
+		}
+	}
+}
+
+void scenarioReset(void)
+{
 	s32 *cmd = g_StageSetup.intro;
 	s32 scenario = scenarioGetSafeIndex("scenarioReset");
+	const mode_rules_plan_t *plan;
+	s32 k;
 
 	scenarioNetResetState();
 	/* gamemode-graphs.md slice 3: a stage loads; the mode's program's plan. */
 	scenarioPlanMake(scenario, "stage_reset");
+	plan = scenarioPlan(scenario);
 
-	switch (scenario) {
-	case MPSCENARIO_KINGOFTHEHILL:
-		g_ScenarioData.koh.hillcount = 0;
-		break;
-	case MPSCENARIO_CAPTURETHECASE:
-		for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam); i++) {
-			g_ScenarioData.ctc.spawnpadsperteam[i].homepad = -1;
-			g_ScenarioData.ctc.spawnpadsperteam[i].numspawnpads = 0;
-
-			for (j = 0; j < ARRAYCOUNT(g_ScenarioData.ctc.spawnpadsperteam[i].spawnpads); j++) {
-				g_ScenarioData.ctc.spawnpadsperteam[i].spawnpads[j] = -1;
-			}
+	/* Slice 4: each mode clears its stage state. */
+	scenarioPlanCompare(scenario, plan, MODE_SEAM_STAGE_RESET);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_STAGE_RESET, k);
+		if (owner >= 0 && g_MpScenarios[owner].resetfunc) {
+			g_MpScenarios[owner].resetfunc();
 		}
-
-		for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.playercountsperteam); i++) {
-			g_ScenarioData.ctc.playercountsperteam[i] = 0;
-			g_ScenarioData.ctc.teamindexes[i] = -1;
-		}
-		break;
-	case MPSCENARIO_HACKERCENTRAL:
-		htmReset();
-		break;
-	case MPSCENARIO_HOLDTHEBRIEFCASE:
-		htbReset();
-		break;
-	case MPSCENARIO_POPACAP:
-		break;
 	}
 	modeEventRecord(MODE_EVENT_STAGE_RESET, -1);
 
@@ -1975,20 +2062,12 @@ void scenarioReset(void)
 			case INTROCMD_CASE:
 			case INTROCMD_CASERESPAWN:
 				modeEventRecord(MODE_EVENT_INTRO_PAD, -1);
-				if (scenario == MPSCENARIO_CAPTURETHECASE) {
-					ctcAddPad(cmd);
-				} else if (scenario == MPSCENARIO_HACKERCENTRAL) {
-					htmAddPad(cmd[2]);
-				} else if (scenario == MPSCENARIO_HOLDTHEBRIEFCASE) {
-					htbAddPad(cmd[2]);
-				}
+				scenarioRunIntroPad(scenario, plan, cmd);
 				cmd += 3;
 				break;
 			case INTROCMD_HILL:
 				modeEventRecord(MODE_EVENT_INTRO_PAD, -1);
-				if (scenario == MPSCENARIO_KINGOFTHEHILL) {
-					kohAddHill(cmd);
-				}
+				scenarioRunIntroPad(scenario, plan, cmd);
 				cmd += 2;
 				break;
 			case INTROCMD_WEAPON:
@@ -2290,12 +2369,115 @@ bool scenarioChrsAreSameTeam(s32 playernum1, s32 playernum2)
 }
 
 /**
+ * gamemode-graphs.md slice 4: the plan's pickup module for this kind of token
+ * (the briefcase of Hold the Briefcase and Capture the Case, the data uplink
+ * of Hacker Central), or nothing.
+ *
+ * The return value is a TICKOP constant.
+ */
+static s32 scenarioPlanPickUpToken(struct chrdata *chr, struct prop *prop, s32 weaponnum)
+{
+	const mode_rules_plan_t *plan;
+	s32 k;
+
+	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
+		return TICKOP_NONE;
+	}
+	plan = scenarioPlan(g_MpSetup.scenario);
+	scenarioPlanCompare(g_MpSetup.scenario, plan, MODE_SEAM_TOKEN_PICKED_UP);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_TOKEN_PICKED_UP, k);
+		if (owner >= 0 && scenarioTokenWeaponNum(owner) == weaponnum
+				&& g_MpScenarios[owner].pickuptokenfunc) {
+			modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);
+			return g_MpScenarios[owner].pickuptokenfunc(chr, prop);
+		}
+	}
+
+	return TICKOP_NONE;
+}
+
+/**
  * Handle a player or bot picking up a briefcase, regardless of which scenario
  * it is.
  *
  * The return value is a TICKOP constant.
  */
 s32 scenarioPickUpBriefcase(struct chrdata *chr, struct prop *prop)
+{
+	return scenarioPlanPickUpToken(chr, prop, WEAPON_BRIEFCASE2);
+}
+
+/* Hold the Briefcase: the briefcase is picked up. */
+static s32 htbPickUpToken(struct chrdata *chr, struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
+	struct weaponobj *weapon = prop->weapon;
+	s32 i;
+	s32 prevplayernum;
+	char text1[64];
+	struct mpchrconfig *mpchr;
+
+	// Player or bot has picked up the briefcase
+	g_ScenarioData.htb.token = chr->prop;
+
+	if (chr->aibot) {
+		mpchr = g_MpAllChrConfigPtrs[mpPlayerGetIndex(chr)];
+		propPlayPickupSound(prop, weapon->weaponnum);
+		chr->aibot->hasbriefcase = true;
+		botinvGiveSingleWeapon(chr, WEAPON_BRIEFCASE2);
+	} else {
+		mpchr = MPCHR(g_Vars.playerstats[g_Vars.currentplayernum].mpindex);
+
+		invGiveSingleWeapon(WEAPON_BRIEFCASE2);
+		currentPlayerQueuePickupWeaponHudmsg(WEAPON_BRIEFCASE2, false);
+		weaponPlayPickupSound(WEAPON_BRIEFCASE2);
+	}
+
+#if VERSION >= VERSION_JPN_FINAL
+	// "%shas the Briefcase"
+	snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_2), scenarioRemoveLineBreaks(mpchr->name, 0), bgunGetShortName(WEAPON_BRIEFCASE2));
+#elif VERSION >= VERSION_PAL_BETA
+	// "%shas the Briefcase"
+	snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_2), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
+#else
+	// "%shas the\n%s"
+	snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
+#endif
+
+	prevplayernum = g_Vars.currentplayernum;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (!g_Vars.players[i]) {
+			continue;
+		}
+		if (chr->aibot || i != prevplayernum) {
+			setCurrentPlayerNum(i);
+#if VERSION >= VERSION_JPN_FINAL
+			hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+#else
+			hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+#endif
+		}
+	}
+
+	setCurrentPlayerNum(prevplayernum);
+
+	if (chr->aibot) {
+		obj->hidden |= OBJHFLAG_DELETING;
+		return TICKOP_NONE;
+	}
+
+#if VERSION >= VERSION_NTSC_1_0
+	objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
+	return TICKOP_FREE;
+#else
+	return TICKOP_GIVETOPLAYER;
+#endif
+}
+
+/* Capture the Case: a team's case is picked up, or brought home. */
+static s32 ctcPickUpToken(struct chrdata *chr, struct prop *prop)
 {
 	struct defaultobj *obj = prop->obj;
 	struct weaponobj *weapon = prop->weapon;
@@ -2307,261 +2489,191 @@ s32 scenarioPickUpBriefcase(struct chrdata *chr, struct prop *prop)
 	char text3[64];
 	struct mpchrconfig *mpchr;
 
-	if (g_MpSetup.scenario == MPSCENARIO_HOLDTHEBRIEFCASE
-			|| g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE) {
-		modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);
+	if (chr->aibot) {
+		mpchr = g_MpAllChrConfigPtrs[mpPlayerGetIndex(chr)];
+	} else {
+		mpchr = MPCHR(g_Vars.playerstats[g_Vars.currentplayernum].mpindex);
 	}
 
-	if (g_MpSetup.scenario == MPSCENARIO_HOLDTHEBRIEFCASE) {
-		// Player or bot has picked up the briefcase
-		g_ScenarioData.htb.token = chr->prop;
+	if (weapon->team == mpchr->team) {
+		if ((chr->aibot && chr->aibot->hascase) || (!chr->aibot && invHasBriefcase())) {
+			// The chr already has a case and they are "picking up"
+			// their home case. ie. A point has just been scored
+			mpchr->numpoints++;
 
-		if (chr->aibot) {
-			mpchr = g_MpAllChrConfigPtrs[mpPlayerGetIndex(chr)];
-			propPlayPickupSound(prop, weapon->weaponnum);
-			chr->aibot->hasbriefcase = true;
-			botinvGiveSingleWeapon(chr, WEAPON_BRIEFCASE2);
-		} else {
-			mpchr = MPCHR(g_Vars.playerstats[g_Vars.currentplayernum].mpindex);
-
-			invGiveSingleWeapon(WEAPON_BRIEFCASE2);
-			currentPlayerQueuePickupWeaponHudmsg(WEAPON_BRIEFCASE2, false);
-			weaponPlayPickupSound(WEAPON_BRIEFCASE2);
-		}
-
-#if VERSION >= VERSION_JPN_FINAL
-		// "%shas the Briefcase"
-		snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_2), scenarioRemoveLineBreaks(mpchr->name, 0), bgunGetShortName(WEAPON_BRIEFCASE2));
-#elif VERSION >= VERSION_PAL_BETA
-		// "%shas the Briefcase"
-		snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_2), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
-#else
-		// "%shas the\n%s"
-		snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
-#endif
-
-		prevplayernum = g_Vars.currentplayernum;
-
-		for (i = 0; i < MAX_PLAYERS; i++) {
-			if (!g_Vars.players[i]) {
-				continue;
-			}
-			if (chr->aibot || i != prevplayernum) {
-				setCurrentPlayerNum(i);
-#if VERSION >= VERSION_JPN_FINAL
-				hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-#else
-				hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-#endif
-			}
-		}
-
-		setCurrentPlayerNum(prevplayernum);
-
-		if (chr->aibot) {
-			obj->hidden |= OBJHFLAG_DELETING;
-			return TICKOP_NONE;
-		}
-
-#if VERSION >= VERSION_NTSC_1_0
-		objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
-		return TICKOP_FREE;
-#else
-		return TICKOP_GIVETOPLAYER;
-#endif
-	} else if (g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE) {
-		if (chr->aibot) {
-			mpchr = g_MpAllChrConfigPtrs[mpPlayerGetIndex(chr)];
-		} else {
-			mpchr = MPCHR(g_Vars.playerstats[g_Vars.currentplayernum].mpindex);
-		}
-
-		if (weapon->team == mpchr->team) {
-			if ((chr->aibot && chr->aibot->hascase) || (!chr->aibot && invHasBriefcase())) {
-				// The chr already has a case and they are "picking up"
-				// their home case. ie. A point has just been scored
-				mpchr->numpoints++;
-
-				for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.tokens); i++) {
-					if (g_ScenarioData.ctc.tokens[i] == chr->prop) {
-						break;
-					}
+			for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.tokens); i++) {
+				if (g_ScenarioData.ctc.tokens[i] == chr->prop) {
+					break;
 				}
-
-				if (chr->aibot) {
-					botinvDropOne(chr, WEAPON_BRIEFCASE2);
-					chr->aibot->hascase = false;
-				} else {
-					sndStart(var80095200, SFX_MP_SCOREPOINT, NULL, -1, -1, -1, -1, -1);
-					weaponCreateForPlayerDrop(WEAPON_BRIEFCASE2);
-					invRemoveItemByNum(WEAPON_BRIEFCASE2);
-				}
-
-#if VERSION >= VERSION_JPN_FINAL
-				// "You captured the %s Briefcase"
-				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_004), scenarioRemoveLineBreaks(g_BossFile.teamnames[i], 0));
-
-				// "%scaptured our Briefcase"
-				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_005), scenarioRemoveLineBreaks(mpchr->name, 0));
-
-				// "%scaptured the %s Briefcase"
-				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_006), scenarioRemoveLineBreaks(mpchr->name, 0), scenarioRemoveLineBreaks(g_BossFile.teamnames[i], 1));
-#elif VERSION >= VERSION_PAL_BETA
-				// "You captured the %s Briefcase"
-				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_004), g_BossFile.teamnames[i]);
-
-				// "%scaptured our Briefcase"
-				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_005), mpchr->name);
-
-				// "%scaptured the %s Briefcase"
-				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_006), mpchr->name, g_BossFile.teamnames[i]);
-#else
-				// "You captured the %s%s"
-				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_004), g_BossFile.teamnames[i], bgunGetShortName(WEAPON_BRIEFCASE2));
-
-				// "%scaptured our %s"
-				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_005), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
-
-				// "%scaptured the %s%s"
-				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_006), mpchr->name, g_BossFile.teamnames[i], bgunGetShortName(WEAPON_BRIEFCASE2));
-#endif
-
-				prevplayernum = g_Vars.currentplayernum;
-
-				caseteam = i;
-
-				if (caseteam);
-
-				for (i = 0; i < MAX_PLAYERS; i++) {
-					if (!g_Vars.players[i]) {
-						continue;
-					}
-					setCurrentPlayerNum(i);
-
-#if VERSION >= VERSION_JPN_FINAL
-					if (!chr->aibot && i == prevplayernum) {
-						hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-					} else if (caseteam == g_MpAllChrConfigPtrs[i]->team) {
-						hudmsgCreateWithFlags(text2, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-					} else {
-						hudmsgCreateWithFlags(text3, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-					}
-#else
-					if (!chr->aibot && i == prevplayernum) {
-						hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-					} else if (caseteam == g_MpAllChrConfigPtrs[i]->team) {
-						hudmsgCreateWithFlags(text2, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-					} else {
-						hudmsgCreateWithFlags(text3, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-					}
-#endif
-				}
-
-				setCurrentPlayerNum(prevplayernum);
 			}
 
 			if (chr->aibot) {
-				return TICKOP_NONE;
-			}
-
-			return TICKOP_NONE;
-		} else {
-			// Picking up another team's case
-			if ((chr->aibot && !chr->aibot->hascase) || (!chr->aibot && !invHasBriefcase())) {
-				// And we have no case currently, so go ahead and pick it up
-				if (chr->aibot) {
-					chr->aibot->hascase = true;
-					propPlayPickupSound(prop, weapon->weaponnum);
-				}
-
-				g_ScenarioData.ctc.tokens[weapon->team] = chr->prop;
-
-#if VERSION >= VERSION_JPN_FINAL
-				// "%shas the %s Briefcase"
-				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_3), scenarioRemoveLineBreaks(mpchr->name, 0), scenarioRemoveLineBreaks(g_BossFile.teamnames[weapon->team], 1));
-
-				// "%shas our\nBriefcase"
-				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_002), scenarioRemoveLineBreaks(mpchr->name, 0));
-
-				// "Got the %s Briefcase"
-				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_003), scenarioRemoveLineBreaks(g_BossFile.teamnames[weapon->team], 0));
-#elif VERSION >= VERSION_PAL_BETA
-				// "%shas the %s Briefcase"
-				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_3), mpchr->name, g_BossFile.teamnames[weapon->team]);
-
-				// "%shas our\nBriefcase"
-				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_002), mpchr->name);
-
-				// "Got the %s Briefcase"
-				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_003), g_BossFile.teamnames[weapon->team]);
-#else
-				// "%shas the %s%s"
-				snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_001), mpchr->name, g_BossFile.teamnames[weapon->team], bgunGetShortName(WEAPON_BRIEFCASE2));
-
-				// "%shas our %s"
-				snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_002), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
-
-				// "Got the %s%s"
-				snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_003), g_BossFile.teamnames[weapon->team], bgunGetShortName(WEAPON_BRIEFCASE2));
-#endif
-
-				prevplayernum = g_Vars.currentplayernum;
-
-				for (i = 0; i < MAX_PLAYERS; i++) {
-					if (!g_Vars.players[i]) {
-						continue;
-					}
-					setCurrentPlayerNum(i);
-
-#if VERSION >= VERSION_JPN_FINAL
-					if (!chr->aibot && i == prevplayernum) {
-						hudmsgCreateWithFlags(text3, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-					} else if (weapon->team == g_MpAllChrConfigPtrs[i]->team) {
-						hudmsgCreateWithFlags(text2, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-					} else {
-						hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-					}
-#else
-					if (!chr->aibot && i == prevplayernum) {
-						hudmsgCreateWithFlags(text3, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-					} else if (weapon->team == g_MpAllChrConfigPtrs[i]->team) {
-						hudmsgCreateWithFlags(text2, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-					} else {
-						hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-					}
-#endif
-				}
-
-				setCurrentPlayerNum(prevplayernum);
-
-				if (chr->aibot) {
-					botinvGiveSingleWeapon(chr, WEAPON_BRIEFCASE2);
-					obj->hidden |= OBJHFLAG_DELETING;
-					return TICKOP_NONE;
-				} else {
-					invGiveWeaponsByProp(prop);
-#if VERSION >= VERSION_NTSC_1_0
-					objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
-					return TICKOP_FREE;
-#else
-					return TICKOP_GIVETOPLAYER;
-#endif
-				}
+				botinvDropOne(chr, WEAPON_BRIEFCASE2);
+				chr->aibot->hascase = false;
 			} else {
-				// Already holding another team's case, so ignore the pickup
-				if (chr->aibot) {
-					return TICKOP_NONE;
-				}
-
-				return TICKOP_NONE;
+				sndStart(var80095200, SFX_MP_SCOREPOINT, NULL, -1, -1, -1, -1, -1);
+				weaponCreateForPlayerDrop(WEAPON_BRIEFCASE2);
+				invRemoveItemByNum(WEAPON_BRIEFCASE2);
 			}
+
+#if VERSION >= VERSION_JPN_FINAL
+			// "You captured the %s Briefcase"
+			snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_004), scenarioRemoveLineBreaks(g_BossFile.teamnames[i], 0));
+
+			// "%scaptured our Briefcase"
+			snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_005), scenarioRemoveLineBreaks(mpchr->name, 0));
+
+			// "%scaptured the %s Briefcase"
+			snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_006), scenarioRemoveLineBreaks(mpchr->name, 0), scenarioRemoveLineBreaks(g_BossFile.teamnames[i], 1));
+#elif VERSION >= VERSION_PAL_BETA
+			// "You captured the %s Briefcase"
+			snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_004), g_BossFile.teamnames[i]);
+
+			// "%scaptured our Briefcase"
+			snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_005), mpchr->name);
+
+			// "%scaptured the %s Briefcase"
+			snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_006), mpchr->name, g_BossFile.teamnames[i]);
+#else
+			// "You captured the %s%s"
+			snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_004), g_BossFile.teamnames[i], bgunGetShortName(WEAPON_BRIEFCASE2));
+
+			// "%scaptured our %s"
+			snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_005), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
+
+			// "%scaptured the %s%s"
+			snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_006), mpchr->name, g_BossFile.teamnames[i], bgunGetShortName(WEAPON_BRIEFCASE2));
+#endif
+
+			prevplayernum = g_Vars.currentplayernum;
+
+			caseteam = i;
+
+			if (caseteam);
+
+			for (i = 0; i < MAX_PLAYERS; i++) {
+				if (!g_Vars.players[i]) {
+					continue;
+				}
+				setCurrentPlayerNum(i);
+
+#if VERSION >= VERSION_JPN_FINAL
+				if (!chr->aibot && i == prevplayernum) {
+					hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+				} else if (caseteam == g_MpAllChrConfigPtrs[i]->team) {
+					hudmsgCreateWithFlags(text2, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+				} else {
+					hudmsgCreateWithFlags(text3, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+				}
+#else
+				if (!chr->aibot && i == prevplayernum) {
+					hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+				} else if (caseteam == g_MpAllChrConfigPtrs[i]->team) {
+					hudmsgCreateWithFlags(text2, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+				} else {
+					hudmsgCreateWithFlags(text3, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+				}
+#endif
+			}
+
+			setCurrentPlayerNum(prevplayernum);
 		}
-	} else {
+
 		if (chr->aibot) {
 			return TICKOP_NONE;
 		}
 
 		return TICKOP_NONE;
+	} else {
+		// Picking up another team's case
+		if ((chr->aibot && !chr->aibot->hascase) || (!chr->aibot && !invHasBriefcase())) {
+			// And we have no case currently, so go ahead and pick it up
+			if (chr->aibot) {
+				chr->aibot->hascase = true;
+				propPlayPickupSound(prop, weapon->weaponnum);
+			}
+
+			g_ScenarioData.ctc.tokens[weapon->team] = chr->prop;
+
+#if VERSION >= VERSION_JPN_FINAL
+			// "%shas the %s Briefcase"
+			snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_3), scenarioRemoveLineBreaks(mpchr->name, 0), scenarioRemoveLineBreaks(g_BossFile.teamnames[weapon->team], 1));
+
+			// "%shas our\nBriefcase"
+			snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_002), scenarioRemoveLineBreaks(mpchr->name, 0));
+
+			// "Got the %s Briefcase"
+			snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_003), scenarioRemoveLineBreaks(g_BossFile.teamnames[weapon->team], 0));
+#elif VERSION >= VERSION_PAL_BETA
+			// "%shas the %s Briefcase"
+			snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_000_3), mpchr->name, g_BossFile.teamnames[weapon->team]);
+
+			// "%shas our\nBriefcase"
+			snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_002), mpchr->name);
+
+			// "Got the %s Briefcase"
+			snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_003), g_BossFile.teamnames[weapon->team]);
+#else
+			// "%shas the %s%s"
+			snprintf(text1, sizeof(text1), langGet(L_MPWEAPONS_001), mpchr->name, g_BossFile.teamnames[weapon->team], bgunGetShortName(WEAPON_BRIEFCASE2));
+
+			// "%shas our %s"
+			snprintf(text2, sizeof(text2), langGet(L_MPWEAPONS_002), mpchr->name, bgunGetShortName(WEAPON_BRIEFCASE2));
+
+			// "Got the %s%s"
+			snprintf(text3, sizeof(text3), langGet(L_MPWEAPONS_003), g_BossFile.teamnames[weapon->team], bgunGetShortName(WEAPON_BRIEFCASE2));
+#endif
+
+			prevplayernum = g_Vars.currentplayernum;
+
+			for (i = 0; i < MAX_PLAYERS; i++) {
+				if (!g_Vars.players[i]) {
+					continue;
+				}
+				setCurrentPlayerNum(i);
+
+#if VERSION >= VERSION_JPN_FINAL
+				if (!chr->aibot && i == prevplayernum) {
+					hudmsgCreateWithFlags(text3, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+				} else if (weapon->team == g_MpAllChrConfigPtrs[i]->team) {
+					hudmsgCreateWithFlags(text2, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+				} else {
+					hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+				}
+#else
+				if (!chr->aibot && i == prevplayernum) {
+					hudmsgCreateWithFlags(text3, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+				} else if (weapon->team == g_MpAllChrConfigPtrs[i]->team) {
+					hudmsgCreateWithFlags(text2, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+				} else {
+					hudmsgCreateWithFlags(text1, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+				}
+#endif
+			}
+
+			setCurrentPlayerNum(prevplayernum);
+
+			if (chr->aibot) {
+				botinvGiveSingleWeapon(chr, WEAPON_BRIEFCASE2);
+				obj->hidden |= OBJHFLAG_DELETING;
+				return TICKOP_NONE;
+			} else {
+				invGiveWeaponsByProp(prop);
+#if VERSION >= VERSION_NTSC_1_0
+				objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
+				return TICKOP_FREE;
+#else
+				return TICKOP_GIVETOPLAYER;
+#endif
+			}
+		} else {
+			// Already holding another team's case, so ignore the pickup
+			if (chr->aibot) {
+				return TICKOP_NONE;
+			}
+
+			return TICKOP_NONE;
+		}
 	}
 
 	return TICKOP_NONE;
@@ -2574,6 +2686,28 @@ s32 scenarioPickUpBriefcase(struct chrdata *chr, struct prop *prop)
  */
 void scenarioHandleDroppedToken(struct chrdata *chr, struct prop *prop)
 {
+	const mode_rules_plan_t *plan;
+	s32 k;
+
+	modeEventRecord(MODE_EVENT_TOKEN_DROPPED, chr ? chr->chrnum : -1);
+
+	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
+		return;
+	}
+	/* gamemode-graphs.md slice 4: the plan's drop modules. */
+	plan = scenarioPlan(g_MpSetup.scenario);
+	scenarioPlanCompare(g_MpSetup.scenario, plan, MODE_SEAM_TOKEN_DROPPED);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_TOKEN_DROPPED, k);
+		if (owner >= 0 && g_MpScenarios[owner].droppedtokenfunc) {
+			g_MpScenarios[owner].droppedtokenfunc(chr, prop);
+		}
+	}
+}
+
+/* Capture the Case: a dropped case warps back to its team's base. */
+static void ctcDropToken(struct chrdata *chr, struct prop *prop)
+{
 	s32 i;
 	struct weaponobj *weapon = prop->weapon;
 	struct defaultobj *obj;
@@ -2581,30 +2715,26 @@ void scenarioHandleDroppedToken(struct chrdata *chr, struct prop *prop)
 	Mtxf mtx;
 	RoomNum rooms[2];
 
-	modeEventRecord(MODE_EVENT_TOKEN_DROPPED, chr ? chr->chrnum : -1);
+	for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.tokens); i++) {
+		if (chr->prop == g_ScenarioData.ctc.tokens[i]) {
+			objFreeProjectile(&weapon->base);
 
-	if (g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE) {
-		for (i = 0; i < ARRAYCOUNT(g_ScenarioData.ctc.tokens); i++) {
-			if (chr->prop == g_ScenarioData.ctc.tokens[i]) {
-				objFreeProjectile(&weapon->base);
+			g_ScenarioData.ctc.tokens[i] = prop;
+			weapon->team = i;
+			obj = prop->obj;
 
-				g_ScenarioData.ctc.tokens[i] = prop;
-				weapon->team = i;
-				obj = prop->obj;
+			padUnpack(g_ScenarioData.ctc.spawnpadsperteam[g_ScenarioData.ctc.teamindexes[i]].homepad,
+					PADFIELD_POS | PADFIELD_LOOK | PADFIELD_UP | PADFIELD_ROOM, &pad);
+			mtx00016d58(&mtx, 0, 0, 0, -pad.look.x, -pad.look.y, -pad.look.z, pad.up.x, pad.up.y, pad.up.z);
 
-				padUnpack(g_ScenarioData.ctc.spawnpadsperteam[g_ScenarioData.ctc.teamindexes[i]].homepad,
-						PADFIELD_POS | PADFIELD_LOOK | PADFIELD_UP | PADFIELD_ROOM, &pad);
-				mtx00016d58(&mtx, 0, 0, 0, -pad.look.x, -pad.look.y, -pad.look.z, pad.up.x, pad.up.y, pad.up.z);
-
-				if (obj->model) {
-					mtx00015f04(obj->model->scale, &mtx);
-				}
-
-				rooms[0] = pad.room;
-				rooms[1] = -1;
-
-				func0f06a730(obj, &pad.pos, &mtx, rooms, &pad.pos);
+			if (obj->model) {
+				mtx00015f04(obj->model->scale, &mtx);
 			}
+
+			rooms[0] = pad.room;
+			rooms[1] = -1;
+
+			func0f06a730(obj, &pad.pos, &mtx, rooms, &pad.pos);
 		}
 	}
 }
@@ -2617,84 +2747,82 @@ void scenarioHandleDroppedToken(struct chrdata *chr, struct prop *prop)
  */
 s32 scenarioPickUpUplink(struct chrdata *chr, struct prop *prop)
 {
+	return scenarioPlanPickUpToken(chr, prop, WEAPON_DATAUPLINK);
+}
+
+/* Hacker Central: the data uplink is picked up. */
+static s32 htmPickUpToken(struct chrdata *chr, struct prop *prop)
+{
 	s32 i;
 	char message[64];
 	struct mpchrconfig *mpchr;
 	u32 playernum;
-
-	if (g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL) {
 #if VERSION >= VERSION_NTSC_1_0
-		struct defaultobj *obj = prop->obj;
-#endif
-		modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);
-
-		g_ScenarioData.htm.uplink = chr->prop;
-
-		if (chr->aibot) {
-			mpchr = g_MpAllChrConfigPtrs[mpPlayerGetIndex(chr)];
-		} else {
-			mpchr = MPCHR(g_Vars.playerstats[g_Vars.currentplayernum].mpindex);
-		}
-
-#if VERSION >= VERSION_JPN_FINAL
-		// "%shas the\nData Uplink%s"
-		snprintf(message, sizeof(message), langGet(L_MPWEAPONS_000), scenarioRemoveLineBreaks(mpchr->name, 0));
-#elif VERSION >= VERSION_PAL_BETA
-		// "%shas the\nData Uplink%s"
-		snprintf(message, sizeof(message), langGet(L_MPWEAPONS_000), mpchr->name);
-#else
-		// "%shas the\n%s"
-		snprintf(message, sizeof(message), langGet(L_MPWEAPONS_000), mpchr->name, bgunGetShortName(WEAPON_DATAUPLINK));
-#endif
-		playernum = g_Vars.currentplayernum;
-
-		for (i = 0; i < MAX_PLAYERS; i++) {
-			if (!g_Vars.players[i]) {
-				continue;
-			}
-			if (chr->aibot || i != playernum) {
-				setCurrentPlayerNum(i);
-
-#if VERSION >= VERSION_JPN_FINAL
-				hudmsgCreateWithFlags(message, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
-#else
-				hudmsgCreateWithFlags(message, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
-#endif
-			}
-		}
-
-		setCurrentPlayerNum(playernum);
-
-		if (chr->aibot) {
-			propPlayPickupSound(prop, WEAPON_DATAUPLINK);
-			botinvGiveSingleWeapon(chr, WEAPON_DATAUPLINK);
-			chr->aibot->hasuplink = true;
-
-#if VERSION >= VERSION_NTSC_1_0
-			obj->hidden |= OBJHFLAG_DELETING;
-#else
-			prop->obj->hidden |= OBJHFLAG_DELETING;
+	struct defaultobj *obj = prop->obj;
 #endif
 
-			return TICKOP_NONE;
-		} else {
-			invGiveSingleWeapon(WEAPON_DATAUPLINK);
-			currentPlayerQueuePickupWeaponHudmsg(WEAPON_DATAUPLINK, false);
-			weaponPlayPickupSound(WEAPON_DATAUPLINK);
+	g_ScenarioData.htm.uplink = chr->prop;
 
-#if VERSION >= VERSION_NTSC_1_0
-			objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
-			return TICKOP_FREE;
-#else
-			return TICKOP_GIVETOPLAYER;
-#endif
-
-		}
-	} else if (chr->aibot) {
-		return TICKOP_NONE;
+	if (chr->aibot) {
+		mpchr = g_MpAllChrConfigPtrs[mpPlayerGetIndex(chr)];
+	} else {
+		mpchr = MPCHR(g_Vars.playerstats[g_Vars.currentplayernum].mpindex);
 	}
 
-	return TICKOP_NONE;
+#if VERSION >= VERSION_JPN_FINAL
+	// "%shas the\nData Uplink%s"
+	snprintf(message, sizeof(message), langGet(L_MPWEAPONS_000), scenarioRemoveLineBreaks(mpchr->name, 0));
+#elif VERSION >= VERSION_PAL_BETA
+	// "%shas the\nData Uplink%s"
+	snprintf(message, sizeof(message), langGet(L_MPWEAPONS_000), mpchr->name);
+#else
+	// "%shas the\n%s"
+	snprintf(message, sizeof(message), langGet(L_MPWEAPONS_000), mpchr->name, bgunGetShortName(WEAPON_DATAUPLINK));
+#endif
+	playernum = g_Vars.currentplayernum;
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		if (!g_Vars.players[i]) {
+			continue;
+		}
+		if (chr->aibot || i != playernum) {
+			setCurrentPlayerNum(i);
+
+#if VERSION >= VERSION_JPN_FINAL
+			hudmsgCreateWithFlags(message, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE | HUDMSGFLAG_NOWRAP);
+#else
+			hudmsgCreateWithFlags(message, HUDMSGTYPE_MPSCENARIO, HUDMSGFLAG_ONLYIFALIVE);
+#endif
+		}
+	}
+
+	setCurrentPlayerNum(playernum);
+
+	if (chr->aibot) {
+		propPlayPickupSound(prop, WEAPON_DATAUPLINK);
+		botinvGiveSingleWeapon(chr, WEAPON_DATAUPLINK);
+		chr->aibot->hasuplink = true;
+
+#if VERSION >= VERSION_NTSC_1_0
+		obj->hidden |= OBJHFLAG_DELETING;
+#else
+		prop->obj->hidden |= OBJHFLAG_DELETING;
+#endif
+
+		return TICKOP_NONE;
+	} else {
+		invGiveSingleWeapon(WEAPON_DATAUPLINK);
+		currentPlayerQueuePickupWeaponHudmsg(WEAPON_DATAUPLINK, false);
+		weaponPlayPickupSound(WEAPON_DATAUPLINK);
+
+#if VERSION >= VERSION_NTSC_1_0
+		objFree(obj, false, obj->hidden2 & OBJH2FLAG_CANREGEN);
+		return TICKOP_FREE;
+#else
+		return TICKOP_GIVETOPLAYER;
+#endif
+
+	}
 }
 
 /**
@@ -2702,19 +2830,60 @@ s32 scenarioPickUpUplink(struct chrdata *chr, struct prop *prop)
  */
 void scenarioHandleActivatedProp(struct chrdata *chr, struct prop *prop)
 {
-	if (g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL) {
-		struct defaultobj *obj = prop->obj;
+	const mode_rules_plan_t *plan;
+	s32 k;
 
-		if (obj->flags3 & OBJFLAG3_HTMTERMINAL) {
-			u32 mpindex = mpPlayerGetIndex(chr);
+	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
+		return;
+	}
+	/* gamemode-graphs.md slice 4: the plan's modules for a used object. */
+	plan = scenarioPlan(g_MpSetup.scenario);
+	scenarioPlanCompare(g_MpSetup.scenario, plan, MODE_SEAM_PROP_ACTIVATED);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_PROP_ACTIVATED, k);
+		if (owner >= 0 && g_MpScenarios[owner].activatedpropfunc) {
+			g_MpScenarios[owner].activatedpropfunc(chr, prop);
+		}
+	}
+}
 
-			modeEventRecord(MODE_EVENT_PROP_ACTIVATED, chr ? chr->chrnum : -1);
+/* Hacker Central: the terminal is used with the data uplink. */
+static void htmActivateProp(struct chrdata *chr, struct prop *prop)
+{
+	struct defaultobj *obj = prop->obj;
 
-			if ((obj->hidden & OBJHFLAG_ACTIVATED_BY_BOND) == 0) {
-				obj->hidden &= 0x0fffffff;
-				obj->hidden |= (mpindex << 28) & 0xf0000000;
-				obj->hidden |= OBJHFLAG_ACTIVATED_BY_BOND;
-			}
+	if (obj->flags3 & OBJFLAG3_HTMTERMINAL) {
+		u32 mpindex = mpPlayerGetIndex(chr);
+
+		modeEventRecord(MODE_EVENT_PROP_ACTIVATED, chr ? chr->chrnum : -1);
+
+		if ((obj->hidden & OBJHFLAG_ACTIVATED_BY_BOND) == 0) {
+			obj->hidden &= 0x0fffffff;
+			obj->hidden |= (mpindex << 28) & 0xf0000000;
+			obj->hidden |= OBJHFLAG_ACTIVATED_BY_BOND;
+		}
+	}
+}
+
+/**
+ * gamemode-graphs.md slice 4: a player or simulant died in a match (Pop a
+ * Cap's victim). aplayernum and vplayernum are the Combat Simulator indexes of
+ * the attacker and the victim.
+ */
+void scenarioHandlePlayerDied(s32 aplayernum, s32 vplayernum)
+{
+	const mode_rules_plan_t *plan;
+	s32 k;
+
+	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
+		return;
+	}
+	plan = scenarioPlan(g_MpSetup.scenario);
+	scenarioPlanCompare(g_MpSetup.scenario, plan, MODE_SEAM_PLAYER_DIED);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_PLAYER_DIED, k);
+		if (owner >= 0 && g_MpScenarios[owner].playerdiedfunc) {
+			g_MpScenarios[owner].playerdiedfunc(aplayernum, vplayernum);
 		}
 	}
 }

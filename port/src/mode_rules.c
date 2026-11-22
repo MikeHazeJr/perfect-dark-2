@@ -14,7 +14,8 @@
 static const char *const s_SeamNames[MODE_SEAM_COUNT] = {
 	"init", "num_props", "init_props", "tick", "tick_chr", "hud", "score",
 	"radar_extra", "radar_chr", "highlight_prop", "spawn", "max_teams",
-	"room_lights", "save",
+	"room_lights", "save", "stage_reset", "intro_pad", "token_picked_up",
+	"token_dropped", "prop_activated", "player_died",
 };
 
 /* The mode programs' events, in kind order (mission_graph_runner.h). */
@@ -61,6 +62,9 @@ static const struct {
 	{ "og.mode.htb.radar_extra", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_RADAR_EXTRA },
 	{ "og.mode.htb.radar_chr", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_RADAR_CHR },
 	{ "og.mode.htb.highlight_prop", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_HIGHLIGHT_PROP },
+	{ "og.mode.htb.stage_reset", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_STAGE_RESET },
+	{ "og.mode.htb.intro_pad", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_INTRO_PAD },
+	{ "og.mode.htb.token_picked_up", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_TOKEN_PICKED_UP },
 
 	{ "og.mode.htm.init", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_INIT },
 	{ "og.mode.htm.num_props", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_NUM_PROPS },
@@ -72,6 +76,10 @@ static const struct {
 	{ "og.mode.htm.radar_extra", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_RADAR_EXTRA },
 	{ "og.mode.htm.radar_chr", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_RADAR_CHR },
 	{ "og.mode.htm.highlight_prop", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_HIGHLIGHT_PROP },
+	{ "og.mode.htm.stage_reset", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_STAGE_RESET },
+	{ "og.mode.htm.intro_pad", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_INTRO_PAD },
+	{ "og.mode.htm.token_picked_up", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_TOKEN_PICKED_UP },
+	{ "og.mode.htm.prop_activated", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_PROP_ACTIVATED },
 
 	{ "og.mode.pac.init", MPSCENARIO_POPACAP, MODE_SEAM_INIT },
 	{ "og.mode.pac.init_props", MPSCENARIO_POPACAP, MODE_SEAM_INIT_PROPS },
@@ -81,6 +89,7 @@ static const struct {
 	{ "og.mode.pac.radar_extra", MPSCENARIO_POPACAP, MODE_SEAM_RADAR_EXTRA },
 	{ "og.mode.pac.radar_chr", MPSCENARIO_POPACAP, MODE_SEAM_RADAR_CHR },
 	{ "og.mode.pac.highlight_prop", MPSCENARIO_POPACAP, MODE_SEAM_HIGHLIGHT_PROP },
+	{ "og.mode.pac.player_died", MPSCENARIO_POPACAP, MODE_SEAM_PLAYER_DIED },
 
 	{ "og.mode.koh.init", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_INIT },
 	{ "og.mode.koh.init_props", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_INIT_PROPS },
@@ -90,6 +99,8 @@ static const struct {
 	{ "og.mode.koh.radar_extra", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_RADAR_EXTRA },
 	{ "og.mode.koh.room_lights", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_ROOM_LIGHTS },
 	{ "og.mode.koh.save", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_SAVE },
+	{ "og.mode.koh.stage_reset", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_STAGE_RESET },
+	{ "og.mode.koh.intro_pad", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_INTRO_PAD },
 
 	{ "og.mode.ctc.init", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_INIT },
 	{ "og.mode.ctc.num_props", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_NUM_PROPS },
@@ -103,6 +114,10 @@ static const struct {
 	{ "og.mode.ctc.spawn", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_SPAWN },
 	{ "og.mode.ctc.max_teams", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_MAX_TEAMS },
 	{ "og.mode.ctc.room_lights", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_ROOM_LIGHTS },
+	{ "og.mode.ctc.stage_reset", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_STAGE_RESET },
+	{ "og.mode.ctc.intro_pad", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_INTRO_PAD },
+	{ "og.mode.ctc.token_picked_up", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_TOKEN_PICKED_UP },
+	{ "og.mode.ctc.token_dropped", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_TOKEN_DROPPED },
 };
 #define MODE_RULES_MODULE_COUNT ((s32)(sizeof(s_Modules) / sizeof(s_Modules[0])))
 
@@ -190,6 +205,12 @@ s32 modeRulesSeamEvent(s32 seam)
 	case MODE_SEAM_TICK_CHR: return MISSION_GRAPH_EVENT_MODE_CHR_TICK;
 	case MODE_SEAM_SCORE: return MISSION_GRAPH_EVENT_MODE_SCORE;
 	case MODE_SEAM_SPAWN: return MISSION_GRAPH_EVENT_MODE_SPAWN;
+	case MODE_SEAM_STAGE_RESET: return MISSION_GRAPH_EVENT_MODE_STAGE_RESET;
+	case MODE_SEAM_INTRO_PAD: return MISSION_GRAPH_EVENT_MODE_INTRO_PAD;
+	case MODE_SEAM_TOKEN_PICKED_UP: return MISSION_GRAPH_EVENT_MODE_TOKEN_PICKED_UP;
+	case MODE_SEAM_TOKEN_DROPPED: return MISSION_GRAPH_EVENT_MODE_TOKEN_DROPPED;
+	case MODE_SEAM_PROP_ACTIVATED: return MISSION_GRAPH_EVENT_MODE_PROP_ACTIVATED;
+	case MODE_SEAM_PLAYER_DIED: return MISSION_GRAPH_EVENT_MODE_PLAYER_DIED;
 	default: return -1;
 	}
 }

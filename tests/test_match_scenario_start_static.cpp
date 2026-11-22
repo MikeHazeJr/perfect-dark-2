@@ -366,16 +366,23 @@ TEST_CASE("gamemode-graphs slice 1: every mode seam records its event",
 		{ "f32 scenarioChooseSpawnLocation", "modeEventRecord(MODE_EVENT_SPAWN," },
 		{ "void scenarioReset", "modeEventRecord(MODE_EVENT_STAGE_RESET, -1);" },
 		{ "void scenarioReset", "modeEventRecord(MODE_EVENT_INTRO_PAD, -1);" },
-		{ "s32 scenarioPickUpBriefcase", "modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);" },
-		{ "s32 scenarioPickUpUplink", "modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);" },
+		/* Slice 4: both token routines run scenarioPlanPickUpToken. */
+		{ "static s32 scenarioPlanPickUpToken", "modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);" },
 		{ "void scenarioHandleDroppedToken", "modeEventRecord(MODE_EVENT_TOKEN_DROPPED," },
-		{ "void scenarioHandleActivatedProp", "modeEventRecord(MODE_EVENT_PROP_ACTIVATED," },
 	};
 	for (const seam &s : seams) {
 		INFO(s.function << " records " << s.record);
 		const std::string body = function_block_scenario_start(scenarios, s.function);
 		REQUIRE(body.find(s.record) != std::string::npos);
 	}
+	/* Slice 4: the terminal's record moved with its code into Hacker Central's
+	 * module (its forward declaration comes first in the file). */
+	const size_t terminal = scenarios.find("static void htmActivateProp(struct chrdata *chr, struct prop *prop)\n{");
+	REQUIRE(terminal != std::string::npos);
+	const size_t terminal_end = scenarios.find("\n}\n", terminal);
+	const size_t terminal_record = scenarios.find("modeEventRecord(MODE_EVENT_PROP_ACTIVATED,", terminal);
+	REQUIRE(terminal_record != std::string::npos);
+	REQUIRE(terminal_record < terminal_end);
 	const std::string death = function_block_scenario_start(mpstats, "void mpstatsRecordDeathByRuntimeIndex");
 	REQUIRE(death.find("modeEventRecord(MODE_EVENT_PLAYER_DIED, vplayernum);") != std::string::npos);
 

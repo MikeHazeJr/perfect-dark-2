@@ -51,6 +51,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "net/matchsetup.h"
+#include "weapon_events.h"  /* held-weapon-events.md slice 3: a simulant's burst rounds */
 
 #define PICKUPCRITERIA_DEFAULT  0
 #define PICKUPCRITERIA_CRITICAL 1
@@ -5282,16 +5283,23 @@ void botTickUnpaused(struct chrdata *chr)
 
 							func = weaponGetFunctionById(aibot->weaponnum, aibot->gunfunc);
 
-							if (func
-									&& (func->flags & (FUNCFLAG_BURST3 | FUNCFLAG_BURST2))
-									&& aibot->loadedammo[i] >= 2) {
-								s32 burstqty = (func->flags & FUNCFLAG_BURST2) ? 2 : 3;
+							/* held-weapon-events.md slice 3: a simulant's burst is the
+							 * og.weapon.burst its function's program starts; a function
+							 * with no program keeps its FUNCFLAG_BURST2 or 3 count. */
+							{
+								s32 nativeburst = !func ? 0
+									: (func->flags & FUNCFLAG_BURST2) ? 2
+									: (func->flags & FUNCFLAG_BURST3) ? 3 : 0;
+								s32 burstqty = weaponProgramBurstRounds(aibot->weaponnum,
+									aibot->gunfunc, nativeburst);
 
-								chr->aibot->burstsdone[i]++;
-								chr->aibot->burstsdone[i] %= burstqty;
+								if (burstqty >= 2 && aibot->loadedammo[i] >= 2) {
+									chr->aibot->burstsdone[i]++;
+									chr->aibot->burstsdone[i] %= burstqty;
 
-								if (chr->aibot->burstsdone[i]) {
-									chr->aibot->nextbullettimer60[i] = 5;
+									if (chr->aibot->burstsdone[i]) {
+										chr->aibot->nextbullettimer60[i] = 5;
+									}
 								}
 							}
 						}
