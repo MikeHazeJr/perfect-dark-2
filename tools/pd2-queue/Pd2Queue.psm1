@@ -297,6 +297,20 @@ function Clear-Pd2qScratch([string] $Session) {
     if (Test-Path -LiteralPath $dir) { Remove-Pd2qTree $dir @($p.Scratch) }
 }
 
+function Move-Pd2qScratchAside([string] $Session) {
+    # A scratch whose edits could not be saved is the only copy of them. It moves
+    # to scratch\_kept (no session name starts with "_"), so the session's next
+    # claim can neither clear it nor mix it into another issue's patch. Returns
+    # the kept path; if the move fails, the scratch stays where it is.
+    $p = Get-Pd2qPaths
+    $dir = Get-Pd2qScratchDir $Session
+    if (-not (Test-Path -LiteralPath $dir)) { return $null }
+    $keptRoot = Join-Path $p.Scratch '_kept'
+    [IO.Directory]::CreateDirectory($keptRoot) | Out-Null
+    $dest = Join-Path $keptRoot ('{0}-{1}' -f $Session, (Get-Pd2qNow).ToString('yyyyMMddTHHmmssfff'))
+    try { [IO.Directory]::Move($dir, $dest); return $dest } catch { return $dir }
+}
+
 function Get-Pd2qScratchFiles([string] $Session) {
     $dir = Get-Pd2qScratchDir $Session
     if (-not (Test-Path -LiteralPath $dir)) { return @() }
@@ -473,9 +487,11 @@ function Update-Pd2qLeases {
             }
             $saved = $true
         } catch {
-            # The scratch is then the only copy of the edits: keep it and say where.
-            $kept = Get-Pd2qScratchDir $lease.holder.session
-            Add-Pd2qAlarm 'checkpoint-failed' "lease $($lease.lease) on $issue freed ($($check.Reason)), but its edits could not be saved: $($_.Exception.Message). Scratch kept at $kept."
+            # The scratch is then the only copy of the edits: keep it out of the
+            # session's way and say where.
+            $why = $_.Exception.Message
+            $kept = Move-Pd2qScratchAside $lease.holder.session
+            Add-Pd2qAlarm 'checkpoint-failed' "lease $($lease.lease) on $issue freed ($($check.Reason)), but its edits could not be saved: $why. Scratch kept at $kept."
         }
         if ($saved) {
             try { Clear-Pd2qScratch $lease.holder.session } catch { Write-Pd2qLog "scratch of $($lease.holder.session) not cleared: $($_.Exception.Message)" }

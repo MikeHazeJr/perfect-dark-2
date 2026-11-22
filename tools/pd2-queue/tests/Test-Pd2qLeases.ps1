@@ -138,6 +138,8 @@ try {
     Check ($r.Code -eq 0) 'a session whose lease is queued may claim its next issue'
     $f13 = (Q @('edit', 'src/a.c', '-Session', 's1')).Out.Trim()
     [IO.File]::WriteAllText($f13, "int a(void) { return 13; }`n")
+    $r = Q @('checkpoint', 'T-UNIT-012', '-Lease', $n12, '-Note', 'would file the next issue under this one')
+    Check ($r.Code -ne 0 -and $r.Out -match 'is queued' -and (Get-Content -LiteralPath (Join-Path $root 'queue\tasks\T-UNIT-012.patch') -Raw) -match 'return 12') "a checkpoint on a queued lease is refused, so its saved patch stays its own`n$($r.Out)"
     $r = Q @('break', 'T-UNIT-012', '-Reason', 'unit test: break a queued lease', '-Session', 'tester')
     Check ($r.Code -eq 0 -and (Test-Path -LiteralPath $f13) -and (Get-Content -LiteralPath $f13 -Raw) -match 'return 13') "breaking a queued lease leaves the session's next issue's scratch alone`n$($r.Out)"
     Check ((Get-Content -LiteralPath (Join-Path $root 'queue\tasks\T-UNIT-012.patch') -Raw) -match 'return 12') "and the queued issue's saved patch is still its own"
@@ -207,16 +209,24 @@ try {
     $taskR = Get-Content -LiteralPath (Join-Path $root 'queue\tasks\T-UNIT-010.json') -Raw | ConvertFrom-Json -AsHashtable
     Check (-not (Test-Path -LiteralPath $patchR) -and -not $taskR.ContainsKey('patch') -and @($taskR.files).Count -eq 0) 'reverting every edit clears the saved patch at the next save'
 
-    # A checkpoint that fails as a lease frees keeps the scratch, then the only
-    # copy of the edits, and raises an alarm naming it.
+    # A checkpoint that fails as a lease frees: the scratch, then the only copy of
+    # the newest edits, moves to scratch\_kept and an alarm names it, so the
+    # session's next claim (which restores the older saved patch) cannot clear it.
     [IO.File]::WriteAllText($fileR, "int a(void) { return 11; }`n")
-    [IO.Directory]::CreateDirectory($patchR) | Out-Null  # the patch's path is a folder, so saving it fails
+    [void](Q @('checkpoint', 'T-UNIT-010', '-Lease', $nr, '-Note', 'a returns 11'))
+    [IO.File]::WriteAllText($fileR, "int a(void) { return 12; }`n")  # newer, not saved
+    (Get-Item -LiteralPath $patchR).IsReadOnly = $true  # saving the patch now fails
     Stop-Process -Id $o5.Id -Force; $o5.WaitForExit()
     [void](Q @('check', 'T-UNIT-010'))
     Check (-not (Leases).leases['T-UNIT-010']) "the dead owner's lease is freed"
-    Check ((Test-Path -LiteralPath $fileR) -and (Get-Content -LiteralPath $fileR -Raw) -match 'return 11') 'its scratch is kept when the checkpoint fails'
-    Check ((Get-Content -LiteralPath (Join-Path $root 'queue\alarms.json') -Raw) -match 'checkpoint-failed' ) 'and an alarm says where the edits are'
-    Remove-Item -LiteralPath $patchR -Force
+    $kept = @(Get-ChildItem -LiteralPath (Join-Path $root 'scratch\_kept') -Directory -Filter 'claude-r-*' -ErrorAction SilentlyContinue)
+    Check ($kept.Count -eq 1 -and (Get-Content -LiteralPath (Join-Path $kept[0].FullName 'src\a.c') -Raw) -match 'return 12' -and -not (Test-Path -LiteralPath (Join-Path $root 'scratch\claude-r'))) 'a failed checkpoint moves the scratch to scratch\_kept'
+    Check ((Get-Content -LiteralPath (Join-Path $root 'queue\alarms.json') -Raw) -match 'checkpoint-failed[^}]*_kept') 'and an alarm says where the edits are'
+    $o7 = Owner; $owners += $o7
+    $r = Q @('claim', 'T-UNIT-010', '-Session', 'claude-r', '-OwnerPid', $o7.Id)
+    Check ($r.Code -eq 0 -and (Get-Content -LiteralPath $fileR -Raw) -match 'return 11' -and (Get-Content -LiteralPath (Join-Path $kept[0].FullName 'src\a.c') -Raw) -match 'return 12') "the same session's reclaim restores the saved patch and leaves the kept edits alone`n$($r.Out)"
+    (Get-Item -LiteralPath $patchR).IsReadOnly = $false
+    [void](Q @('release', 'T-UNIT-010', '-Lease', (LeaseNumber $r.Out)))
 
     # The repository's commit-msg check runs at submit where the main
     # checkout's Workbench is (not on CI): an item it does not know is refused.

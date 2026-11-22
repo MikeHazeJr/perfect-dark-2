@@ -226,6 +226,9 @@ switch ($Command) {
         Invoke-Pd2qLocked {
             [void](Update-Pd2qLeases)
             $h = Get-HeldLease $issueId $Lease
+            # A queued lease's patch was saved at submit; the session's scratch may
+            # hold its next issue now, which must not be filed under this one.
+            if ($h.Lease.state -ne 'held') { throw "Lease $Lease on $issueId is $($h.Lease.state) (job $($h.Lease.job)): its patch was saved at submit, and the session's scratch may hold its next issue." }
             $task = Save-Pd2qCheckpoint $issueId $h.Lease.holder.session $Note $h.Lease.holder.agent
             Out-Pd2q $task "checkpoint of $issueId saved ($(@($task.files).Count) file(s)) at $($task.checkpointUtc)"
         }
@@ -237,6 +240,7 @@ switch ($Command) {
         Invoke-Pd2qLocked {
             [void](Update-Pd2qLeases)
             $h = Get-HeldLease $issueId $Lease
+            if ($h.Lease.state -ne 'held') { throw "Lease $Lease on $issueId is $($h.Lease.state) (job $($h.Lease.job)); there is nothing to validate while its job is queued." }
             $task = Get-Pd2qTask $issueId
             if (-not $task -or $task.validated) { throw "$issueId has nothing to validate." }
             $applies = $null
@@ -407,7 +411,7 @@ switch ($Command) {
                 if ($lease.state -eq 'held') {
                     $saved = $false
                     try { [void](Save-Pd2qCheckpoint $issueId $lease.holder.session ("lease broken by $who`: $Reason") $lease.holder.agent); $saved = $true }
-                    catch { Add-Pd2qAlarm 'checkpoint-failed' "lease $($lease.lease) on $issueId broken by $who, but its edits could not be saved: $($_.Exception.Message). Scratch kept at $(Get-Pd2qScratchDir $lease.holder.session)." }
+                    catch { $why = $_.Exception.Message; Add-Pd2qAlarm 'checkpoint-failed' "lease $($lease.lease) on $issueId broken by $who, but its edits could not be saved: $why. Scratch kept at $(Move-Pd2qScratchAside $lease.holder.session)." }
                     if ($saved) { Clear-Pd2qScratch $lease.holder.session }
                 }
             }
