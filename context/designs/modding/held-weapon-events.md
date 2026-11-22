@@ -912,6 +912,33 @@ accessors. Base programs write the node after the flash with the same
 catalog id as the record (still `embedded.v24`, cache `_heldfeel`), and the
 first `WEAPON.RULE` line ends with ` sound=N slot=N`.
 
+**7c as written (2026-11-22, `week-pd/core-weapons-w7`):**
+`og.weapon.play_animation` (bit 21, `animation`: none or an animation
+catalog id such as `base:invanim_falcon2_shoot`). It is an attack's, not a
+shot's: it fits a shooting, throwing or melee function (the three attack
+ticks that play a fire animation), so it sits beside the feel modules in
+the idle events' presentation set (`WEAPON_MODULE_PRESENTATION`) rather
+than in the feel set. The attack's plan carries the gun commands; the
+original's is the function's `fire_animation`. A walk resolves the id
+through the loader pool (`walk.animation_ref`, `weaponAnimationRef`, at
+every walk site); one that does not resolve keeps the function's own, and
+registration checks only its form (animation references are not checked
+anywhere else either). The shot, the throw and the strike start the plan's
+animation and wait on that same one (`bgunPlanFireAnimation`). The model
+check from the plan: a generated mesh (a mod gun's `.pdmesh` with no
+`skeleton_symbol`) has no skeleton, and its root node is part 0, so a base
+animation would move the whole gun by that animation's first channel. An
+animation the function does not have therefore plays only on a held model
+with a skeleton; otherwise the attack goes on as one with no animation and
+`BONDGUN.ANIM: weapon=... plays no fire animation: its held model has no
+skeleton` is logged (first 8). A mod gun animates once its mesh names a
+skeleton its animation was made for. The dry fire's weapon-number list
+keeps the function's own animation. Base programs write the node last in
+every attack's chain (after the sound for a shot, after the throw or the
+strike otherwise) with the record's catalog id (still `embedded.v24`, cache
+`_heldfeel`), and the first `WEAPON.RULE` line ends with
+` animation=<name>`.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
@@ -948,6 +975,7 @@ Listed as each slice lands; none is run by Core Weapons.
 | 7a | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their first `WEAPON.RULE` lines end with ` recoil=...`; `rules.differ=0`; the guns kick, slide and jitter as before (the Falcon 2's slide, the Reaper's shake rising with its spin) |
 | 7b | `held_weapon_cadence_smoke` (or any smoke that fires a Falcon 2, a CMP150 and a Shotgun) | casings fly as before (standard, rifle, shotgun) and the flash shows; no `WEAPON.RULE differs` line |
 | 7b (sound) | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | the guns sound as before (the Falcon 2, the CMP150's stream, the Shotgun); their first `WEAPON.RULE` lines end with ` sound=N slot=N`, N above 0; no `WEAPON.RULE differs` line; simulants' shots sound as before (any simulant smoke) |
+| 7c | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke`, any smoke that punches or throws a grenade | fire animations play as before (the Falcon 2's, the Shotgun's pump, the punch, a grenade's throw), and the attacks keep their timing; first `WEAPON.RULE` lines end with ` animation=invanim_...`; no `WEAPON.RULE differs` line |
 | 6c | a vehicle lock smoke with the sample above (none written yet: the Blank Room with a hoverbike, `--debug-forge-level-vehicle`, as `hoverbike_room_flow_smoke`) | aiming the secondary at the empty bike logs `SIGHT.LOCK: ... kind=vehicle occupied=0 relation=none`; the primary takes no lock on it; with a second player riding (split screen or a second client) the primary logs `occupied=1 relation=enemy`, and its rocket flies straight once the rider bails; `rules.differ=0` |
 | 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 

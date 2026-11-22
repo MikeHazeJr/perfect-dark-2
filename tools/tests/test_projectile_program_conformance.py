@@ -560,6 +560,34 @@ class ShotSound(unittest.TestCase):
         self.assertTrue(any("fits only a shooting function" in m for m in messages), messages)
 
 
+class PlayAnimation(unittest.TestCase):
+    """Held slice 7c: og.weapon.play_animation, the attack's fire animation."""
+
+    def _with(self, animation: dict, function_type: str = "shoot_single") -> dict:
+        return Recoil._with_recoil(self, dict(animation, kind="og.weapon.play_animation"), function_type)
+
+    def test_the_settings(self):
+        for animation in ({"animation": "base:invanim_falcon2_shoot"}, {"animation": "none"}, {}):
+            with self.subTest(animation=animation):
+                self.assertEqual(weapon_errors(self._with(animation)), [])
+        for family in ("shoot_automatic", "shoot_projectile", "throw", "melee"):
+            with self.subTest(family=family):
+                messages = weapon_errors(self._with({"animation": "base:invanim_punch"}, family))
+                self.assertFalse(any("og.weapon.play_animation" in m for m in messages), messages)
+
+    def test_malformed_and_misfit(self):
+        for animation in ({"animation": "Fire!"}, {"animation": 3}, {"animation": "base:" + "a" * 60}):
+            with self.subTest(animation=animation):
+                messages = weapon_errors(self._with(animation))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn("needs animation none or an animation catalog id", messages[0])
+        for family in ("special", "device"):
+            with self.subTest(family=family):
+                messages = weapon_errors(self._with({}, family))
+                self.assertTrue(any("fits only a shooting, throwing or melee function" in m for m in messages),
+                                messages)
+
+
 class Archives(unittest.TestCase):
     def rebuilt(self, relative: str, graph_edit) -> bytes:
         """The example archive with its behavior.graph.json edited."""

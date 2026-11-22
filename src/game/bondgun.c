@@ -2098,6 +2098,8 @@ static void bgunRuleFunctionOf(struct hand *hand, struct weaponfunc *func, weapo
 		out->shot_duration = graph && graph->has_duration_ticks60 ? graph->duration_ticks60
 			: (shot ? shot->duration60 : 0);
 	}
+	/* slice 7c: its fire animation. */
+	out->fire_animation = func ? (const void *) func->fire_animation : NULL;
 }
 
 static const weapon_graph_projectile_runtime_t *bgunGetProjectileGraph(
@@ -2396,6 +2398,32 @@ static void bgunPlanShotSound(struct hand *hand, const weapon_rule_trigger_t *pl
 	}
 	*sound = plan->shot_sound <= 0 ? 0 : plan->shot_sound > 0xffff ? 0xffff : (u16) plan->shot_sound;
 	*slotframes = gsetFireslotTicks(plan->shot_duration);
+}
+
+/* held-weapon-events.md slice 7c: the fire animation an attack plays: its
+ * plan's og.weapon.play_animation (the function's own with no program). One
+ * the function does not have plays only on a held model with a skeleton: a
+ * generated mesh has none, and an animation would move all of it by its
+ * first part's channel. The attack then goes on as one with no animation. */
+static s32 s_BgunFireAnimationSkips = 0;
+
+static struct guncmd *bgunPlanFireAnimation(struct hand *hand, struct weaponfunc *func,
+		const weapon_rule_trigger_t *plan)
+{
+	struct guncmd *cmds = (struct guncmd *) plan->fire_animation;
+
+	if (cmds && (func == NULL || cmds != func->fire_animation)
+			&& (hand->gunmodel.definition == NULL || hand->gunmodel.definition->skel == NULL)) {
+		if (s_BgunFireAnimationSkips < 8) {
+			s_BgunFireAnimationSkips++;
+			sysLogPrintf(LOG_NOTE, "BONDGUN.ANIM: weapon=%s plays no fire animation: its held model has no skeleton",
+				hand->gset.weaponnum >= 0 && hand->gset.weaponnum < g_WeaponDataCount
+					&& g_WeaponDataCatalogIds[hand->gset.weaponnum]
+					? g_WeaponDataCatalogIds[hand->gset.weaponnum] : "?");
+		}
+		return NULL;
+	}
+	return cmds;
 }
 
 /*
@@ -2783,10 +2811,13 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 		mainOverrideVariable("gkef", &var80070128);
 
 		if (hand->statecycles == 0) {
+			/* slice 7c: the attack's fire animation. */
+			struct guncmd *fireanim = bgunPlanFireAnimation(hand, func, bgunHandPlan(handnum));
+
 			hand->gs_float1 = 0;
 
-			if (func->fire_animation) {
-				bgunStartAnimation(func->fire_animation, handnum, hand);
+			if (fireanim) {
+				bgunStartAnimation(fireanim, handnum, hand);
 				hand->unk0cc8_01 = true;
 			}
 
@@ -2879,6 +2910,7 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
 	weapon_rule_function_t record;
 	const weapon_rule_trigger_t *plan;
+	struct guncmd *fireanim;
 	u32 funcflags;
 	s32 ammoindex;
 	s32 activationtime60;
@@ -2894,6 +2926,7 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	 * (og.weapon.use_ammo; 1 for a base throw with a clip). */
 	bgunRuleFunctionOf(hand, &func->base, &record);
 	plan = weaponHandTrigger(hand, &record);
+	fireanim = bgunPlanFireAnimation(hand, &func->base, plan); /* slice 7c */
 	activationtime60 = graph && graph->has_activation_time_ticks60 ?
 		graph->activation_time_ticks60 : func->activatetime60;
 	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
@@ -2913,13 +2946,13 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 				return true;
 			}
 
-			if (func->base.fire_animation) {
-				bgunStartAnimation(func->base.fire_animation, handnum, hand);
+			if (fireanim) {
+				bgunStartAnimation(fireanim, handnum, hand);
 				hand->unk0cc8_01 = true;
 			}
 		}
 
-		if (func->base.fire_animation) {
+		if (fireanim) {
 			if (hand->triggerreleased) {
 				hand->unk0cc8_01 = false;
 			}
@@ -3015,6 +3048,7 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
 	weapon_rule_function_t record;
 	const weapon_rule_trigger_t *plan;
+	struct guncmd *fireanim;
 	s32 ammoindex;
 
 	if (func == NULL) {
@@ -3026,6 +3060,7 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 	 * (og.weapon.use_ammo; the Tranquilizer's sedative strike 4). */
 	bgunRuleFunctionOf(hand, func, &record);
 	plan = weaponHandTrigger(hand, &record);
+	fireanim = bgunPlanFireAnimation(hand, func, plan); /* slice 7c */
 
 	if (hand->gset.weaponnum == WEAPON_REAPER) {
 		if (hand->statecycles == 0) {
@@ -3056,13 +3091,13 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 			hand->firing = true;
 			hand->attacktype = HANDATTACKTYPE_MELEENOUNCLOAK;
 
-			if (func->fire_animation) {
-				bgunStartAnimation(func->fire_animation, handnum, hand);
+			if (fireanim) {
+				bgunStartAnimation(fireanim, handnum, hand);
 				hand->unk0cc8_01 = true;
 			}
 		}
 
-		if (func->fire_animation) {
+		if (fireanim) {
 			if (hand->triggerreleased) {
 				hand->unk0cc8_01 = false;
 			}
@@ -3089,8 +3124,8 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 			weaponRulesSpendRounds(plan->rounds, &hand->loadedammo[ammoindex]);
 		}
 
-		if (func->fire_animation) {
-			if (func->fire_animation && !bgun0f098a44(hand, 3)) {
+		if (fireanim) {
+			if (!bgun0f098a44(hand, 3)) {
 				hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_3;
 			} else {
 				hand->stateminor = HANDSTATEMINOR_ATTACK_MELEE_2;

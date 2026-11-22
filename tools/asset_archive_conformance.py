@@ -2436,8 +2436,11 @@ WEAPON_GRAPH_SHOTS = tuple(WEAPON_GRAPH_SHOT_FAMILIES)
 # Slice 7: how each shot of the attack feels; a shooting function's.
 WEAPON_GRAPH_FEEL = ("og.weapon.recoil", "og.weapon.casing", "og.weapon.muzzle_flash", "og.weapon.shot_sound")
 WEAPON_GRAPH_FEEL_FAMILIES = ("shoot_single", "shoot_automatic", "shoot_projectile")
+# Slice 7c: the attack's fire animation; a shot's, a throw's or a strike's.
+WEAPON_GRAPH_ANIMATION = "og.weapon.play_animation"
+WEAPON_GRAPH_ANIMATION_FAMILIES = WEAPON_GRAPH_FEEL_FAMILIES + ("throw", "melee")
 WEAPON_GRAPH_IDLE_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state", "og.weapon.use_ammo") \
-    + WEAPON_GRAPH_SHOTS + WEAPON_GRAPH_FEEL
+    + WEAPON_GRAPH_SHOTS + WEAPON_GRAPH_FEEL + (WEAPON_GRAPH_ANIMATION,)
 # Slice 6b: the sight's lock, chosen while the player aims.
 WEAPON_GRAPH_LOCK = "og.weapon.lock_on"
 WEAPON_GRAPH_MODULES = WEAPON_GRAPH_IDLE_MODULES + (WEAPON_GRAPH_LOCK,)
@@ -2497,6 +2500,7 @@ WEAPON_GRAPH_SETTINGS = {
     "og.weapon.casing": {"type": ("choice", ("none", "standard", "reaper", "rifle", "shotgun"))},
     "og.weapon.muzzle_flash": {"on": ("bool",)},
     "og.weapon.shot_sound": {"sound": ("sound",), "duration": ("whole", 0, 255)},
+    "og.weapon.play_animation": {"animation": ("animation",)},
 }
 WEAPON_GRAPH_ITEM_RE = re.compile(r"[a-z0-9_]+:[a-z0-9_]+")
 
@@ -2524,6 +2528,10 @@ def _weapon_setting_error(kind: str, key: str, spec: tuple, value: object) -> st
         if not isinstance(value, str) or (value != "none" and (len(value) >= 64
                                                               or WEAPON_GRAPH_ITEM_RE.fullmatch(value) is None)):
             return f"needs {key} none or an audio catalog id such as base:sfx_fire_shotgun"
+    elif spec[0] == "animation":
+        if not isinstance(value, str) or (value != "none" and (len(value) >= 64
+                                                              or WEAPON_GRAPH_ITEM_RE.fullmatch(value) is None)):
+            return f"needs {key} none or an animation catalog id such as base:invanim_falcon2_shoot"
     elif spec[0] == "item_function":
         if value != "gun" and (isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 2):
             return f"needs {key} gun, 0, 1 or 2"
@@ -2665,6 +2673,10 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
             errors.append(f"{where} {kind} {node_id!r} does not fit this function (its record is {record_type})")
         if kind in WEAPON_GRAPH_FEEL and record_type is not None and record_type not in WEAPON_GRAPH_FEEL_FAMILIES:
             errors.append(f"{where} {kind} {node_id!r} fits only a shooting function (its record is {record_type})")
+        if kind == WEAPON_GRAPH_ANIMATION and record_type is not None \
+                and record_type not in WEAPON_GRAPH_ANIMATION_FAMILIES:
+            errors.append(f"{where} {kind} {node_id!r} fits only a shooting, throwing or melee function "
+                          f"(its record is {record_type})")
         for key, spec in WEAPON_GRAPH_SETTINGS.get(kind, {}).items():
             if key in node and not _weapon_variable_name(node[key]):
                 why = _weapon_setting_error(kind, key, spec, node[key])

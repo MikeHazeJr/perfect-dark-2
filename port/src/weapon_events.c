@@ -21,6 +21,7 @@
 #include "weapon_events.h"
 #include "game/sight.h"
 #include "assetcatalog.h"
+#include "loader_pool.h"
 
 /* Each player hand: a press waiting for the idle seam, the named states of
  * the function it holds (every state is false when the hand takes a weapon
@@ -124,6 +125,13 @@ static s32 weaponSoundNumber(const char *catalog_id)
 		return -1;
 	}
 	return audio.sound_id;
+}
+
+/* slice 7c: a fire animation's gun commands by its catalog id
+ * ("base:invanim_falcon2_shoot"), NULL for none. */
+static const void *weaponAnimationRef(const char *catalog_id)
+{
+	return catalog_id ? (const void *)loaderPoolFindAnimationByCatalogId(catalog_id) : NULL;
 }
 
 /* The current player's record of this hand, its states and plan reset when
@@ -316,6 +324,7 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 	walk.param_text = weaponGraphRuntimeHeldParamText;
 	walk.item_number = weaponItemNumber;
 	walk.sound_number = weaponSoundNumber;
+	walk.animation_ref = weaponAnimationRef;
 	handled = weaponRulesWalk(program, kind, g_Vars.currentplayernum, weaponEventWeaponId(weaponnum), hand, &walk);
 	if (plan && (walk.modules & WEAPON_MODULE_TRIGGERS)) {
 		*plan = walk.plan;
@@ -363,6 +372,7 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 			char reload_text[64] = "";
 
 			char recoil_text[192] = "";
+			char animation_text[96] = "";
 
 			if (style || native_style) {
 				snprintf(reload_text, sizeof(reload_text), " reload=%s native_reload=%s",
@@ -379,8 +389,16 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 					(double)walk.plan.recoil_slide, walk.plan.recoil_has_shake ? "yes" : "no",
 					walk.plan.recoil_has_spin_shake ? "yes" : "no", walk.plan.shot_sound, walk.plan.shot_duration);
 			}
+			if (chosen & WEAPON_MODULE_TRIGGERS) {
+				/* slice 7c: the attack's fire animation. */
+				const char *name = walk.plan.fire_animation
+					? loaderPoolAnimationNameForCmds((const struct guncmd *)walk.plan.fire_animation) : NULL;
+
+				snprintf(animation_text, sizeof(animation_text), " animation=%s",
+					!walk.plan.fire_animation ? "none" : name ? name : "unnamed");
+			}
 			sysLogPrintf(LOG_NOTE,
-				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s plan=%s native_plan=%s%s%s",
+				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s plan=%s native_plan=%s%s%s%s",
 				weaponRuleName(kind), weaponEventWeaponId(weaponnum),
 				func == FUNC_SECONDARY ? "secondary" : "primary",
 				weaponModulesText(chosen, chose, sizeof(chose)),
@@ -388,7 +406,7 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 				weaponPlanText(&walk.plan, chose_plan, sizeof(chose_plan)),
 				weaponPlanText((native & WEAPON_MODULE_TRIGGERS) ? native_plan : NULL,
 					orig_plan, sizeof(orig_plan)),
-				reload_text, recoil_text);
+				reload_text, recoil_text, animation_text);
 		}
 	}
 	return walk.modules;
@@ -635,6 +653,12 @@ static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_functi
 		weaponRuleCasingOf(weaponnum, out);
 	}
 	weaponRuleSoundOf(weaponnum, func, held, out);
+	{
+		/* slice 7c: its fire animation. */
+		struct weaponfunc *f = func >= 0 && func <= 1 ? weaponGetFunctionById(weaponnum, func) : NULL;
+
+		out->fire_animation = f ? (const void *)f->fire_animation : NULL;
+	}
 }
 
 /* The reload a function's program plans for an empty clip: its
@@ -662,6 +686,7 @@ static s32 weaponProgramReloadWalk(s32 weaponnum, s32 func, const weapon_rule_fu
 	walk.param_text = weaponGraphRuntimeHeldParamText;
 	walk.item_number = weaponItemNumber;
 	walk.sound_number = weaponSoundNumber;
+	walk.animation_ref = weaponAnimationRef;
 	weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY, -1, weaponEventWeaponId(weaponnum), &walk, &walk);
 	if (!(walk.modules & WEAPON_MODULE_RELOAD)) {
 		return 0;
@@ -748,6 +773,7 @@ s32 weaponProgramPressPlan(s32 weaponnum, s32 func, struct weapon_rule_trigger *
 		walk.param_text = weaponGraphRuntimeHeldParamText;
 		walk.item_number = weaponItemNumber;
 		walk.sound_number = weaponSoundNumber;
+		walk.animation_ref = weaponAnimationRef;
 		weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, weaponEventWeaponId(weaponnum),
 			&walk, &walk);
 		cache->program = program;
@@ -924,6 +950,7 @@ static s32 weaponRuleLockDecide(struct hand *hand, s32 tracktype, const weapon_r
 	walk.param_text = weaponGraphRuntimeHeldParamText;
 	walk.item_number = weaponItemNumber;
 	walk.sound_number = weaponSoundNumber;
+	walk.animation_ref = weaponAnimationRef;
 	if (!weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_AIMING, g_Vars.currentplayernum,
 			weaponEventWeaponId(weaponnum), hand, &walk)) {
 		return 0;

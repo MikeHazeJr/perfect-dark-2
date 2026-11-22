@@ -2705,6 +2705,9 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
 		record.functype = f->type;
 		record.flags = f->flags;
 		record.ammo_slot = f->ammoindex;
+		/* slice 7c: its fire animation, written as its catalog id; an attack's
+		 * only (a shot's, a throw's or a strike's). */
+		record.fire_animation = weaponRulesAnimationFits(f->type) ? (const void *)f->fire_animation : NULL;
 		if ((f->type & 0xff) == INVENTORYFUNCTYPE_SPECIAL) {
 			record.specialfunc = ((const struct weaponfunc_special *)f)->specialfunc;
 		}
@@ -2845,6 +2848,24 @@ static void s_emitHeldSoundNode(jw_t *w, const char *id, const weapon_rule_trigg
 		sound[0] ? sound : "none", plan->shot_duration, last ? "" : ",");
 }
 
+/* slice 7c: the catalog name of the attack's fire animation, NULL for none
+ * (or one with no name, which the program then leaves to the function). */
+static const char *s_heldAnimationName(const weapon_rule_trigger_t *plan)
+{
+	const char *name = plan->fire_animation ? s_animNameForCmds((const struct guncmd *)plan->fire_animation) : NULL;
+
+	return name && name[0] ? name : NULL;
+}
+
+/* og.weapon.play_animation with the function's own fire animation, by the
+ * catalog id the record's fire_animation names. */
+static void s_emitHeldAnimationNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s\", \"kind\": \"%s\", \"" WEAPON_RULE_ANIMATION_PARAM "\": \"base:%s\" }%s\n",
+		id, weaponRulesModuleKind(WEAPON_MODULE_PLAY_ANIMATION), s_heldAnimationName(plan), last ? "" : ",");
+}
+
 /* slice 7b: the casing a function's ammo ejects, plus one (0 none). */
 static s32 s_functionCasing(const struct weapon *wpn, const struct weaponfunc *f)
 {
@@ -2855,21 +2876,21 @@ static s32 s_functionCasing(const struct weapon *wpn, const struct weaponfunc *f
 	return (s32)wpn->ammos[f->ammoindex]->casingeject + 1;
 }
 
-#define PDWEAPON_HELD_PROGRAM_NODES 14
+#define PDWEAPON_HELD_PROGRAM_NODES 15
 static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
                                    const weapon_rule_trigger_t *plan, const weapon_rule_reload_t *reload)
 {
 	char ids[PDWEAPON_HELD_PROGRAM_NODES][48];
 	static const char *const suffix[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"pressed", "held", "has_ammo", "has_reserve", "attack", "dry_fire", "clip_empty", "reload",
-		"use_ammo", "shot", "recoil", "casing", "flash", "sound",
+		"use_ammo", "shot", "recoil", "casing", "flash", "sound", "animation",
 	};
 	static const char *const kind[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"event.weapon.trigger_pressed", "event.weapon.ready_while_held",
 		WEAPON_GATE_HAS_AMMO_KIND, WEAPON_GATE_HAS_RESERVE_KIND,
 		NULL, "og.weapon.dry_fire",
 		"event.weapon.clip_empty", "og.weapon.reload",
-		"og.weapon.use_ammo", NULL, NULL, NULL, NULL, NULL,
+		"og.weapon.use_ammo", NULL, NULL, NULL, NULL, NULL, NULL,
 	};
 	s32 emit[PDWEAPON_HELD_PROGRAM_NODES];
 	s32 count = 0;
@@ -2877,7 +2898,8 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 	/* use_ammo only where the attack spends, the shot only where the
 	 * function has one (a device has none). */
 	for (s32 i = 0; i < PDWEAPON_HELD_PROGRAM_NODES; i++) {
-		if ((i == 8 && plan->rounds <= 0) || (i == 9 && !plan->shot) || (i >= 10 && !plan->recoil)) continue;
+		if ((i == 8 && plan->rounds <= 0) || (i == 9 && !plan->shot) || (i >= 10 && i <= 13 && !plan->recoil)
+				|| (i == 14 && !s_heldAnimationName(plan))) continue;
 		emit[count++] = i;
 	}
 	for (s32 n = 0; n < count; n++) {
@@ -2899,6 +2921,8 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 			s_emitHeldFlashNode(w, ids[i], plan, last);
 		} else if (i == 13) {
 			s_emitHeldSoundNode(w, ids[i], plan, last);
+		} else if (i == 14) {
+			s_emitHeldAnimationNode(w, ids[i], plan, last);
 		} else {
 			s_emitHeldProgramNode(w, ids[i], kind[i], i == 2 ? rounds : i == 8 ? plan->rounds : 0, last);
 		}
@@ -2939,6 +2963,16 @@ static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name, const weapon_
 			s_emitHeldProgramEdge(w, casing, "out", flash, 0);
 			s_emitHeldProgramEdge(w, flash, "out", sound, 0);
 		}
+	}
+	if (s_heldAnimationName(plan)) {
+		/* slice 7c: the attack's fire animation, last in its chain. */
+		char animation[48];
+		char sound[48];
+
+		snprintf(animation, sizeof(animation), "%s_animation", mode_name);
+		snprintf(sound, sizeof(sound), "%s_sound", mode_name);
+		s_emitHeldProgramEdge(w, plan->recoil ? sound : plan->shot ? shot : plan->rounds > 0 ? use_ammo : attack,
+			"out", animation, 0);
 	}
 	s_emitHeldProgramEdge(w, pressed, "out", has_ammo, 0);
 	s_emitHeldProgramEdge(w, held, "out", has_ammo, 0);

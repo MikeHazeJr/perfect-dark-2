@@ -1063,6 +1063,14 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 			"%s fits only a shooting function (its record's function type is 0x%04x)", kind, (unsigned)check->functype);
 		return 0;
 	}
+	if (bit == WEAPON_MODULE_PLAY_ANIMATION && check->functype >= 0 && !weaponRulesAnimationFits(check->functype)) {
+		/* slice 7c: a fire animation is an attack's (a shot's, a throw's or a
+		 * strike's). */
+		snprintf(check->why, sizeof(check->why),
+			"%s fits only a shooting, throwing or melee function (its record's function type is 0x%04x)", kind,
+			(unsigned)check->functype);
+		return 0;
+	}
 	if (bit == WEAPON_MODULE_MODE_TOGGLE && check->ammo_slot == -1) {
 		/* PR 31 review: the cloak drains its function's rounds, and the
 		 * drain reads the reserve of that ammunition. */
@@ -1071,7 +1079,7 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 		return 0;
 	}
 	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_RELOAD
-			| WEAPON_MODULE_LOCK_ON | WEAPON_MODULE_FEEL)) {
+			| WEAPON_MODULE_LOCK_ON | WEAPON_MODULE_PRESENTATION)) {
 		for (s32 i = 0; weaponRulesSettingAt(i); i++) {
 			const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
 			const char *raw = setting->module == bit ? missionGraphParamText(params, setting->key) : NULL;
@@ -1113,6 +1121,10 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 						kind, setting->key, raw);
 				} else if (setting->type == WEAPON_RULE_SETTING_CASING) {
 					snprintf(check->why, sizeof(check->why), "%s needs %s none, standard, reaper, rifle or shotgun, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_ANIMATION) {
+					snprintf(check->why, sizeof(check->why),
+						"%s needs %s none or an animation catalog id such as base:invanim_falcon2_shoot, got %s",
 						kind, setting->key, raw);
 				} else if (setting->type == WEAPON_RULE_SETTING_SOUND) {
 					snprintf(check->why, sizeof(check->why),
