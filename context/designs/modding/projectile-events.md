@@ -807,9 +807,13 @@ exactly this slice's. Archives name kinds, never bits, so nothing stored
 changes. The next slice that adds modules widens the word.
 
 **7c. Spawn by weapon number** (the pinball's bounce and the thrown knife's
-flags at the throw, the fired projectiles' power limit, the guards' and the
-chopper's `projectileCreate`, a dropped grenade's fuse) is the next step,
-after 7a and 7b land.
+flags at the throw, the guards' and the chopper's `projectileCreate`, a
+dropped grenade's fuse; the fired projectiles' power limit is every fired
+projectile's, not a weapon number's) waits for decision D-057 (2026-11-22):
+launch numbers as `spawn_state` data that base throws read (the design's own
+model, and the "guards go last" step for throws), rule modules on
+`event.projectile.thrown` (which needs a 64-bit module word first), or left by
+weapon number for 1.0. Weapon slice 6 goes on meanwhile.
 
 ## Slice 7a and 7b as written (Core Weapons, 2026-11-22; on `week-pd/core-weapons-p7`, not run in the game yet)
 
@@ -858,7 +862,7 @@ Smokes for Integration's batch (none run by Core Weapons):
 |---|---|
 | `boot_smoke` on a freshly extracted install | every base weapon re-extracts once (`embedded.v22`) and registers; no `program refused` line |
 | `projectile_events_smoke` | the rocket launcher's rocket logs `PROJECTILE.RULE: in_flight ... modules=thrust native=thrust`, the homing rocket `home+trail`, the Devastator's round `trail`, the thrown knife `woosh+hit_sound`, the pinball grenade `hit_sound+bounce_smoke`; `rules.differ=0`; the existing lines unchanged |
-| a Combat Simulator match where a simulant fires the Slayer (`WEAPON_SKROCKET`) | the bot's rocket logs `modules=fly_by_wire` and flies its waypoints as before |
+| (not covered by a line) a simulant firing the Slayer | the bot's Skedar rocket (`botactCreateSlayerRocket`, `WEAPON_SKROCKET`) is unbound and no base function launches it, so it has no program: the original's `fly_by_wire` answers and no `PROJECTILE.RULE` line is written (Integration reports it as not covered; pd-tests compare the table and pin the dispatch) |
 | any smoke that frees a bolt with a beam or a pinball grenade | no `smoke`/`boltbeam` warnings; nothing dangles |
 
 ## Not in scope
