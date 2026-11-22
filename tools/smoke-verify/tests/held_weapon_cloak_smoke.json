@@ -1,0 +1,88 @@
+{
+  "scenario_name": "held_weapon_cloak_smoke",
+  "description": "The RCP120's cloak (context/designs/modding/held-weapon-events.md, slices 4 and 6b). On Felicity with no simulants, player 0 is given the RCP120 and taps the alternate-function button twice: under extended controls that button toggles the RCP120's cloak itself (bgunConsiderToggleGunFunction's RCP120 case), so the cloak goes on, then off. Each change logs BONDGUN.CLOAK with the drain its weapon's program names for the cloak (its secondary's og.weapon.mode_toggle, 24 rounds a second) and the clip it drains. No rule may differ, and no program may be refused.",
+  "tags": [
+    "graph",
+    "weapons",
+    "combatsim",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "src/game/bondgun.c",
+    "port/src/weapon_events.c",
+    "port/include/weapon_rules.h"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-force-first-person",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay."
+    },
+    {
+      "at_ms": 1000,
+      "type": "give_weapon",
+      "path": "base:rcp120",
+      "comment": "From the give to the first input there are 3 s (equip time)."
+    },
+    {
+      "at_ms": 4000,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "The cloak goes on."
+    },
+    {
+      "at_ms": 7000,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "The cloak goes off."
+    },
+    {
+      "at_ms": 9000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=held_weapon_cloak_smoke",
+      "SMOKE\\.GIVE_WEAPON: weapon=base:rcp120 weaponnum=[0-9]+ result=1",
+      "BONDGUN\\.CLOAK: on player=0 weapon=base:rcp120 drain=24 slot=[0-9]+",
+      "BONDGUN\\.CLOAK: off player=0 weapon=base:rcp120 drain=24 slot=[0-9]+",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "SMOKE\\.GIVE_WEAPON: [^\\n]*result=0",
+      "WEAPON\\.RULE differs",
+      "program refused",
+      "ASSET\\.FALLBACK",
+      "LOUDFAIL\\.FALLBACK"
+    ]
+  }
+}
