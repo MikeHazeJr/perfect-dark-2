@@ -28,12 +28,13 @@
 #include "game/sparks.h"
 #include "game/stagetable.h"
 #include "modarchive.h"
+#include "mode_rules.h"
 #include "pdeffect_source.h"
 #include "romextract_pd.h"
 #include "stage_archive_repair.h"
 #include "system.h"
 
-#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings_vehiclegraph"
+#define PDMETA_FAST_CACHE_KIND "pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings_vehiclegraph_modegraph_outside_bots"
 #define PDMETA_SCENARIO_DEP_CACHE_KIND \
 	"pdscenario_scene_glb_clean_public_v99_standalone_backfill_collision_obj_collision_flags_json_room_lights_json_dccuv_rsptexscale_texshift_samplerwrap_untextured_uvbound_color0_alphamask_quip_shuffle_graph_portals_json_objects_json_setup_fields_json_ai_lists_json_ai_command_graph_navhashes_objectives_spawns_volumes_pads_paths_json_navtables_json"
 
@@ -975,7 +976,10 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
 				"\"max_players\"") &&
 			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
-				"\"team_based\"")) {
+				"\"team_based\"") &&
+			s_existingArchiveHasEntry(relpath, MODE_GRAPH_MEMBER) &&
+			s_existingArchiveEntryContains(relpath, "_meta/manifest.json",
+				"\"mode_graph_file\"")) {
 		return 0;
 	}
 
@@ -990,7 +994,8 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 		"max_players = %d\n"
 		"team_based = %d\n"
 		"requirefeature = %u\n"
-		"rules_file = rules.json\n",
+		"rules_file = rules.json\n"
+		"mode_graph_file = " MODE_GRAPH_MEMBER "\n",
 		e->id, s_modeKey(e->ext.gamemode.mode_id),
 		e->ext.gamemode.name,
 		e->ext.gamemode.description, e->ext.gamemode.min_players,
@@ -1030,7 +1035,8 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 		"  \"max_players\": %d,\n"
 		"  \"team_based\": %d,\n"
 		"  \"requirefeature\": %u,\n"
-		"  \"rules_file\": \"rules.json\"\n"
+		"  \"rules_file\": \"rules.json\",\n"
+		"  \"mode_graph_file\": \"" MODE_GRAPH_MEMBER "\"\n"
 		"}\n",
 		e->id, e->ext.gamemode.name, e->ext.gamemode.description,
 		s_modeKey(e->ext.gamemode.mode_id),
@@ -1038,6 +1044,18 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 		e->ext.gamemode.team_based,
 		(unsigned)e->ext.gamemode.requirefeature);
 	if (manifest_len <= 0 || (size_t)manifest_len >= sizeof(manifest)) {
+		return -1;
+	}
+
+	/* gamemode-graphs.md slice 2: the mode's program, wired from the
+	 * original mode table (mode_rules.c), so the base program and
+	 * g_MpScenarios[] agree by construction. */
+	char graph[8192];
+	s32 graph_len = modeRulesBaseProgramJson(e->ext.gamemode.mode_id, e->id,
+		graph, sizeof(graph));
+	if (graph_len <= 0) {
+		sysLogPrintf(LOG_ERROR, "MODE.GRAPH: no base program for '%s' (mode %d)",
+			e->id, e->ext.gamemode.mode_id);
 		return -1;
 	}
 
@@ -1053,7 +1071,9 @@ static s32 s_emitGamemode(const asset_entry_t *e, const char *out_dir,
 			assetArchiveWriterAddManifestJson(&writer,
 			manifest, (u32)manifest_len) != MODARCHIVE_OK ||
 			assetArchiveWriterAddPublicMem(&writer, "rules.json",
-			rules, (u32)rules_len, "rules") != MODARCHIVE_OK) {
+			rules, (u32)rules_len, "rules") != MODARCHIVE_OK ||
+			assetArchiveWriterAddPublicMem(&writer, MODE_GRAPH_MEMBER,
+			graph, (u32)graph_len, "mode-graph") != MODARCHIVE_OK) {
 		modArchiveAbort(aw);
 		return -1;
 	}

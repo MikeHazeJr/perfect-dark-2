@@ -38,7 +38,9 @@ extern "C" {
 #define MODE_EVENT_TOKEN_DROPPED    9  /* scenarioHandleDroppedToken */
 #define MODE_EVENT_PROP_ACTIVATED  10  /* scenarioHandleActivatedProp: the Hacker Central terminal */
 #define MODE_EVENT_PLAYER_DIED     11  /* mpstatsRecordDeathByRuntimeIndex */
-#define MODE_EVENT_COUNT           12
+#define MODE_EVENT_BOT_COMMAND     12  /* scenarioBotChooseCommand (slice 7) */
+#define MODE_EVENT_BOT_IDLE        13  /* scenarioBotIdleAction (slice 7) */
+#define MODE_EVENT_COUNT           14
 
 /* who: the seam's number for the event's player or simulant, or -1. */
 void modeEventRecord(s32 kind, s32 who);
@@ -48,6 +50,14 @@ const char *modeEventKindName(s32 kind);
 
 /* The match's count of one kind so far (0 for a kind out of range). */
 s32 modeEventTotal(s32 kind);
+
+/* gamemode-graphs.md slice 3: one seam call compared with the original mode
+ * table (g_MpScenarios[]); differ when the mode's plan ran it differently.
+ * The report logs "MODE.PARITY: <why> mode=<catalog id> compared=N differ=M"
+ * first, on every peer, and starts the counts again. */
+void modeParityRecord(s32 differ);
+/* The differences so far this match. */
+s32 modeParityDiffer(void);
 
 /* Logs "MODE.EVENTS: <why> mode=<catalog id> chosen=N stage_reset=N
  * intro_pad=N props_init=N tick=N chr_tick=N score=N spawn=N

@@ -12,6 +12,8 @@ extern "C" {
 #include "asset_runtime.h"
 #include "prop_graph_runtime.h"
 #include "vehicle_graph_runtime.h"
+#include "constants.h"
+#include "mode_rules.h"
 void testStubAssetCatalogResolveWith(const asset_entry_t *entry);
 void testStubAssetCatalogResolvePair(const asset_entry_t *first, const asset_entry_t *second);
 void testStubCatalogCompleteBodyNum(s32 bodynum);
@@ -287,12 +289,32 @@ TEST_CASE("B-959 structured metadata source hydrates production-facing state",
 		"\"description\":\"Two-team case capture.\","
 		"\"players\":{\"min\":4,\"max\":12},"
 		"\"teams\":{\"required\":true},\"requirefeature\":7}");
+	/* gamemode-graphs.md slice 2: a mode hydrates only with its program. */
+	REQUIRE(assetRuntimeActivateCatalogEntry(&gameMode, rulesPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&gameMode) == 0);
+	REQUIRE(assetRuntimeModeProgram("mod:mode_team_case") == nullptr);
+	std::strncpy(gameMode.ext.gamemode.mode_graph_file, "mode.graph.json",
+		sizeof(gameMode.ext.gamemode.mode_graph_file) - 1);
+	dir.write("mode.graph.json",
+		"{\"schema\":\"pd.gamemode_graph.v1\",\"catalog_id\":\"mod:mode_team_case\","
+		"\"nodes\":[{\"id\":\"t\",\"kind\":\"event.mode.tick\"},"
+		"{\"id\":\"s\",\"kind\":\"og.mode.ctc.spawn\"}],"
+		"\"edges\":[{\"from\":\"t\",\"to\":\"s\",\"input\":\"exec\"}]}");
+	REQUIRE(assetRuntimeActivateCatalogEntry(&gameMode, rulesPath.c_str()) == 1);
+	REQUIRE(assetRuntimeHydrateCatalogEntry(&gameMode) == 0);
+	char modeGraph[8192];
+	REQUIRE(modeRulesBaseProgramJson(MPSCENARIO_CAPTURETHECASE, "mod:mode_team_case",
+		modeGraph, sizeof(modeGraph)) > 0);
+	dir.write("mode.graph.json", modeGraph);
 	REQUIRE(assetRuntimeActivateCatalogEntry(&gameMode, rulesPath.c_str()) == 1);
 	REQUIRE(assetRuntimeHydrateCatalogEntry(&gameMode) == 1);
 	const asset_runtime_binding_t *modeBinding =
 		assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, "mod:mode_team_case");
 	REQUIRE(modeBinding != nullptr);
 	REQUIRE(modeBinding->source_hydrated == 1);
+	REQUIRE(assetRuntimeModeProgram("mod:mode_team_case") == modeBinding->mode_graph);
+	REQUIRE(missionGraphProgramHandlesEvent(modeBinding->mode_graph,
+		MISSION_GRAPH_EVENT_MODE_SPAWN) == 1);
 	REQUIRE(modeBinding->runtime_id == 5);
 	REQUIRE(modeBinding->gamemode_min_players == 4);
 	REQUIRE(modeBinding->gamemode_max_players == 12);

@@ -72,7 +72,7 @@ function Initialize-SmokeStoragePolicy {
 }
 
 function Invoke-SmokeStorage {
-    param([Parameter(Mandatory)][ValidateSet('seed','complete','preflight','status','restore','dry-run','reuse-plan','reuse-acquire','reuse-release','release-interrupted','compact')][string] $Action,
+    param([Parameter(Mandatory)][ValidateSet('seed','complete','preflight','status','restore','dry-run','reuse-plan','reuse-acquire','reuse-release','release-interrupted','compact','handoff','adopt')][string] $Action,
           [Parameter(Mandatory)][string] $ProjectRoot, [hashtable] $Request = @{})
     $retain = $script:SmokeRetainHousekeeping
     if ($Request.ContainsKey('retention')) {
@@ -217,6 +217,29 @@ function Complete-SmokeManagedInstall {
     return Invoke-SmokeStorage -Action complete -ProjectRoot $ProjectRoot -Request @{
         id = $InstallInfo.StorageId; owner_pid = $PID; definition = $DefinitionPath
         passed = $Passed; keep = $Keep; outcome = $Outcome
+    }
+}
+
+function Register-SmokePreparedInstall {
+    # T-TOOLING-019: run.ps1 -Prepare hands its staged install to a later
+    # run.ps1 -Execute. Storage keeps only the token's sha256.
+    param([Parameter(Mandatory)][string] $ProjectRoot, [Parameter(Mandatory)][psobject] $InstallInfo,
+          [Parameter(Mandatory)][string] $Token)
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { $digest = -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes($Token)) | ForEach-Object { $_.ToString('x2') }) }
+    finally { $sha.Dispose() }
+    return Invoke-SmokeStorage -Action handoff -ProjectRoot $ProjectRoot -Request @{
+        id = $InstallInfo.StorageId; owner_pid = $PID; token_sha256 = $digest
+    }
+}
+
+function Receive-SmokePreparedInstall {
+    # Adopt a handed-off install: one use, token checked, preparer exited,
+    # content exactly as staged. Afterwards only this process can complete it.
+    param([Parameter(Mandatory)][string] $ProjectRoot, [Parameter(Mandatory)][string] $StorageId,
+          [Parameter(Mandatory)][string] $Token)
+    return Invoke-SmokeStorage -Action adopt -ProjectRoot $ProjectRoot -Request @{
+        id = $StorageId; owner_pid = $PID; token = $Token
     }
 }
 

@@ -23,7 +23,7 @@ static const char *const g_AssetPathSourceKeys[] = {
 	"setup_file", "mpsetup_file", "rooms_file", "rooms", "material_file",
 	"props_file", "props", "objectives_file", "objectives", "navigation_file",
 	"waypoints_file", "waygroups_file", "covers_file", "paths_file",
-	"level_graph_file", "mission_graph_file", "scenario_archive", "rules_file",
+	"level_graph_file", "mission_graph_file", "mode_graph_file", "scenario_archive", "rules_file",
 	"profile_file", "visual_source_file", "texture_manifest_file", "music_file",
 	"midi_file", "file_path", "subtitle_file", "locale_en_file", "locale_fr_file",
 	"locale_de_file", "locale_it_file", "locale_es_file", "locale_ja_file",

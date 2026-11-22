@@ -29,12 +29,27 @@ foreign hunks of the parked copies dropped. **B-1277** (PR 24, `ac63aaf1`, proto
 placeholders with pad -1 or a missing container are on no scheduler list on either machine; the
 reconnect world row now carries the host's scheduler presence and a pure planner places every prop.
 **B-1278** and **mode events slice 1** (PR 25, `9134bb8f`): `--launch-offline-room`; record-only
-`MODE.EVENT` at the twelve mode seams. Open: PR 27 (the Room's Load Preset and Quick Start, T-MENUS-009),
-stage text banks (T-MODDING-027, local `7ee7f75f`: each scenario archive names its `text_bank`,
-`langGetStageBank`, scenario kind `_textbank`; decision D-054 for levels with their own text), mode
-graph slices 2 to 7 (T-MODDING-026). Finalization smokes for Integration: the four ledge/tabletop
-smokes, `network_coop_reconnect_smoke`, `coop_ai_buddies_offline_smoke`, the six local mode smokes,
-and a Room preset/Quick Start smoke still to write.
+`MODE.EVENT` at the twelve mode seams. **Room Load Preset and Quick Start** (PR 27, `09052ace`,
+T-MENUS-009). **Stage text banks** (PR 28, `c5738451`, T-MODDING-027): each scenario archive names its
+`text_bank`, `langGetStageBank`, scenario and arena kinds `_textbank`; decision D-054 is open for levels
+with text of their own. **Mode graphs slice 2** (PR 30, `e7fb73e6`: `mode.graph.json` in every
+`.pdgamemode`, the runner's mode domain at kinds 64 to 75, `port/src/mode_rules.c`, meta kind
+`_modegraph`, registration fails closed; B-1292 for slice 6) and **slice 3** (PR 32, `905ed513`: the
+dispatchers run the program's plan; `MODE.PLAN` and the `MODE.PARITY` probe). Open: PR 34 (slice 4: the
+code outside the table behind its events, designated `g_MpScenarios[]` rows, 64 modules, meta kind
+`_modegraph_outside`; and bot.c's single-shot burst reads `weaponProgramBurstRounds`, Core Weapons'
+ask), and built and tested locally: slice 5 `a918ea5e` (states side by side, `SVC_SCENARIO_STATE` one
+section per state in use, protocol v67) and slice 7 `da862eac` (the simulants' command choice and idle
+action as modules, `event.mode.bot_command` and `bot_idle`, 73 modules). Slice 6 (a mod's own mode)
+waits for **decision D-055** (Workbench): what the first worked example plays like, whether setup
+files remember a mod mode, how the Room offers one; my pick A (scores add up, Room only).
+The shared tree's runner and validator copies carry my hunks beside Core Weapons' (they commit by
+hunk). Mistakes to avoid next time: a full SHA typed by hand for `--match-head-commit` (use `git
+rev-parse`), and heredocs for anything with doubled backslashes (Write or Edit instead). Finalization smokes for Integration: the four
+ledge/tabletop smokes, `network_coop_reconnect_smoke`, `coop_ai_buddies_offline_smoke`, the six local
+mode smokes (now also requiring `MODE.PLAN` and `MODE.PARITY ... differ=0`), any smoke on a re-extracted
+base for the six `MODE.GRAPH: program` lines and `LANG.STAGE ... source=archive`, and a Room
+preset/Quick Start smoke still to write.
 
 2026-11-20 MULTIPLAYER, 16:40 to 18:44 UTC. Repo cleanup on Mike's order (Codex disabled, the
 week sessions archived): push and merge all PD work, fix collisions, clean up before fresh sessions

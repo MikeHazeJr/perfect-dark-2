@@ -293,7 +293,7 @@ static void pacNetPresent(void)
 	const net_scenario_pac_state_t *in;
 	s32 i;
 
-	if (!scenarioNetTakePending(&state)) {
+	if (!scenarioNetTakePending(NET_SCENARIO_STATE_POPACAP, &state)) {
 		if (data->victimindex >= 0 && pacVictimClockRuns(data->victims[data->victimindex])) {
 			s32 age = data->age240 + g_Vars.lvupdate240;
 			data->age240 = age > NET_SCENARIO_PAC_MAX_AGE240 ? NET_SCENARIO_PAC_MAX_AGE240 : age;

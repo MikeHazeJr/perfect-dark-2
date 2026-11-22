@@ -2930,6 +2930,10 @@ static s32 registerComponentWithAnimationBatch(const ini_section_t *ini, const c
 			if (rf[0]) {
 				catalogSetPrimaryFile(e, rf);
 			}
+			/* gamemode-graphs.md slice 2: the mode's program. */
+			strncpy(e->ext.gamemode.mode_graph_file,
+				iniGet(ini, "mode_graph_file", ""),
+				sizeof(e->ext.gamemode.mode_graph_file) - 1);
 		}
 		break;
 

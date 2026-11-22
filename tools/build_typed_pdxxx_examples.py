@@ -2720,6 +2720,25 @@ def update_gamemode() -> None:
         "  \"requirefeature\": 0\n"
         "}\n"
     )
+    # gamemode-graphs.md slice 2: Combat's program, as the extractor writes
+    # it for base:combat (modeRulesBaseProgramJson): the default score and
+    # the general spawn chooser.
+    mode_graph = (
+        "{\n"
+        "  \"schema\": \"pd.gamemode_graph.v1\",\n"
+        "  \"catalog_id\": \"example:tri_gamemode\",\n"
+        "  \"nodes\": [\n"
+        "    { \"id\": \"mode.event.score\", \"kind\": \"event.mode.score\" },\n"
+        "    { \"id\": \"mode.score\", \"kind\": \"og.mode.default.score\" },\n"
+        "    { \"id\": \"mode.event.spawn\", \"kind\": \"event.mode.spawn\" },\n"
+        "    { \"id\": \"mode.spawn\", \"kind\": \"og.mode.default.spawn\" }\n"
+        "  ],\n"
+        "  \"edges\": [\n"
+        "    { \"from\": \"mode.event.score\", \"output\": \"out\", \"to\": \"mode.score\", \"input\": \"exec\" },\n"
+        "    { \"from\": \"mode.event.spawn\", \"output\": \"out\", \"to\": \"mode.spawn\", \"input\": \"exec\" }\n"
+        "  ]\n"
+        "}\n"
+    )
     write_archive("gamemodes/tri_gamemode.pdgamemode", [
         ("gamemode.ini",
          "[gamemode]\n"
@@ -2731,8 +2750,10 @@ def update_gamemode() -> None:
          "max_players = 8\n"
          "team_based = 0\n"
          "requirefeature = 0\n"
-         "rules_file = rules.json\n"),
+         "rules_file = rules.json\n"
+         "mode_graph_file = mode.graph.json\n"),
         ("rules.json", rules),
+        ("mode.graph.json", mode_graph),
         ("_meta/manifest.json", manifest_with("gamemode", "example:tri_gamemode", {
             "name": "Triangle Combat",
             "description": "Free-for-all combat using editable public rules.",
@@ -2742,6 +2763,7 @@ def update_gamemode() -> None:
             "team_based": 0,
             "requirefeature": 0,
             "rules_file": "rules.json",
+            "mode_graph_file": "mode.graph.json",
         })),
     ])
 

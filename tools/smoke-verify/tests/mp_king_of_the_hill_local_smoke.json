@@ -111,6 +111,8 @@
       "MODE\\.EVENT: chosen mode=base:king_of_the_hill scenario=4",
       "MODE\\.EVENT: tick mode=base:king_of_the_hill scenario=4 who=-",
       "MODE\\.EVENTS: stage_end mode=base:king_of_the_hill .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.PLAN: stage_reset mode=base:king_of_the_hill scenario=4 modules=[1-9][0-9]*",
+      "MODE\\.PARITY: stage_end mode=base:king_of_the_hill compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",
       "SMOKE: result=scripted_exit",
       "MATCH\\.RESULT\\.(CHR|TEAM): .*score=[1-9]"
@@ -125,7 +127,9 @@
       "SCENARIO\\.MISS:",
       "KOH: hill [0-9]+ of [0-9]+ at pad=-?[0-9]+ room=(0|-1)",
       "KOH: hill moved to [0-9]+ of [0-9]+ pad=-?[0-9]+ room=(0|-1)",
-      "KOH: hill [0-9]+ of [01] at "
+      "KOH: hill [0-9]+ of [01] at ",
+      "MODE\\.PARITY: differ",
+      "LOUDFAIL\\.MODE\\.PLAN"
     ],
     "required_counts": [
       {

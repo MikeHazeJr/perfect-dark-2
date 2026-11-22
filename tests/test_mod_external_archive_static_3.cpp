@@ -416,7 +416,7 @@ TEST_CASE("typed pdxxx example archives carry the implemented asset payloads",
 			"gamemode",
 			".pdgamemode",
 			"gamemodes/tri_gamemode.pdgamemode",
-			{ "gamemode.ini", "rules.json", "_meta/manifest.json" },
+			{ "gamemode.ini", "rules.json", "mode.graph.json", "_meta/manifest.json" },
 		},
 		{
 			"bot profile",
@@ -664,7 +664,7 @@ TEST_CASE("typed pdxxx example archives keep declared source refs self-contained
 		{
 			"gamemodes/tri_gamemode.pdgamemode",
 			"gamemode.ini",
-			{ "rules_file" },
+			{ "rules_file", "mode_graph_file" },
 			{ "rules.json" },
 			{},
 		},

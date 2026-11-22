@@ -51,6 +51,7 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "net/matchsetup.h"
+#include "weapon_events.h"  /* held-weapon-events.md slice 3: a simulant's burst rounds */
 
 #define PICKUPCRITERIA_DEFAULT  0
 #define PICKUPCRITERIA_CRITICAL 1
@@ -4020,6 +4021,219 @@ static void botJumpTickEval(struct chrdata *chr)
  * - Decide whether to switch weapons (via botinvTick)
  * - Decide whether to discharge a shot on this tick
  */
+/*
+ * gamemode-graphs.md slice 7: each mode's simulant command choice (a team with
+ * no humans) and what a simulant does with no command, moved verbatim out of
+ * botTickUnpaused. g_MpScenarios[] names them (botcommandfunc, botidlefunc),
+ * and the mode's program chooses which run (scenarioBotChooseCommand,
+ * scenarioBotIdleAction).
+ */
+/* Hold the Briefcase: the command a simulant picks. */
+void htbBotChooseCommand(struct chrdata *chr, s32 teamsize)
+{
+	s32 numgetting = botGetCountInTeamDoingCommand(chr, AIBOTCMD_GETCASE2, false);
+
+	if (numgetting <= 0 || (numgetting < (teamsize + 1) / 2 || rngRandom() % 100 < 66)) {
+		botApplyScenarioCommand(chr, AIBOTCMD_GETCASE2);
+	} else {
+		botApplyScenarioCommand(chr, AIBOTCMD_NORMAL);
+	}
+}
+
+/* Hacker Central: the command a simulant picks. */
+void htmBotChooseCommand(struct chrdata *chr, s32 teamsize)
+{
+	struct aibot *aibot = chr->aibot;
+
+	s32 numbots = botGetCountInTeamDoingCommand(chr, AIBOTCMD_DOWNLOAD, false);
+
+	if (aibot->hasuplink || numbots <= 0 || (numbots < (teamsize + 1) / 2 || rngRandom() % 100 < 50)) {
+		botApplyScenarioCommand(chr, AIBOTCMD_DOWNLOAD);
+	} else {
+		botApplyScenarioCommand(chr, AIBOTCMD_NORMAL);
+	}
+}
+
+/* Pop a Cap: the command a simulant picks. */
+void pacBotChooseCommand(struct chrdata *chr, s32 teamsize)
+{
+	s32 numchasing = botGetCountInTeamDoingCommand(chr, AIBOTCMD_POPCAP, false);
+
+	if (numchasing <= 0 || numchasing < (teamsize + 1) / 2 || rngRandom() % 100 < 50) {
+		botApplyScenarioCommand(chr, AIBOTCMD_POPCAP);
+	} else {
+		botApplyScenarioCommand(chr, AIBOTCMD_NORMAL);
+	}
+}
+
+/* King of the Hill: the command a simulant picks. */
+void kohBotChooseCommand(struct chrdata *chr, s32 teamsize)
+{
+	s32 numinhill = botGetNumTeammatesDefendingHill(chr);
+
+	// Don't count ourselves
+	if (chr->prop->rooms[0] == g_ScenarioData.koh.hillrooms[0]) {
+		numinhill--;
+	}
+
+	if (numinhill <= 0 || numinhill < teamsize / 2) {
+		botApplyScenarioCommand(chr, AIBOTCMD_HOLDHILL);
+	} else if (numinhill > botGetNumOpponentsInHill(chr)) {
+		if (rngRandom() % 100 < 50) {
+			botApplyScenarioCommand(chr, AIBOTCMD_DEFHILL);
+		} else {
+			botApplyScenarioCommand(chr, AIBOTCMD_NORMAL);
+		}
+	} else {
+		botApplyScenarioCommand(chr, AIBOTCMD_HOLDHILL);
+	}
+}
+
+/* Capture the Case: the command a simulant picks. */
+void ctcBotChooseCommand(struct chrdata *chr, s32 teamsize)
+{
+	if (teamsize == 1) {
+		// One man team
+		s32 numgetting = botGetCountInTeamDoingCommand(chr, AIBOTCMD_GETCASE, true);
+
+		if (botShouldReturnCtcToken(chr)) {
+			botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
+		} else if (botIsChrsCtcTokenHeld(chr)) {
+			if (rngRandom() % 100 < 30) {
+				botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
+			} else {
+				botApplyScenarioCommand(chr, AIBOTCMD_SAVECASE);
+			}
+		} else {
+			if (rngRandom() % 100 < 70 || numgetting <= 0) {
+				botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
+			} else {
+				botApplyScenarioCommand(chr, AIBOTCMD_SAVECASE);
+			}
+		}
+	} else {
+		// Not a one man team
+		s32 numgetting = botGetCountInTeamDoingCommand(chr, AIBOTCMD_GETCASE, false);
+		s32 numsaving = botGetCountInTeamDoingCommand(chr, AIBOTCMD_SAVECASE, false);
+
+		if (botShouldReturnCtcToken(chr)) {
+			botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
+		} else if (botIsChrsCtcTokenHeld(chr)) {
+			if (numsaving <= 0 || rngRandom() % 100 < 70) {
+				botApplyScenarioCommand(chr, AIBOTCMD_SAVECASE);
+			} else {
+				botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
+			}
+		} else if (numgetting <= 0 || numgetting < teamsize / 3) {
+			botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
+		} else if (numsaving <= 0 || numsaving < teamsize / 4) {
+			botApplyScenarioCommand(chr, AIBOTCMD_SAVECASE);
+		} else if (rngRandom() % 100 < 30) {
+			botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
+		} else if (rngRandom() % 100 < 30) {
+			botApplyScenarioCommand(chr, AIBOTCMD_SAVECASE);
+		} else {
+			botApplyScenarioCommand(chr, AIBOTCMD_NORMAL);
+		}
+	}
+}
+
+/* Hold the Briefcase: a simulant's action with no command, or -1. */
+s32 htbBotIdleAction(struct chrdata *chr)
+{
+	struct aibot *aibot = chr->aibot;
+	s32 newaction = -1;
+
+	if (aibot->hasbriefcase) {
+		// Current bot has the briefcase - follow a teammate for protection
+		s32 playernum = -1;
+
+		if (rngRandom() % 100 < 66) {
+			playernum = botFindTeammateToFollow(chr, 100000);
+		}
+
+		if (playernum >= 0) {
+			newaction = MA_AIBOTFOLLOW;
+			aibot->canbreakfollow = rngRandom() % 4 == 0;
+			aibot->followingplayernum = playernum;
+		}
+	}
+
+	return newaction;
+}
+
+/* Pop a Cap: a simulant's action with no command, or -1. */
+s32 pacBotIdleAction(struct chrdata *chr)
+{
+	struct aibot *aibot = chr->aibot;
+	s32 newaction = -1;
+
+	if (g_ScenarioData.pac.victimindex >= 0) {
+		s32 pacvi2 = g_ScenarioData.pac.victims[g_ScenarioData.pac.victimindex];
+		struct prop *victimprop = (pacvi2 >= 0 && pacvi2 < g_MpNumChrs && g_MpAllChrPtrs[pacvi2] != NULL)
+				? g_MpAllChrPtrs[pacvi2]->prop : NULL;
+
+		if (victimprop == chr->prop) {
+			// Current bot is the victim - follow a teammate for protection
+			s32 playernum = -1;
+
+			if (rngRandom() % 100 < 66) {
+				playernum = botFindTeammateToFollow(chr, 100000);
+			}
+
+			if (playernum >= 0) {
+				newaction = MA_AIBOTFOLLOW;
+				aibot->canbreakfollow = rngRandom() % 4 == 0;
+				aibot->followingplayernum = playernum;
+			}
+		}
+	}
+
+	return newaction;
+}
+
+/* Capture the Case: a simulant's action with no command, or -1. */
+s32 ctcBotIdleAction(struct chrdata *chr)
+{
+	struct aibot *aibot = chr->aibot;
+	s32 newaction = -1;
+
+	// If the bot is holding an opponent's token, take it home
+	if (botShouldReturnCtcToken(chr)) {
+		struct pad pad;
+		s32 teamindex = g_ScenarioData.ctc.teamindexes[radarGetTeamIndex(chr->team)];
+		newaction = MA_AIBOTGOTOPOS;
+		padUnpack(g_ScenarioData.ctc.spawnpadsperteam[teamindex].homepad, PADFIELD_POS | PADFIELD_ROOM, &pad);
+		aibot->gotopos.x = pad.pos.x;
+		aibot->gotopos.y = pad.pos.y;
+		aibot->gotopos.z = pad.pos.z;
+		aibot->gotorooms[0] = pad.room;
+		aibot->gotorooms[1] = -1;
+		aibot->inhill = false;
+	}
+
+	return newaction;
+}
+
+/* Hacker Central: a simulant's action with no command, or -1. */
+s32 htmBotIdleAction(struct chrdata *chr)
+{
+	struct aibot *aibot = chr->aibot;
+	s32 newaction = -1;
+
+	// If the bot has the uplink, go to the terminal
+	if (g_ScenarioData.htm.uplink == chr->prop) {
+		if (g_ScenarioData.htm.playernuminrange != mpPlayerGetIndex(chr)) {
+			newaction = MA_AIBOTGOTOPROP;
+			aibot->gotoprop = g_ScenarioData.htm.terminals[0].prop;
+		} else {
+			newaction = MA_AIBOTDOWNLOAD;
+		}
+	}
+
+	return newaction;
+}
+
 void botTickUnpaused(struct chrdata *chr)
 {
 	/* In netplay, only the server (or the designated authority client) runs bot AI.
@@ -4167,95 +4381,10 @@ void botTickUnpaused(struct chrdata *chr)
 			if (aibot->commandtimer60 <= 0) {
 				s32 teamsize = botGetTeamSize(chr);
 
-				if (g_MpSetup.scenario == MPSCENARIO_HOLDTHEBRIEFCASE) {
-					s32 numgetting = botGetCountInTeamDoingCommand(chr, AIBOTCMD_GETCASE2, false);
-
-					if (numgetting <= 0 || (numgetting < (teamsize + 1) / 2 || rngRandom() % 100 < 66)) {
-						botApplyScenarioCommand(chr, AIBOTCMD_GETCASE2);
-					} else {
-						botApplyScenarioCommand(chr, AIBOTCMD_NORMAL);
-					}
-				} else if (g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL) {
-					s32 numbots = botGetCountInTeamDoingCommand(chr, AIBOTCMD_DOWNLOAD, false);
-
-					if (aibot->hasuplink || numbots <= 0 || (numbots < (teamsize + 1) / 2 || rngRandom() % 100 < 50)) {
-						botApplyScenarioCommand(chr, AIBOTCMD_DOWNLOAD);
-					} else {
-						botApplyScenarioCommand(chr, AIBOTCMD_NORMAL);
-					}
-				} else if (g_MpSetup.scenario == MPSCENARIO_POPACAP) {
-					s32 numchasing = botGetCountInTeamDoingCommand(chr, AIBOTCMD_POPCAP, false);
-
-					if (numchasing <= 0 || numchasing < (teamsize + 1) / 2 || rngRandom() % 100 < 50) {
-						botApplyScenarioCommand(chr, AIBOTCMD_POPCAP);
-					} else {
-						botApplyScenarioCommand(chr, AIBOTCMD_NORMAL);
-					}
-				} else if (g_MpSetup.scenario == MPSCENARIO_KINGOFTHEHILL) {
-					s32 numinhill = botGetNumTeammatesDefendingHill(chr);
-
-					// Don't count ourselves
-					if (chr->prop->rooms[0] == g_ScenarioData.koh.hillrooms[0]) {
-						numinhill--;
-					}
-
-					if (numinhill <= 0 || numinhill < teamsize / 2) {
-						botApplyScenarioCommand(chr, AIBOTCMD_HOLDHILL);
-					} else if (numinhill > botGetNumOpponentsInHill(chr)) {
-						if (rngRandom() % 100 < 50) {
-							botApplyScenarioCommand(chr, AIBOTCMD_DEFHILL);
-						} else {
-							botApplyScenarioCommand(chr, AIBOTCMD_NORMAL);
-						}
-					} else {
-						botApplyScenarioCommand(chr, AIBOTCMD_HOLDHILL);
-					}
-				} else if (g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE) {
-					if (teamsize == 1) {
-						// One man team
-						s32 numgetting = botGetCountInTeamDoingCommand(chr, AIBOTCMD_GETCASE, true);
-
-						if (botShouldReturnCtcToken(chr)) {
-							botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
-						} else if (botIsChrsCtcTokenHeld(chr)) {
-							if (rngRandom() % 100 < 30) {
-								botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
-							} else {
-								botApplyScenarioCommand(chr, AIBOTCMD_SAVECASE);
-							}
-						} else {
-							if (rngRandom() % 100 < 70 || numgetting <= 0) {
-								botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
-							} else {
-								botApplyScenarioCommand(chr, AIBOTCMD_SAVECASE);
-							}
-						}
-					} else {
-						// Not a one man team
-						s32 numgetting = botGetCountInTeamDoingCommand(chr, AIBOTCMD_GETCASE, false);
-						s32 numsaving = botGetCountInTeamDoingCommand(chr, AIBOTCMD_SAVECASE, false);
-
-						if (botShouldReturnCtcToken(chr)) {
-							botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
-						} else if (botIsChrsCtcTokenHeld(chr)) {
-							if (numsaving <= 0 || rngRandom() % 100 < 70) {
-								botApplyScenarioCommand(chr, AIBOTCMD_SAVECASE);
-							} else {
-								botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
-							}
-						} else if (numgetting <= 0 || numgetting < teamsize / 3) {
-							botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
-						} else if (numsaving <= 0 || numsaving < teamsize / 4) {
-							botApplyScenarioCommand(chr, AIBOTCMD_SAVECASE);
-						} else if (rngRandom() % 100 < 30) {
-							botApplyScenarioCommand(chr, AIBOTCMD_GETCASE);
-						} else if (rngRandom() % 100 < 30) {
-							botApplyScenarioCommand(chr, AIBOTCMD_SAVECASE);
-						} else {
-							botApplyScenarioCommand(chr, AIBOTCMD_NORMAL);
-						}
-					}
-				}
+				/* gamemode-graphs.md slice 7: the command the mode's program has a
+				 * simulant pick when its team has no humans (the per-mode code
+				 * that was here is each mode's og.mode.<mode>.bot_command). */
+				scenarioBotChooseCommand(chr, teamsize);
 
 				// Consider changing command in 20 to 60 seconds
 				aibot->commandtimer60 = TICKS(1200) + rngRandom() % TICKS(2400);
@@ -4597,67 +4726,10 @@ void botTickUnpaused(struct chrdata *chr)
 			// in some situations like having the uplink in Hacker Central or
 			// holding the briefcase in Hold the Briefcase.
 			if (newaction < 0) {
-				if (g_MpSetup.scenario == MPSCENARIO_HOLDTHEBRIEFCASE) {
-					if (aibot->hasbriefcase) {
-						// Current bot has the briefcase - follow a teammate for protection
-						s32 playernum = -1;
-
-						if (rngRandom() % 100 < 66) {
-							playernum = botFindTeammateToFollow(chr, 100000);
-						}
-
-						if (playernum >= 0) {
-							newaction = MA_AIBOTFOLLOW;
-							aibot->canbreakfollow = rngRandom() % 4 == 0;
-							aibot->followingplayernum = playernum;
-						}
-					}
-				} else if (g_MpSetup.scenario == MPSCENARIO_POPACAP) {
-					if (g_ScenarioData.pac.victimindex >= 0) {
-						s32 pacvi2 = g_ScenarioData.pac.victims[g_ScenarioData.pac.victimindex];
-						struct prop *victimprop = (pacvi2 >= 0 && pacvi2 < g_MpNumChrs && g_MpAllChrPtrs[pacvi2] != NULL)
-								? g_MpAllChrPtrs[pacvi2]->prop : NULL;
-
-						if (victimprop == chr->prop) {
-							// Current bot is the victim - follow a teammate for protection
-							s32 playernum = -1;
-
-							if (rngRandom() % 100 < 66) {
-								playernum = botFindTeammateToFollow(chr, 100000);
-							}
-
-							if (playernum >= 0) {
-								newaction = MA_AIBOTFOLLOW;
-								aibot->canbreakfollow = rngRandom() % 4 == 0;
-								aibot->followingplayernum = playernum;
-							}
-						}
-					}
-				} else if (g_MpSetup.scenario == MPSCENARIO_CAPTURETHECASE) {
-					// If the bot is holding an opponent's token, take it home
-					if (botShouldReturnCtcToken(chr)) {
-						struct pad pad;
-						s32 teamindex = g_ScenarioData.ctc.teamindexes[radarGetTeamIndex(chr->team)];
-						newaction = MA_AIBOTGOTOPOS;
-						padUnpack(g_ScenarioData.ctc.spawnpadsperteam[teamindex].homepad, PADFIELD_POS | PADFIELD_ROOM, &pad);
-						aibot->gotopos.x = pad.pos.x;
-						aibot->gotopos.y = pad.pos.y;
-						aibot->gotopos.z = pad.pos.z;
-						aibot->gotorooms[0] = pad.room;
-						aibot->gotorooms[1] = -1;
-						aibot->inhill = false;
-					}
-				} else if (g_MpSetup.scenario == MPSCENARIO_HACKERCENTRAL) {
-					// If the bot has the uplink, go to the terminal
-					if (g_ScenarioData.htm.uplink == chr->prop) {
-						if (g_ScenarioData.htm.playernuminrange != mpPlayerGetIndex(chr)) {
-							newaction = MA_AIBOTGOTOPROP;
-							aibot->gotoprop = g_ScenarioData.htm.terminals[0].prop;
-						} else {
-							newaction = MA_AIBOTDOWNLOAD;
-						}
-					}
-				}
+				/* gamemode-graphs.md slice 7: what the mode's program has a
+				 * simulant do with no command (each mode's og.mode.<mode>.bot_idle,
+				 * the per-mode code that was here). */
+				newaction = scenarioBotIdleAction(chr);
 			}
 
 			// If there's nothing to do for scenarios then go find some people to kill
@@ -5282,16 +5354,23 @@ void botTickUnpaused(struct chrdata *chr)
 
 							func = weaponGetFunctionById(aibot->weaponnum, aibot->gunfunc);
 
-							if (func
-									&& (func->flags & (FUNCFLAG_BURST3 | FUNCFLAG_BURST2))
-									&& aibot->loadedammo[i] >= 2) {
-								s32 burstqty = (func->flags & FUNCFLAG_BURST2) ? 2 : 3;
+							/* held-weapon-events.md slice 3: a simulant's burst is the
+							 * og.weapon.burst its function's program starts; a function
+							 * with no program keeps its FUNCFLAG_BURST2 or 3 count. */
+							{
+								s32 nativeburst = !func ? 0
+									: (func->flags & FUNCFLAG_BURST2) ? 2
+									: (func->flags & FUNCFLAG_BURST3) ? 3 : 0;
+								s32 burstqty = weaponProgramBurstRounds(aibot->weaponnum,
+									aibot->gunfunc, nativeburst);
 
-								chr->aibot->burstsdone[i]++;
-								chr->aibot->burstsdone[i] %= burstqty;
+								if (burstqty >= 2 && aibot->loadedammo[i] >= 2) {
+									chr->aibot->burstsdone[i]++;
+									chr->aibot->burstsdone[i] %= burstqty;
 
-								if (chr->aibot->burstsdone[i]) {
-									chr->aibot->nextbullettimer60[i] = 5;
+									if (chr->aibot->burstsdone[i]) {
+										chr->aibot->nextbullettimer60[i] = 5;
+									}
 								}
 							}
 						}

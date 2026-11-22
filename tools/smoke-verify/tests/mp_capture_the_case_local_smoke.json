@@ -111,6 +111,8 @@
       "MODE\\.EVENT: chosen mode=base:capture_the_case scenario=5",
       "MODE\\.EVENT: tick mode=base:capture_the_case scenario=5 who=-",
       "MODE\\.EVENTS: stage_end mode=base:capture_the_case .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.PLAN: stage_reset mode=base:capture_the_case scenario=5 modules=[1-9][0-9]*",
+      "MODE\\.PARITY: stage_end mode=base:capture_the_case compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",
       "SMOKE: result=scripted_exit",
       "MATCH\\.RESULT\\.(CHR|TEAM): .*score=[1-9]"
@@ -126,7 +128,9 @@
       "CTC: team [0-9] case on base [0-9] pad=-?[0-9]+ room=(0|-1) ",
       "CTC: base [0-9] has no usable",
       "CTC: team [0-9] case on base [0-9] pad=-?[0-9]+ room=-?[0-9]+ respawnpads=[0-9]+ prop=none",
-      "SCENARIO: object model="
+      "SCENARIO: object model=",
+      "MODE\\.PARITY: differ",
+      "LOUDFAIL\\.MODE\\.PLAN"
     ],
     "required_counts": [
       {

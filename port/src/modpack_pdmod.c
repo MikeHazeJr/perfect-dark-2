@@ -972,7 +972,7 @@ static s32 validateTypedPdDescriptorFile(const char *srcFolder, const char *desc
 		"rules_file", "scenario_archive", "ui_archive",
 		"font_archive", "audio_archive", "music_archive", "effect_archive",
 		"objectives_file",
-		"mission_graph_file", "graph"
+		"mission_graph_file", "mode_graph_file", "graph"
 	};
 	static const char *mapOptionalKeys[] = {
 		"pads_file", "setup_file", "collision_file", "material_file",
@@ -1440,7 +1440,7 @@ static s32 validateExternalFolderLayout(const char *srcFolder, const char *destP
 		"rules_file", "scenario_archive", "ui_archive",
 		"font_archive", "audio_archive", "music_archive", "effect_archive",
 		"objectives_file",
-		"mission_graph_file", "graph"
+		"mission_graph_file", "mode_graph_file", "graph"
 	};
 	static const char *mapOptionalKeys[] = {
 		"pads_file", "setup_file", "collision_file", "material_file",

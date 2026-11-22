@@ -659,6 +659,12 @@ static void s_applyTypeFields(asset_entry_t *entry,
 			entry->ext.gamemode.rules_file[
 				sizeof(entry->ext.gamemode.rules_file) - 1] = '\0';
 		}
+		/* gamemode-graphs.md slice 2: the mode's program. */
+		s_clearPath(entry->ext.gamemode.mode_graph_file,
+			sizeof(entry->ext.gamemode.mode_graph_file));
+		s_copyManifestMemberPath(manifest, manifest_len, "mode_graph_file",
+			archive_path, entry->ext.gamemode.mode_graph_file,
+			sizeof(entry->ext.gamemode.mode_graph_file));
 		break;
 	case ASSET_BOT_PROFILE:
 		entry->ext.bot_profile.type = s_manifestBotType(manifest,

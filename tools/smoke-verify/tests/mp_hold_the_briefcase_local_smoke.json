@@ -111,6 +111,8 @@
       "MODE\\.EVENT: chosen mode=base:hold_the_briefcase scenario=1",
       "MODE\\.EVENT: tick mode=base:hold_the_briefcase scenario=1 who=-",
       "MODE\\.EVENTS: stage_end mode=base:hold_the_briefcase .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.PLAN: stage_reset mode=base:hold_the_briefcase scenario=1 modules=[1-9][0-9]*",
+      "MODE\\.PARITY: stage_end mode=base:hold_the_briefcase compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",
       "SMOKE: result=scripted_exit",
       "MATCH\\.RESULT\\.(CHR|TEAM): .*score=[1-9]"
@@ -126,7 +128,9 @@
       "HTB: briefcase placed pad=0 ",
       "HTB: briefcase placed pad=-?[0-9]+ source=pad0",
       "HTB: briefcase placed pad=-?[0-9]+ source=[a-z0-9]+ prop=none",
-      "SCENARIO: object model="
+      "SCENARIO: object model=",
+      "MODE\\.PARITY: differ",
+      "LOUDFAIL\\.MODE\\.PLAN"
     ],
     "required_counts": [
       {

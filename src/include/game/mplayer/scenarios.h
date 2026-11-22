@@ -40,6 +40,7 @@ void scenarioHighlightRoom(RoomNum room, s32 *arg1, s32 *arg2, s32 *arg3);
  * others still run their rules on every peer.
  */
 struct net_scenario_state;
+struct net_scenario_state_list;
 
 /* Whether this peer decides the scenario: offline play or the listen host. */
 s32 scenarioNetIsAuthority(void);
@@ -57,18 +58,19 @@ s32 scenarioTokenWeaponNum(s32 scenario);
  * modelnum), or -1. The match manifest must list it too (SP-93). */
 s32 scenarioTokenModelNum(s32 scenario);
 
-/* Whether the running match's scenario has network state (a wire body). */
+/* Whether the running match's mode has network state: a state its plan
+ * uses that has a wire body (gamemode-graphs.md slice 5). */
 s32 scenarioNetHasState(void);
 
-/* Host: fills *out with the running scenario's state and returns 1, or
- * returns 0 when the scenario has no network state. *changed is set when the
- * state differs from the previous capture in anything but a running timer
- * (the revision then goes up by one). */
-s32 scenarioNetCaptureState(struct net_scenario_state *out, s32 *changed);
+/* Host: fills *out with one section per state the running mode's plan uses,
+ * in mode order, and returns 1, or returns 0 when the mode has no network
+ * state. *changed is set when a section differs from the previous capture in
+ * anything but a running timer (the shared revision then goes up by one). */
+s32 scenarioNetCaptureState(struct net_scenario_state_list *out, s32 *changed);
 
-/* Client: accepts a decoded state for the running scenario. Returns 1 when
- * it was queued for the next scenario tick, 0 when it was dropped (no match,
- * another scenario, or older than the state already shown). */
-s32 scenarioNetReceiveState(const struct net_scenario_state *in);
+/* Client: accepts a decoded list for the running mode. Returns 1 when it was
+ * queued for the next scenario tick, 0 when it was dropped (no match, a state
+ * this mode's plan does not use, or older than the state already shown). */
+s32 scenarioNetReceiveState(const struct net_scenario_state_list *in);
 
 #endif
