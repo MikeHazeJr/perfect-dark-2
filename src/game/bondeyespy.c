@@ -1268,5 +1268,5 @@ void eyespyProcessInput(bool allowbuttons)
 		chrClearReferences(g_Vars.currentplayer->eyespy->prop - g_Vars.props);
 	}
 
-	coordTriggerProxies(&chr->prop->pos, true);
+	coordTriggerProxiesBy(chr->prop, &chr->prop->pos, true);
 }

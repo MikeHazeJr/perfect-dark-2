@@ -2219,7 +2219,8 @@ TARGET_FILTER_SETTINGS = {
                        "things or all, separated by commas"),
     "sight_targets_only": ((True, False), "true or false"),
     "vehicles": (("any", "occupied"), "any or occupied"),
-    "relation": (("anyone", "enemy", "friend", "owner"), "anyone, enemy, friend or owner"),
+    "relation": (("anyone", "enemy", "friend", "owner", "not_owner", "not_friend"),
+                 "anyone, enemy, friend, owner, not_owner or not_friend"),
     "alive": ((True, False), "true or false"),
     "cloaked": (("never", "with_ir", "always"), "never, with_ir or always"),
 }
@@ -2253,6 +2254,9 @@ PROJECTILE_GRAPH_FLIGHT_SETTINGS = {
     "og.projectile.bounce_smoke": {"smoke": (PROJECTILE_GRAPH_SMOKES, "rocket, homing, grenade or pinball")},
     # Held slice 6b: the homing rocket's target filter, re-checked while it flies.
     "og.projectile.home": {**TARGET_FILTER_SETTINGS, "lost": (("straight",), "straight")},
+    # Held slice 6b: what sets a mine off (an arm's settings, kept here with
+    # the other modules' settings).
+    "og.projectile.arm_proximity": dict(TARGET_FILTER_SETTINGS),
 }
 PROJECTILE_GRAPH_MAX_NODES = 4096
 PROJECTILE_GRAPH_MAX_EDGES = 16384

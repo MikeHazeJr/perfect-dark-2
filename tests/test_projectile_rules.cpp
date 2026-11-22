@@ -1115,7 +1115,8 @@ TEST_CASE("projectile rules: the fuses, the mines and damage ask the rules", "[p
 	// The watch list: no weapon number decides for a base weapon; the rule
 	// is asked for anything within twice the area of the 250 unit circle,
 	// and told whether it is within 250 units and whether it is a character.
-	const size_t sweep = propobj.find("static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool arg1)\n{");
+	const size_t sweep = propobj.find("static void coordTriggerProxiesFor(struct chrdata *chr, struct prop *candidate, "
+		"struct coord *pos, bool arg1)\n{");
 	REQUIRE(sweep != std::string::npos);
 	const std::string watch = propobj.substr(sweep, propobj.find("\n}\n", sweep) - sweep);
 	CHECK(watch.find("WEAPON_DRAGON") == std::string::npos);
@@ -1246,7 +1247,7 @@ TEST_CASE("projectile rules: weaponTick runs the arm each object chose", "[proje
 	REQUIRE(events.find("\tif (projectileIdentify(obj, &who)\n"
 		"\t\t\t&& projectileProgramFor(&who, MISSION_GRAPH_EVENT_PROJECTILE_ARMED, &asset_id)) {") != std::string::npos);
 	REQUIRE(events.find("\t\tarms = projectileRuleDecide(MISSION_GRAPH_EVENT_PROJECTILE_ARMED, obj, obj, who,\n"
-		"\t\t\toriginal, NULL) | PROJECTILE_ARMS_PROGRAM;") != std::string::npos);
+		"\t\t\toriginal, &context) | PROJECTILE_ARMS_PROGRAM;") != std::string::npos);
 	REQUIRE(events.find("\tindex = (s32)(prop - g_Vars.props);") != std::string::npos);
 	REQUIRE(events.find("\t\tkept->armed = 1;\n"
 		"\t\tkept->arm_weaponnum = (s16)weapon->weaponnum;\n"

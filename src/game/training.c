@@ -1839,7 +1839,7 @@ void frTick(void)
 			switch (weaponnum2) {
 			case WEAPON_GRENADE:
 			case WEAPON_PROXIMITYMINE:
-				coordTriggerProxies(&prop->pos, true);
+				coordTriggerProxiesBy(prop, &prop->pos, true);
 				break;
 			}
 

@@ -516,6 +516,33 @@ s32 projectileRulesFlightSettings(u32 module, projectile_text_fn get, void *user
 	return ok;
 }
 
+void projectileRulesNativeArm(s32 weaponnum, s32 gunfunc, projectile_arm_t *out)
+{
+	(void)weaponnum;
+	(void)gunfunc;
+	if (!out) return;
+	targetFilterAnything(&out->proximity_filter);
+	out->proximity_filtered = 0;
+}
+
+s32 projectileRulesArmSettings(u32 module, projectile_text_fn get, void *user, projectile_arm_t *arm,
+	const char **bad_key)
+{
+	target_filter_t filter;
+	s32 named;
+
+	if (bad_key) *bad_key = NULL;
+	if (!get || !arm) return 0;
+	if (module != PROJECTILE_MODULE_ARM_PROXIMITY) return 1;
+	named = targetFilterFromSettings(get, user, &filter, bad_key);
+	if (named < 0) return 0;
+	if (named > 0) {
+		arm->proximity_filter = filter;
+		arm->proximity_filtered = 1;
+	}
+	return 1;
+}
+
 const char *projectileRulesFlightSettingHelp(const char *key)
 {
 	if (!key) return "";

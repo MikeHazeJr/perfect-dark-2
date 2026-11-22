@@ -311,6 +311,9 @@ struct weaponobj *weaponFindLanded(s32 weaponnum);
 void weaponRegisterProxy(struct weaponobj *weapon);
 void weaponUnregisterProxy(struct weaponobj *weapon);
 void coordTriggerProxies(struct coord *pos, bool arg1);
+/* held-weapon-events.md slice 6b: the same, naming what came near (a mine
+ * whose arm names a filter judges it). */
+void coordTriggerProxiesBy(struct prop *prop, struct coord *pos, bool arg1);
 void chrsTriggerProxies(void);
 void propweaponSetDual(struct weaponobj *weapon1, struct weaponobj *weapon2);
 struct prop *func0f08adc8(struct weaponobj *weapon, struct modeldef *modeldef, struct prop *prop, struct model *model);

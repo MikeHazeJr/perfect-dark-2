@@ -3794,7 +3794,7 @@ TEST_CASE("a homing rocket's target filter is its home node's settings",
 	CHECK(targetFilterFromSettings(Texts::get, &wrong, &f, &bad) == -1);
 	REQUIRE(bad != nullptr);
 	CHECK(std::string(bad) == "relation");
-	CHECK(std::string(targetFilterSettingHelp("relation")) == "anyone, enemy, friend or owner");
+	CHECK(std::string(targetFilterSettingHelp("relation")) == "anyone, enemy, friend, owner, not_owner or not_friend");
 
 	// og.projectile.home: the original's names no filter and writes none.
 	projectile_flight_t native;
@@ -4072,10 +4072,10 @@ TEST_CASE("the sight's lock is the original's, and a program's lock_on is its se
 	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{
 			{ ", \"locks\": 5", "og.weapon.lock_on needs locks from 1 to 4, got 5" },
 			{ ", \"aim_follows\": \"yes\"", "og.weapon.lock_on needs aim_follows true or false, got yes" },
-			{ ", \"relation\": \"rival\"", "og.weapon.lock_on needs relation anyone, enemy, friend or owner, got rival" },
+			{ ", \"relation\": \"rival\"", "og.weapon.lock_on needs relation anyone, enemy, friend, owner, not_owner or not_friend, got rival" },
 			{ ", \"kinds\": \"tank\"", "og.weapon.lock_on needs kinds player, simulant, guard, vehicle" },
 			{ ", \"sight_targets_only\": \"maybe\"", "og.weapon.lock_on needs sight_targets_only true or false, got maybe" },
-			{ ", \"relation\": \"$side\"", "og.weapon.lock_on needs relation anyone, enemy, friend or owner, got $side" } }) {
+			{ ", \"relation\": \"$side\"", "og.weapon.lock_on needs relation anyone, enemy, friend, owner, not_owner or not_friend, got $side" } }) {
 		INFO(bad.first);
 		CHECK_FALSE(registers(withLock(baseIdleProgram("primary", 1), "primary", bad.first)));
 		INFO(err);
@@ -4116,6 +4116,122 @@ TEST_CASE("the sight's lock is the original's, and a program's lock_on is its se
 	const std::string trackTypeArg = "s_weaponTrackType(wpn)) != 0) {";
 	REQUIRE(extractor.find(trackTypeArg) != std::string::npos);
 	CHECK(extractor.find(trackTypeArg, extractor.find(trackTypeArg) + 1) != std::string::npos);
+}
+
+// held-weapon-events.md slice 6b: what sets a mine off is its arm's filter,
+// and a mod mine's record filters are its native one.
+TEST_CASE("a mine's arm names what sets it off, and a mod mine's record is its native filter",
+	"[mission-graph][held-weapon][target-filter][projectile-rules]")
+{
+	// The wanted relations "not the owner" and "not a friend".
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_OWNER, TARGET_RELATION_FRIEND) == 1);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_OWNER, TARGET_RELATION_OWNER) == 0);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_OWNER, TARGET_RELATION_NONE) == 1);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_FRIEND, TARGET_RELATION_OWNER) == 1);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_FRIEND, TARGET_RELATION_ENEMY) == 1);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_NOT_FRIEND, TARGET_RELATION_FRIEND) == 0);
+
+	// bgunModProxyDecision's record filters as they stood (bondgun_mod.c at
+	// b66065f8), for a character within the mine's radius: the owner by
+	// player number, the team test by COMPARE_ENEMIES, skipped when the owner
+	// cannot be found.
+	const auto original = [](s32 ownerMode, s32 teamMode, s32 targetMode, bool isOwner, bool ownerKnown,
+		bool enemies) -> bool {
+		if (ownerMode == 1 && isOwner) return false;
+		if (ownerMode == 2 && !isOwner) return false;
+		if ((teamMode == 1 || targetMode == 1) && ownerKnown && !isOwner && !enemies) return false;
+		return true;
+	};
+	s32 compared = 0;
+	for (s32 ownerMode = 0; ownerMode <= 3; ownerMode++)
+	for (s32 teamMode = 0; teamMode <= 1; teamMode++)
+	for (s32 targetMode = 0; targetMode <= 1; targetMode++)
+	for (s32 bits = 0; bits < 8; bits++) {
+		const bool isOwner = bits & 1, ownerKnown = bits & 2, enemies = bits & 4;
+		if (isOwner && !ownerKnown) continue; // the owner's own character is always found
+		target_filter_t filter;
+		targetFilterModMine(ownerMode, teamMode, targetMode, &filter);
+		for (u32 kind : { TARGET_KIND_PLAYER, TARGET_KIND_SIMULANT, TARGET_KIND_GUARD }) {
+			// The facts as bgunModMineTargetFacts reads them.
+			target_facts_t c{};
+			c.kind = kind;
+			c.alive = 1;
+			c.relation = isOwner ? TARGET_RELATION_OWNER
+				: ownerKnown && !enemies ? TARGET_RELATION_FRIEND : TARGET_RELATION_ENEMY;
+			INFO("owner_mode=" << ownerMode << " team=" << teamMode << " target=" << targetMode << " bits=" << bits);
+			CHECK((targetFilterAccepts(&filter, &c) == 1)
+				== original(ownerMode, teamMode, targetMode, isOwner, ownerKnown, enemies));
+			compared++;
+		}
+	}
+	CHECK(compared == 4 * 2 * 2 * 6 * 3);
+	// The record's quirk: hostile only, no owner filter, lets the owner set it off.
+	target_filter_t quirk;
+	targetFilterModMine(0, 1, 0, &quirk);
+	CHECK(quirk.relation == TARGET_RELATION_NOT_FRIEND);
+
+	// The arm's settings: the original names none; arm_proximity takes the
+	// filter's; the other arms take none.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	projectile_arm_t arm;
+	projectileRulesNativeArm(WEAPON_PROXIMITYMINE, FUNC_PRIMARY, &arm);
+	CHECK(arm.proximity_filtered == 0);
+	Texts none;
+	CHECK(projectileRulesArmSettings(PROJECTILE_MODULE_ARM_PROXIMITY, Texts::get, &none, &arm, nullptr) == 1);
+	CHECK(arm.proximity_filtered == 0);
+	Texts enemies;
+	enemies.values = { { "kinds", "characters" }, { "relation", "not_friend" } };
+	CHECK(projectileRulesArmSettings(PROJECTILE_MODULE_ARM_FUSE, Texts::get, &enemies, &arm, nullptr) == 1);
+	CHECK(arm.proximity_filtered == 0);
+	CHECK(projectileRulesArmSettings(PROJECTILE_MODULE_ARM_PROXIMITY, Texts::get, &enemies, &arm, nullptr) == 1);
+	CHECK(arm.proximity_filtered == 1);
+	CHECK(arm.proximity_filter.kinds == TARGET_KINDS_CHARACTERS);
+	CHECK(targetFilterSame(&arm.proximity_filter, &quirk) == 1);
+	Texts wrong;
+	wrong.values = { { "relation", "rival" } };
+	const char *bad = nullptr;
+	projectile_arm_t untouched;
+	projectileRulesNativeArm(WEAPON_PROXIMITYMINE, FUNC_PRIMARY, &untouched);
+	CHECK(projectileRulesArmSettings(PROJECTILE_MODULE_ARM_PROXIMITY, Texts::get, &wrong, &untouched, &bad) == 0);
+	REQUIRE(bad != nullptr);
+	CHECK(std::string(bad) == "relation");
+	CHECK(untouched.proximity_filtered == 0);
+	CHECK(std::string(projectileRulesFlightSettingHelp("relation")) == "anyone, enemy, friend, owner, not_owner or not_friend");
+
+	// The seams: the sweep judges what came near by the arm's filter, as the
+	// mine's owner sees it, and a mod mine's record by its native filter.
+	const std::string propobj = readSource("src/game/propobj.c");
+	REQUIRE(propobj.find("const target_filter_t *armfilter = projectileArmProximityFilter(&weapon->base);") != std::string::npos);
+	REQUIRE(propobj.find("sightTargetFactsFor(candidate, weaponProxyOwnerProp(weapon), 0, &facts);\n"
+		"\t\t\t\tfiltered = candidate && targetFilterAccepts(armfilter, &facts) ? 1 : 0;") != std::string::npos);
+	REQUIRE(propobj.find("s32 decision = bgunModProxyDecision(weapon, chr, pos, filtered);") != std::string::npos);
+	REQUIRE(propobj.find("\t\t\tif (filtered == 0) {\n\t\t\t\t/* Slice 6b: its arm does not listen for this. */\n"
+		"\t\t\t\tcontinue;") != std::string::npos);
+	REQUIRE(propobj.find("coordTriggerProxiesFor(chr, chr->prop, &pos, true);") != std::string::npos);
+	REQUIRE(propobj.find("coordTriggerProxiesBy(obj->prop, &obj->prop->pos, false);") != std::string::npos);
+	REQUIRE(readSource("src/game/bondeyespy.c").find("coordTriggerProxiesBy(chr->prop, &chr->prop->pos, true);")
+		!= std::string::npos);
+	REQUIRE(readSource("src/game/training.c").find("coordTriggerProxiesBy(prop, &prop->pos, true);") != std::string::npos);
+	const std::string mod = readSource("src/game/bondgun_mod.c");
+	REQUIRE(mod.find("targetFilterModMine(entity->proxy_owner_filter_mode, entity->proxy_team_filter_mode,\n"
+		"\t\t\tentity->proxy_target_filter_mode, &filter);") != std::string::npos);
+	REQUIRE(mod.find("bgunModMineTargetFacts(chr, ownerchr, index == owner, &facts);") != std::string::npos);
+	CHECK(mod.find("ownerchr != chr && !chrCompareTeams") == std::string::npos);
+	const std::string events = readSource("port/src/projectile_events.c");
+	REQUIRE(events.find("context.arm = &armset;") != std::string::npos);
+	REQUIRE(events.find("projectileRulesArmSettings(bit, projectileParamText, (void *)params, rule->context->arm, NULL);")
+		!= std::string::npos);
+	REQUIRE(readSource("port/src/weapon_graph_runtime.c").find(
+		"if (projectileRulesArmSettings(bit, projectileFlightParamText, (void *)params, &arm, &bad)) return 1;")
+		!= std::string::npos);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

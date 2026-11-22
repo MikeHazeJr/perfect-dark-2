@@ -449,6 +449,34 @@ class HomeFilter(unittest.TestCase):
                 self.assertIn(why, messages[0])
 
 
+class ArmFilter(unittest.TestCase):
+    """Held slice 6b: what sets a mine off, og.projectile.arm_proximity's filter."""
+
+    def _program(self, arm: dict) -> dict:
+        return {
+            "schema": "pd.projectile_graph.v2", "asset_id": "base:test__projectile", "graph_id": "mine",
+            "nodes": [{"id": "armed", "kind": "event.projectile.armed"}, dict(arm, id="armed_arm")],
+            "edges": [{"from": "armed", "output": "out", "to": "armed_arm", "input": "exec"}],
+        }
+
+    def test_the_original_and_a_filter(self):
+        for arm in ({"kind": "og.projectile.arm_proximity"},
+                    {"kind": "og.projectile.arm_proximity", "kinds": "characters", "relation": "not_friend"},
+                    {"kind": "og.projectile.arm_proximity", "kinds": "vehicle", "vehicles": "occupied",
+                     "relation": "enemy", "alive": True}):
+            with self.subTest(arm=arm):
+                self.assertEqual(conf.validate_projectile_graph_program("test", self._program(arm)), [])
+
+    def test_malformed(self):
+        for arm, why in (({"kind": "og.projectile.arm_proximity", "relation": "rival"}, "needs relation anyone"),
+                         ({"kind": "og.projectile.arm_proximity", "kinds": "tank"}, "needs kinds player"),
+                         ({"kind": "og.projectile.arm_proximity", "alive": "yes"}, "needs alive true or false")):
+            with self.subTest(arm=arm):
+                messages = conf.validate_projectile_graph_program("test", self._program(arm))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+
+
 class Archives(unittest.TestCase):
     def rebuilt(self, relative: str, graph_edit) -> bytes:
         """The example archive with its behavior.graph.json edited."""

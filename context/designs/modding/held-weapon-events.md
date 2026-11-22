@@ -740,8 +740,29 @@ the original's (`rules.compared`, `rules.differ`; `WEAPON.EVENTS` ends with
 `aiming=N`). `targetFilterSame` now ignores the CI training targets when a
 filter's things need not react (they cannot matter then). Bots have no sight:
 a simulant's rocket homes on its own target, checked in flight by the home's
-filter (part 1). Still in 6b: the proximity event's candidate and mod mine
-filters.
+filter (part 1).
+
+**6b part 3 as written (2026-11-22, `week-pd/core-weapons-w6b`): what sets a
+mine off.** A filter on what came near needs no new gate (the projectile word
+is full, and widening it is D-057's option B): it is the arm's setting,
+because the arm already chooses what a mine listens for.
+`og.projectile.arm_proximity` takes the target filter's settings
+(`projectile_arm_t`, `projectileRulesArmSettings`; kept with the object's arm
+in its projectile record, `projectileArmProximityFilter`), and the proximity
+sweep (`coordTriggerProxiesFor`) now names the candidate prop (a character,
+a moving object, an eyespy or a firing-range target: `coordTriggerProxiesBy`)
+and judges it as the mine's owner sees it (`sightTargetFactsFor`) before the
+proximity rule's gates; a candidate the sweep cannot name does not set off a
+filtered mine. The filter's relations gain `not_owner` and `not_friend`. A
+mod mine's record filters (owner excluded or only, hostile only, objects
+ignored) are its native filter (`targetFilterModMine`, over the facts as the
+record reads them: the owner by player number, a friend by
+`COMPARE_ENEMIES`), compared with a copy of the record's inline tests over
+every combination; the record's quirk stays (hostile only with no owner
+filter is `not_friend`: the owner still sets off its own mine). When a mod
+mine's program names an arm filter it replaces the record's filters within
+the record's radius. Base programs name none (no re-extract). Slice 6b is
+done; 6c makes vehicles lockable.
 
 ## Smokes for Integration's finalization batch
 
@@ -773,6 +794,8 @@ Listed as each slice lands; none is run by Core Weapons.
 | 4 (review) | any Laser stream smoke (`held_weapon_cadence_smoke`) | the stream still hits at up to 300 |
 | 6b | `boot_smoke` on a freshly extracted install | `embedded.v23`: every base weapon re-extracts once; no `program refused` line (the rocket launcher's and the CMP150's programs register with `event.weapon.aiming`) |
 | 6b | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their `WEAPON.EVENTS` lines end with `aiming=N`; `rules.differ=0` as before |
+| 6b | `projectile_events_smoke` | the proximity mine, the Dragon and the proximity grenade go off as before (their proximity lines unchanged) |
+| 6b | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the crystal pistol's mine keeps its record's radius and filters (`BONDGUN.CRYSTAL: mine triggered` as before; the owner still sets off its own mine) |
 | 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 
 ## Where to look

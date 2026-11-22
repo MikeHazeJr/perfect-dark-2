@@ -2664,7 +2664,7 @@ void func0f069c70(struct defaultobj *obj, bool arg1, bool arg2)
 
 	prop = obj->prop;
 	propCalculateShadeInfo(prop, obj->nextcol, obj->floorcol);
-	coordTriggerProxies(&obj->prop->pos, false);
+	coordTriggerProxiesBy(obj->prop, &obj->prop->pos, false);
 }
 
 /**
@@ -21883,10 +21883,28 @@ void weaponUnregisterProxy(struct weaponobj *weapon)
 	}
 }
 
+/* held-weapon-events.md slice 6b: the prop of the player or simulant who
+ * owns a mine (its player number in the weapon's hidden bits), or NULL. */
+static struct prop *weaponProxyOwnerProp(struct weaponobj *weapon)
+{
+	const s32 owner = (weapon->base.hidden & 0xf0000000) >> 28;
+
+	if (g_Vars.normmplayerisrunning) {
+		struct chrdata *chr = mpGetChrFromPlayerIndex(owner);
+
+		return chr ? chr->prop : NULL;
+	}
+	return owner >= 0 && owner < MAX_PLAYERS && g_Vars.players[owner] ? g_Vars.players[owner]->prop : NULL;
+}
+
 /* T-MODDING-008: the proxy sweep, knowing which chr (or NULL: a moving
  * object) is the candidate, so a mod mine can apply its own radius and
- * filters. coordTriggerProxies keeps its signature for the other callers. */
-static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool arg1)
+ * filters. coordTriggerProxies keeps its signature for the other callers.
+ * Held slice 6b: and what came near (`candidate`, NULL when the caller does
+ * not name it), for a mine whose arm names a filter
+ * (og.projectile.arm_proximity), judged as the mine's owner sees it; one it
+ * cannot judge does not set that mine off. */
+static void coordTriggerProxiesFor(struct chrdata *chr, struct prop *candidate, struct coord *pos, bool arg1)
 {
 	s32 i;
 
@@ -21899,9 +21917,18 @@ static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool 
 			f32 zdiff;
 			f32 distsq;
 			f32 range = 250 * 250;
+			const target_filter_t *armfilter = projectileArmProximityFilter(&weapon->base);
+			s32 filtered = -1;
+
+			if (armfilter) {
+				target_facts_t facts;
+
+				sightTargetFactsFor(candidate, weaponProxyOwnerProp(weapon), 0, &facts);
+				filtered = candidate && targetFilterAccepts(armfilter, &facts) ? 1 : 0;
+			}
 
 			if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
-				s32 decision = bgunModProxyDecision(weapon, chr, pos);
+				s32 decision = bgunModProxyDecision(weapon, chr, pos, filtered);
 
 				if (decision == 1) {
 					weapon->timer240 = 0;
@@ -21916,6 +21943,11 @@ static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool 
 			ydiff = pos->y - weapon->base.prop->pos.y;
 			zdiff = pos->z - weapon->base.prop->pos.z;
 			distsq = xdiff * xdiff + ydiff * ydiff + zdiff * zdiff;
+
+			if (filtered == 0) {
+				/* Slice 6b: its arm does not listen for this. */
+				continue;
+			}
 
 			if (weapon->weaponnum >= WEAPON_CUSTOM_START) {
 				/* A mod weapon whose record makes no decision: the plain
@@ -21947,7 +21979,12 @@ static void coordTriggerProxiesFor(struct chrdata *chr, struct coord *pos, bool 
 
 void coordTriggerProxies(struct coord *pos, bool arg1)
 {
-	coordTriggerProxiesFor(NULL, pos, arg1);
+	coordTriggerProxiesFor(NULL, NULL, pos, arg1);
+}
+
+void coordTriggerProxiesBy(struct prop *prop, struct coord *pos, bool arg1)
+{
+	coordTriggerProxiesFor(NULL, prop, pos, arg1);
 }
 
 void chrsTriggerProxies(void)
@@ -21970,7 +22007,7 @@ void chrsTriggerProxies(void)
 				&& (chr->prop->flags & PROPFLAG_ENABLED)
 				&& !chrIsDead(chr)) {
 			chrCalculatePosition(chr, &pos);
-			coordTriggerProxiesFor(chr, &pos, true);
+			coordTriggerProxiesFor(chr, chr->prop, &pos, true);
 		}
 
 		if (chr);

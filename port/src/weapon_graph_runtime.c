@@ -706,6 +706,17 @@ static s32 projectileProgramFlightVisit(const char *kind,
 	projectile_flight_t flight;
 	const char *bad = NULL;
 
+	if (bit == PROJECTILE_MODULE_ARM_PROXIMITY) {
+		/* Held slice 6b: what sets the mine off (the target filter). */
+		projectile_arm_t arm;
+
+		projectileRulesNativeArm(-1, FUNC_PRIMARY, &arm);
+		if (projectileRulesArmSettings(bit, projectileFlightParamText, (void *)params, &arm, &bad)) return 1;
+		check->kind = kind;
+		check->key = bad;
+		check->text = bad ? missionGraphParamText(params, bad) : NULL;
+		return 0;
+	}
 	if (!(bit & PROJECTILE_MODULE_FLIGHT)) return 1;
 	projectileRulesNativeFlight(-1, FUNC_PRIMARY, &flight);
 	if (projectileRulesFlightSettings(bit, projectileFlightParamText, (void *)params, &flight, &bad)) return 1;

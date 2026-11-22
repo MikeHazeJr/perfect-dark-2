@@ -3368,8 +3368,8 @@ TEST_CASE("crystal pistol charge, cluster and arm-on-land params reach the runti
 	REQUIRE(propobj.find("bgunModProjectileForget(weapon);") != std::string::npos);
 	/* MODS ask 6: bots, NPCs and players meet a mod mine's own radius and
 	 * filters in the native proxy sweep; passing objects do not set it off. */
-	REQUIRE(propobj.find("coordTriggerProxiesFor(chr, &pos, true);") != std::string::npos);
-	REQUIRE(propobj.find("s32 decision = bgunModProxyDecision(weapon, chr, pos);") != std::string::npos);
+	REQUIRE(propobj.find("coordTriggerProxiesFor(chr, chr->prop, &pos, true);") != std::string::npos);
+	REQUIRE(propobj.find("s32 decision = bgunModProxyDecision(weapon, chr, pos, filtered);") != std::string::npos);
 	REQUIRE(mod.find("return entity->proxy_target_filter_mode == 1 ? 0 : -1;") != std::string::npos);
 	/* B-1187: on a scenario-source stage the sticky hit test ray-casts the
 	 * world collision mesh (rooms there have no vertex batches), so crystals

@@ -239,6 +239,26 @@ s32 projectileRulesFlightSame(u32 modules, const projectile_flight_t *a, const p
 const char *projectileRulesSmokeName(s32 smoketype);
 
 /*
+ * held-weapon-events.md slice 6b: the arms' settings, chosen with the arm
+ * (event.projectile.armed). og.projectile.arm_proximity takes the target
+ * filter's settings (target_filter.h): what sets the mine off. The
+ * original's names none: anything that comes near, which its proximity
+ * rule's gates then judge (close, a character). A mod mine's record keeps
+ * its own filters unless its program's arm names one.
+ */
+typedef struct projectile_arm {
+	target_filter_t proximity_filter;
+	s8 proximity_filtered;
+} projectile_arm_t;
+/* The original's: no filter. */
+void projectileRulesNativeArm(s32 weaponnum, s32 gunfunc, projectile_arm_t *out);
+/* An arm module's settings, read by `get`, over *arm. Returns 1, or 0 when
+ * a setting is malformed (*bad_key, when given, names it;
+ * projectileRulesFlightSettingHelp says what it takes). */
+s32 projectileRulesArmSettings(u32 module, projectile_text_fn get, void *user, projectile_arm_t *arm,
+	const char **bad_key);
+
+/*
  * The explosion og.projectile.explode makes. Its node may name one with a
  * whole-number field "explosion_type" (1 to PROJECTILE_EXPLOSION_TYPE_COUNT
  * - 1, the game's explosion table); with none it is the weapon object's own:

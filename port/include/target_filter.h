@@ -42,6 +42,9 @@ extern "C" {
 #define TARGET_RELATION_FRIEND   2
 #define TARGET_RELATION_OWNER    3 /* the owner itself */
 #define TARGET_RELATION_NONE     4 /* no side: an object, an empty vehicle */
+/* Wanted only (a filter's, never a candidate's): slice 6b. */
+#define TARGET_RELATION_NOT_OWNER  5 /* anyone but the owner */
+#define TARGET_RELATION_NOT_FRIEND 6 /* anyone who is not the owner's friend: enemies, the owner, no side */
 
 /* Which cloaked candidates a filter sees. */
 #define TARGET_SEES_CLOAKED_NEVER   0
@@ -102,6 +105,10 @@ static inline s32 targetFilterRelationPasses(s32 wanted, s32 relation)
 		return relation == TARGET_RELATION_FRIEND;
 	case TARGET_RELATION_OWNER:
 		return relation == TARGET_RELATION_OWNER;
+	case TARGET_RELATION_NOT_OWNER:
+		return relation != TARGET_RELATION_OWNER;
+	case TARGET_RELATION_NOT_FRIEND:
+		return relation != TARGET_RELATION_FRIEND;
 	}
 	return 0;
 }
@@ -225,8 +232,10 @@ static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t
  *   stage marks it for the sight (OBJFLAG3_REACTTOSIGHT: the sight turns
  *   red on it); the CMP150's lock. The CI training targets are not marked.
  * - "vehicles": any (a vehicle its rider left passes), or occupied.
- * - "relation": anyone, enemy, friend or owner (an empty vehicle or an
- *   object is nobody's friend: it passes enemy and anyone).
+ * - "relation": anyone, enemy, friend, owner, not_owner (anyone but the
+ *   owner) or not_friend (anyone who is not the owner's friend: enemies,
+ *   the owner and those of no side). An empty vehicle or an object is
+ *   nobody's friend: it passes enemy, anyone, not_owner and not_friend.
  * - "alive": true for the living only.
  * - "cloaked": never, with_ir (only while the owner uses the IR scanner) or
  *   always.
@@ -352,6 +361,8 @@ static inline s32 targetFilterFromSettings(target_text_fn get, void *user, targe
 		else if (strcmp(text, "enemy") == 0) out->relation = TARGET_RELATION_ENEMY;
 		else if (strcmp(text, "friend") == 0) out->relation = TARGET_RELATION_FRIEND;
 		else if (strcmp(text, "owner") == 0) out->relation = TARGET_RELATION_OWNER;
+		else if (strcmp(text, "not_owner") == 0) out->relation = TARGET_RELATION_NOT_OWNER;
+		else if (strcmp(text, "not_friend") == 0) out->relation = TARGET_RELATION_NOT_FRIEND;
 		else TARGET_FILTER_BAD(TARGET_FILTER_RELATION_PARAM);
 	}
 	if ((text = get(TARGET_FILTER_ALIVE_PARAM, user)) != NULL) {
@@ -379,7 +390,7 @@ static inline const char *targetFilterSettingHelp(const char *key)
 		return "player, simulant, guard, vehicle, sentry, object, characters, things or all, separated by commas";
 	if (strcmp(key, TARGET_FILTER_SIGHT_TARGETS_PARAM) == 0) return "true or false";
 	if (strcmp(key, TARGET_FILTER_VEHICLES_PARAM) == 0) return "any or occupied";
-	if (strcmp(key, TARGET_FILTER_RELATION_PARAM) == 0) return "anyone, enemy, friend or owner";
+	if (strcmp(key, TARGET_FILTER_RELATION_PARAM) == 0) return "anyone, enemy, friend, owner, not_owner or not_friend";
 	if (strcmp(key, TARGET_FILTER_ALIVE_PARAM) == 0) return "true or false";
 	if (strcmp(key, TARGET_FILTER_CLOAKED_PARAM) == 0) return "never, with_ir or always";
 	return NULL;
@@ -424,11 +435,37 @@ static inline s32 targetFilterSettingsText(const target_filter_t *f, char *buf, 
 		TARGET_FILTER_CLOAKED_PARAM "\": \"%s\"",
 		list, f->things_must_react ? "true" : "false", f->vehicles_occupied ? "occupied" : "any",
 		f->relation == TARGET_RELATION_ENEMY ? "enemy" : f->relation == TARGET_RELATION_FRIEND ? "friend"
-			: f->relation == TARGET_RELATION_OWNER ? "owner" : "anyone",
+			: f->relation == TARGET_RELATION_OWNER ? "owner" : f->relation == TARGET_RELATION_NOT_OWNER ? "not_owner"
+			: f->relation == TARGET_RELATION_NOT_FRIEND ? "not_friend" : "anyone",
 		f->alive_only ? "true" : "false",
 		f->sees_cloaked == TARGET_SEES_CLOAKED_NEVER ? "never"
 			: f->sees_cloaked == TARGET_SEES_CLOAKED_WITH_IR ? "with_ir" : "always");
 	return n < 0 || n >= cap ? -1 : n;
+}
+
+/*
+ * held-weapon-events.md slice 6b: a mod mine's filter from its entity record
+ * (bgunModProxyDecision), for a character within its radius: its owner
+ * filter (1: the owner never sets it off, 2: only the owner does), its team
+ * filter and its target filter (either 1: the owner's friends do not; the
+ * target filter also ignores moving objects, the record's other branch).
+ * The record's quirk is kept: with no owner filter, "hostile only" still lets
+ * the owner set off its own mine (not_friend). Its facts are as the record
+ * reads them: the owner by player number, a friend by COMPARE_ENEMIES.
+ */
+static inline void targetFilterModMine(s32 owner_mode, s32 team_mode, s32 target_mode, target_filter_t *out)
+{
+	const s32 hostile = team_mode == 1 || target_mode == 1;
+
+	targetFilterAnything(out);
+	out->kinds = TARGET_KINDS_CHARACTERS;
+	if (owner_mode == 2) {
+		out->relation = TARGET_RELATION_OWNER;
+	} else if (hostile) {
+		out->relation = owner_mode == 1 ? TARGET_RELATION_ENEMY : TARGET_RELATION_NOT_FRIEND;
+	} else if (owner_mode == 1) {
+		out->relation = TARGET_RELATION_NOT_OWNER;
+	}
 }
 
 #ifdef __cplusplus

@@ -61,6 +61,7 @@ void projectileEventsReport(const char *why);
  * the seam fills it in and passes it with the event.
  */
 struct projectile_flight;
+struct projectile_arm;
 typedef struct projectile_rule_context {
 	s32 trigger_close;     /* proximity: what came near is within 250 units */
 	s32 trigger_character; /* proximity: it is a character, not a moving object */
@@ -68,6 +69,8 @@ typedef struct projectile_rule_context {
 	/* in_flight (slice 7): the settings its flight modules name, filled in
 	 * over the original's as the modules run. */
 	struct projectile_flight *flight;
+	/* armed (held slice 6b): the settings its arm modules name. */
+	struct projectile_arm *arm;
 } projectile_rule_context_t;
 
 /*
@@ -168,6 +171,11 @@ u32 projectileFuseModules(struct defaultobj *obj, u32 native, s32 native_explosi
  */
 #define PROJECTILE_ARMS_PROGRAM (1u << 31) /* beside the arm bits: its archive has a program */
 u32 projectileArmModules(struct defaultobj *obj, u32 native);
+/* held-weapon-events.md slice 6b: the filter the object's arm names for what
+ * sets it off (og.projectile.arm_proximity's settings), NULL when it names
+ * none (the original's: anything that comes near). */
+struct target_filter;
+const struct target_filter *projectileArmProximityFilter(const struct defaultobj *obj);
 
 /*
  * The flight rule (projectile-events.md slice 7). projectileTick asks how a
