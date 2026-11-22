@@ -12,12 +12,18 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
+#include <windows.h>
+#include <winioctl.h>
+#endif
 
 extern "C" {
 #include "fs.h"
@@ -142,6 +148,48 @@ std::vector<u8> makeEnvelope(const std::vector<std::pair<std::string, std::strin
 		out.insert(out.end(), m.second.begin(), m.second.end());
 	}
 	return out;
+}
+
+/* A directory link at `link` to `target`: a junction where the platform has
+ * them (no privilege needed), else a symbolic link. "" when neither can be
+ * made here. */
+std::string makeDirectoryLink(const fs::path &link, const fs::path &target)
+{
+	std::error_code ec;
+#ifdef _WIN32
+	fs::path absolute = fs::absolute(target, ec);
+	if (!ec && fs::create_directory(link, ec) && !ec) {
+		absolute.make_preferred();
+		const std::wstring print = absolute.wstring();
+		const std::wstring substitute = L"\\??\\" + print;
+		const uint16_t sub_bytes = (uint16_t)(substitute.size() * sizeof(wchar_t));
+		const uint16_t print_bytes = (uint16_t)(print.size() * sizeof(wchar_t));
+		/* REPARSE_DATA_BUFFER for a mount point: tag, data length, reserved,
+		 * then the two names' offsets and lengths and the names themselves,
+		 * each followed by a NUL. */
+		const uint16_t data_bytes = (uint16_t)(8 + sub_bytes + 2 + print_bytes + 2);
+		std::vector<unsigned char> buffer(8 + data_bytes, 0);
+		const uint32_t tag = IO_REPARSE_TAG_MOUNT_POINT;
+		const uint16_t fields[6] = { data_bytes, 0, 0, sub_bytes, (uint16_t)(sub_bytes + 2), print_bytes };
+		std::memcpy(&buffer[0], &tag, 4);
+		std::memcpy(&buffer[4], fields, sizeof(fields));
+		std::memcpy(&buffer[16], substitute.data(), sub_bytes);
+		std::memcpy(&buffer[16 + sub_bytes + 2], print.data(), print_bytes);
+		HANDLE handle = CreateFileW(link.c_str(), GENERIC_WRITE, 0, nullptr, OPEN_EXISTING,
+			FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
+		if (handle != INVALID_HANDLE_VALUE) {
+			DWORD returned = 0;
+			const BOOL made = DeviceIoControl(handle, FSCTL_SET_REPARSE_POINT, buffer.data(),
+				(DWORD)buffer.size(), nullptr, 0, &returned, nullptr);
+			CloseHandle(handle);
+			if (made) return "junction";
+		}
+		fs::remove(link, ec);
+	}
+	ec.clear();
+#endif
+	fs::create_directory_symlink(target, link, ec);
+	return ec ? "" : "symbolic link";
 }
 
 size_t countFiles(const fs::path &root)
@@ -283,6 +331,43 @@ TEST_CASE("a hostile pdpack component cannot write outside its folder",
 		REQUIRE(readBytes(dest / "owned.txt") == "original bytes");
 		REQUIRE(countFiles(temp.root) == 1);
 	}
+}
+
+TEST_CASE("updating a pdpack component never deletes what a link in its old copy points at",
+	"[modpack][pdpack][pdca][path][T-MODDING-022]")
+{
+	ModpackTempRoot temp("pd2_modpack_archive_links");
+	const fs::path shared = temp.root / "shared-assets";
+	writeText(shared / "keep.txt", "shared bytes");
+	writeText(shared / "nested" / "deep.txt", "deep bytes");
+	const fs::path dest = temp.root / "mods" / "Weapons" / "linked";
+	writeText(dest / "old.txt", "old");
+
+	/* The installed copy links to assets outside it. An update replaces the
+	 * copy and removes the old one: the link goes, its target stays. */
+	const std::string kind = makeDirectoryLink(dest / "assets-link", shared);
+	if (kind.empty()) {
+		WARN("no directory link can be made here; not exercised");
+		return;
+	}
+	INFO("link kind: " << kind);
+	REQUIRE(readBytes(dest / "assets-link" / "keep.txt") == "shared bytes");
+	const std::vector<u8> archive = makeEnvelope({{"mod.json", "{}"}, {"new.txt", "new"}});
+	REQUIRE(pdcaExtractArchiveTransactional(archive.data(), (u32)archive.size(),
+		dest.string().c_str(), nullptr) == PDCA_EXTRACT_OK);
+	REQUIRE(readBytes(dest / "new.txt") == "new");
+	REQUIRE_FALSE(fs::exists(dest / "old.txt"));
+	REQUIRE(readBytes(shared / "keep.txt") == "shared bytes");
+	REQUIRE(readBytes(shared / "nested" / "deep.txt") == "deep bytes");
+
+	/* Rolled back, an old copy with a link comes back as it was. */
+	REQUIRE(makeDirectoryLink(dest / "assets-link-2", shared) == kind);
+	pdca_extract_transaction_t transaction;
+	REQUIRE(pdcaExtractArchiveBegin(archive.data(), (u32)archive.size(),
+		dest.string().c_str(), nullptr, &transaction) == PDCA_EXTRACT_OK);
+	REQUIRE(pdcaExtractTransactionRollback(&transaction) == 1);
+	REQUIRE(readBytes(dest / "assets-link-2" / "keep.txt") == "shared bytes");
+	REQUIRE(readBytes(shared / "nested" / "deep.txt") == "deep bytes");
 }
 
 TEST_CASE("modpack import goes only through the checked extractor under the mods folder",

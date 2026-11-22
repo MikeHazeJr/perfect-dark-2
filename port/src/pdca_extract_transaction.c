@@ -7,6 +7,7 @@
 #ifdef _WIN32
 #include <direct.h>
 #include <io.h>
+#include <windows.h>
 #define pdca_mkdir(path) _mkdir(path)
 #define pdca_rmdir(path) _rmdir(path)
 #define pdca_sync_file(fp) _commit(_fileno(fp))
@@ -82,9 +83,30 @@ static s32 createDirRecursive(const char *path)
 	return createDirOne(current);
 }
 
+/* A junction, symbolic link or other reparse point. */
+static s32 pathIsLink(const char *path)
+{
+#ifdef _WIN32
+	const DWORD attrs = GetFileAttributesA(path);
+	return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+#else
+	struct stat st;
+	return lstat(path, &st) == 0 && S_ISLNK(st.st_mode);
+#endif
+}
+
+/* Removes a staged, backed-up or rolled-back tree. A link inside it (or the
+ * tree itself, when it is one) is removed as a link and never opened, so
+ * cleanup cannot delete what a link points at: an installed component that
+ * links to shared assets keeps them when an update replaces it. */
 static s32 removeTree(const char *path)
 {
 	struct stat st;
+	if (pathIsLink(path)) {
+		/* rmdir removes a directory link, remove() a file link; neither
+		 * reaches the target. */
+		return pdca_rmdir(path) == 0 || remove(path) == 0;
+	}
 	if (stat(path, &st) != 0) return errno == ENOENT;
 	if (!S_ISDIR(st.st_mode)) return remove(path) == 0;
 	DIR *dir = opendir(path);
