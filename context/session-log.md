@@ -4,28 +4,26 @@
 slices 1 and 2). Mike's assignment: held weapons on behavior graphs, the eight slices of the gun-code
 audit (artifact `7fgSVVLGzHGRddzXoUJ1Xz`), in the order 1-5, projectile slice 7, 6, 7, 8; own branches
 from dev, committed through a temporary index (canonical HEAD and index untouched). On dev: **slices 1
-and 2** (PR 26, `1b875417`), **slice 3** (PR 29, `32de66d6`: an attack's cadence is its program's
-trigger node), **slices 4a, 4b and 5** (PR 31, `10a5740b`, 2026-11-22: the shot node per family with the
-base guns' quirks as settings; a reload's style; the Mauler's charge, the crystal pistol's committed
-charge and the grenade's cook as trigger nodes). PR 31 took four Codex review rounds (`45204a1a`,
-`1ab5ef76`, `1a23e440`, `f43a7be5`): settings read through variables get their own buffers, the held
-rocket gives way to a launch's item, manual reloads and regrowing clips follow the program, the Weapons
-creator keeps programs (v2), charge start/release pairs the runtime cannot run are refused, the
-committed charge comes from its plan for players and bots, the charge level is `hand->chargelevel`
-(`types.h`'s spare `fspare3`), each charge step is paid in full and steps are capped at 25, cooked
-fuses and authored timers are clamped to the s16 timer, the beam's reach is its range, and a
-graph-authored cloak cloaks the player. In review: **projectile slice 7a and 7b** (PR 40,
-`week-pd/core-weapons-p7`): `objFree`'s clean-ups follow what the object holds; the flight is the
-object's choice (`event.projectile.in_flight`, kind 40: fly_by_wire, thrust, home, trail, woosh,
-hit_sound, bounce_smoke with settings; gates moved to bits 27-30; `embedded.v22`). Records and smokes:
-`context/designs/modding/held-weapon-events.md`, `context/designs/modding/projectile-events.md`.
-Open for Mike: PR 31's pellet thread (one shot's pellets a frame, as the original delivers one shot a
-frame for every automatic) and the charge shapes not built (hold and let go; a selected charge that
-fires itself). Open for MP-RULES: the simulants' Mauler charge (N-1191, answered in N-1194),
-`botact.c`'s self-loading check for program-regrow base weapons, `netmsg.c`'s RCP120 cloak drop line.
-Next: projectile slice 7c (spawn by weapon number: the pinball's bounce and the knife's flags at the
-throw, the fired projectiles' power limit, the guards' and chopper's `projectileCreate`, a dropped
-grenade's fuse), then weapon slices 6, 7 and 8.
+and 2** (PR 26), **slice 3** (PR 29), **slices 4a, 4b and 5** (PR 31, `10a5740b`, four Codex review
+rounds), **projectile slice 7a and 7b** (PR 40, `b66065f8`: the free's clean-ups; the flight rule,
+`event.projectile.in_flight`, `embedded.v22`). **Slice 6, the target filter, is done but held** (Integration
+asked to hold PR 44 until they post the release cut): 6a (PR 44 and `week-pd/core-weapons-w6a2`: six
+pickers on one filter, `port/include/target_filter.h`, each native filter compared with the original's
+inline tests over every combination), 6b and 6c (`week-pd/core-weapons-w6b`, `49205805`, pushed, no PR):
+the homing rocket's home re-checks its filter in flight; the held lock is `og.weapon.lock_on` at
+`event.weapon.aiming` (kind 41; locks, aim_follows, the filter with `sight_targets_only`; the rocket
+launcher's and the CMP150's locks written into their base programs, `embedded.v23`, cache `_heldlocks`;
+auto-aim's follow from the lock); a mine's arm names what sets it off (`og.projectile.arm_proximity`'s
+filter; a mod mine's record filters as its native filter, `not_owner`/`not_friend`); vehicles take
+their rider's side, and a lock that names vehicles seeks them (`SIGHT.LOCK` lines, `locks=N`).
+G5b's `held_weapon_shot_smoke` RCP120 failure was my smoke's input (the alt button toggles the
+RCP120's cloak itself under extended controls): PR 46 (tools only) fixes the smoke, for Integration to
+merge before the cut. Open for Mike: D-057 (projectile 7c), PR 31's pellet thread. Asked of Authored
+Mods: Mike's "Enemy vehicles" sample launcher (spec in `held-weapon-events.md`, 6c part 2). Next:
+weapon slice 7 (feel nodes: recoil, muzzle flash, casing, shot sound, fire animation; mod guns get
+jitter, casings and the fire animation), then slice 8 (value nodes and the creator), then a cloak log
+line and an RCP120 cloak smoke. Records and smokes: `context/designs/modding/held-weapon-events.md`,
+`context/designs/modding/projectile-events.md`.
 
 2026-11-21 MULTIPLAYER AND RULES (claude-pd-mp-rules-20261121), 04:30 to 05:15 and 21:27 UTC onward.
 Mike's order: six items, canonical checkout, own branch `week-pd/mp-rules` from dev (commits through a
