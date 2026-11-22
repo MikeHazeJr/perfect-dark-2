@@ -1018,6 +1018,23 @@ const struct weapon_rule_lock *weaponSightLock(s32 aiming)
 	return &s_NativeLock;
 }
 
+s32 weaponSightLockAuthored(void)
+{
+	const weapon_rule_lock_t *lock = weaponSightLock(0);
+	const struct hand *hand;
+	struct invaimsettings *aim;
+	weapon_rule_lock_t native;
+
+	if (!g_Vars.currentplayer || !lock || lock->locks <= 0) {
+		return 0;
+	}
+	hand = &g_Vars.currentplayer->hands[HAND_RIGHT];
+	aim = gsetGetAimSettings((struct gset *)&hand->gset);
+	weaponRulesNativeLock(hand->gset.weaponnum, hand->gset.weaponfunc,
+		aim ? (s32)aim->tracktype : SIGHTTRACKTYPE_DEFAULT, &native);
+	return weaponRulesLockEqual(lock, &native) ? 0 : 1;
+}
+
 void weaponSightLockTaken(s32 slot, struct prop *prop)
 {
 	s_WeaponLocksTaken++;

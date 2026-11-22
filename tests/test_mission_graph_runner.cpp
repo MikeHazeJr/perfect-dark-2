@@ -4300,6 +4300,16 @@ TEST_CASE("a lock that names vehicles seeks them, and the original's locks do no
 	REQUIRE(lv.find("? NULL : sightRiderVehicle(g_Vars.currentplayer->lookingatprop.prop);") != std::string::npos);
 	REQUIRE(lv.find("if (facts.kind == TARGET_KIND_VEHICLE && targetFilterAccepts(&lock->filter, &facts)) {\n"
 		"\t\t\t\t\t\t\t\tlook.things_must_react = 0;") != std::string::npos);
+	// PR 49 review: a weapon whose lock takes targets picks and refreshes
+	// them as the aim-tracking base weapons do, and what an authored lock
+	// takes passes the native look.
+	REQUIRE(lv.find("|| weaponSightLock(0)->locks > 0;") != std::string::npos);
+	REQUIRE(lv.find("|| (tracksaim && bmoveIsInSightAimMode())) {") != std::string::npos);
+	REQUIRE(lv.find("} else if (tracksaim) {") != std::string::npos);
+	REQUIRE(lv.find("&& !(weaponSightLockAuthored() && targetFilterAccepts(&lock->filter, &facts))) {")
+		!= std::string::npos);
+	REQUIRE(readSource("port/src/weapon_events.c").find("return weaponRulesLockEqual(lock, &native) ? 0 : 1;")
+		!= std::string::npos);
 
 	// The smoke's evidence: each target the sight takes is counted, the
 	// first ones logged with what it is.

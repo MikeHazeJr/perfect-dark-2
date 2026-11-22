@@ -1040,6 +1040,17 @@ it: the Super Dragon equipped in grenade mode now ejects its rifle casings
 once switched to its primary. The profile executor's weapons keep their
 path.
 
+**PR 49 review, locks (2026-11-22):** a weapon whose lock takes targets
+(`weaponSightLock(0)->locks > 0`) now picks them in multiplayer and has
+their bounds and deaths refreshed, as the aim-tracking base weapons do;
+those (the CMP150 and the rocket launchers) are the only base weapons with
+`WEAPONFLAG_AIMTRACK` and the only ones with a lock, and a mod weapon's
+adapter never sets the flag. And what a weapon's authored lock takes
+(`weaponSightLockAuthored`: its lock is not the original's for the weapon)
+passes the look's native filter too, so a lock that sees through cloaks or
+takes objects that do not react to sight can acquire them; an unmodified
+weapon keeps the native look.
+
 **8b as written (2026-11-22, `week-pd/core-weapons-w8`):** done before 8c,
 since it completes the done-when (8c's value nodes are the advanced
 extra). The rocket example needs only settings on nodes the base rocket

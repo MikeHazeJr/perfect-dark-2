@@ -149,6 +149,10 @@ void weaponEventReloadDone(s32 handnum, struct hand *hand);
  * (weaponRulesNativeLock). A base function's walked lock is compared with
  * the original's (rules.compared, rules.differ). Never NULL. */
 const struct weapon_rule_lock *weaponSightLock(s32 aiming);
+/* PR 49 review: whether the current player's lock is its program's own and
+ * not the original's for its weapon (a mod's authored lock, or one a program
+ * changed): the look then lets through what that lock takes. */
+s32 weaponSightLockAuthored(void);
 
 /* slice 6c: sightTick took a target into the lock's slot (0 up): counted for
  * WEAPON.EVENTS (locks=N), and the stage's first sixteen logged as

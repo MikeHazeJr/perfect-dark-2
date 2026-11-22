@@ -1913,11 +1913,19 @@ Gfx *lvRender(Gfx *gdl)
 				// glares calculated earlier on PC, before prop matrices turn into garbage
 				bgCalculateGlaresForVisibleRooms();
 
+				/* held-weapon-events.md slice 6b (PR 49 review): a weapon whose
+				 * lock takes targets tracks them as the aim-tracking base weapons
+				 * do (the CMP150 and the rocket launchers, the only ones with the
+				 * flag and the only ones with a lock): a mod weapon's adapter
+				 * never sets the flag. */
+				const bool tracksaim = weaponHasFlag(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG_AIMTRACK)
+					|| weaponSightLock(0)->locks > 0;
+
 				// Calculate lookingatprop
 				if (PLAYERCOUNT() == 1
 						|| g_Vars.coopplayernum >= 0
 						|| g_Vars.antiplayernum >= 0
-						|| (weaponHasFlag(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG_AIMTRACK) && bmoveIsInSightAimMode())) {
+						|| (tracksaim && bmoveIsInSightAimMode())) {
 					g_Vars.currentplayer->lookingatprop.prop = propFindAimingAt(HAND_RIGHT, false, FINDPROPCONTEXT_QUERY);
 
 					/* held-weapon-events.md slice 6a: the look picker's filter
@@ -1956,7 +1964,12 @@ Gfx *lvRender(Gfx *gdl)
 							}
 						}
 
-						if (!targetFilterAccepts(&look, &facts)) {
+						/* PR 49 review: what a weapon's authored lock takes
+						 * passes the look too (a lock that sees through
+						 * cloaks, or takes objects that do not react to
+						 * sight); an unmodified weapon keeps the native look. */
+						if (!targetFilterAccepts(&look, &facts)
+								&& !(weaponSightLockAuthored() && targetFilterAccepts(&lock->filter, &facts))) {
 							g_Vars.currentplayer->lookingatprop.prop = NULL;
 						}
 					}
@@ -1966,7 +1979,7 @@ Gfx *lvRender(Gfx *gdl)
 
 				if (gsetHasFunctionFlags(&g_Vars.currentplayer->hands[0].gset, FUNCFLAG_THREATDETECTOR)) {
 					lvFindThreats();
-				} else if (weaponHasFlag(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG_AIMTRACK)) {
+				} else if (tracksaim) {
 					s32 j;
 
 					if (frIsInTraining()
