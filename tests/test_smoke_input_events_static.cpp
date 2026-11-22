@@ -1792,7 +1792,14 @@ TEST_CASE("aim_at holds player 0's view on its target after the look input",
     // the moved check (Integration on 4cd9ff6f), not the input one.
     requireContains(apply, "\"SMOKE.AIM: resumed from_movemode=%d at_ms=%d\"");
     requireContains(apply, "if (s_SmokeAim.frames > 0 && !resumed) {");
-    requireContains(apply, "\"SMOKE.AIM: lost target=%s slot=%d chrnum=%d pad=%d at_ms=%d\"");
+    requireContains(harness, "\"SMOKE.AIM: lost target=%s slot=%d chrnum=%d pad=%d reason=%s at_ms=%d\"");
+    // Codex on PR 56: an aim is bound to its stage; a swap ends it before its
+    // target's pointers are read, in the hook and in the harness tick.
+    requireContains(apply, "    if (smokeAimStageChanged(&s_SmokeAim)) {\n        smokeAimLost(\"stage\");");
+    requireContains(apply, "smokeAimLost(\"gone\");");
+    requireContains(harness, "            smokeAimStageMark(&s_SmokeAim);\n");
+    requireContains(harness, "    if (!s_SmokeAim.active) {\n        return;\n    }\n"
+        "    if (smokeAimStageChanged(&s_SmokeAim)) {\n        smokeAimLost(\"stage\");");
     requireContains(apply, "\"SMOKE.AIM: override input=%d speedtheta=%.3f speedverta=%.3f theta=%.2f verta=%.2f \"");
     // Codex on PR 56: bwalkUpdateTheta adds speedtheta after the hook, so the
     // aim clears the look speeds while it holds.

@@ -148,7 +148,9 @@
  *        speeds, which it zeroes while it holds) or any other change of the
  *        view between two aim frames (the game's own, such as Look Ahead
  *        re-centring the pitch while walking, which aim mode turns off). A
- *        smoke that forbids overrides keeps player 0 still or aiming.
+ *        smoke that forbids overrides keeps player 0 still or aiming. An
+ *        aim is bound to the stage it began in: a stage swap ends it (lost,
+ *        reason=stage) before its target's pointers are read again.
  *
  *   { "at_ms": N, "type": "catalog_weapon_acquire", "path": "mod:id" }
  *   { "at_ms": N, "type": "catalog_weapon_release", "path": "mod:id" }
@@ -470,6 +472,9 @@ typedef struct {
     s32 frames;
     s32 paused;              /* player 0 is not walking: the aim waits */
     s32 paused_movemode;     /* the mode it waits in */
+    s32 stage_loading;       /* the scene's stage counts when it began */
+    s32 stage_ready;
+    s32 stage_teardown;
     f32 theta;
     f32 verta;
 } SmokeAim;
@@ -645,6 +650,43 @@ static s32 smokeAimTargetLive(const SmokeAim *aim)
     return aim->obj != NULL && aim->prop->obj == aim->obj && aim->obj->prop == aim->prop;
 }
 
+/* Codex on PR 56: the target's pointers (its prop, chr or object) live in
+ * the stage pool of the stage it was picked in. Every stage swap fires
+ * SCENE_EVENT_STAGE_LOADING, and pdmain.c's load (mempResetPool(MEMPOOL_STAGE)
+ * onward) ends with STAGE_READY, or STAGE_TEARDOWN for a system stage, before
+ * the next lvTick; so the aim is bound to those counts at begin and ends,
+ * unread, when any of them moves. */
+static s32 smokeAimStageCount(s32 event)
+{
+    const SceneFireCounts *counts = sceneInstrumentGet();
+
+    return counts ? counts->fire_count[event] : 0;
+}
+
+static void smokeAimStageMark(SmokeAim *aim)
+{
+    aim->stage_loading = smokeAimStageCount(SCENE_EVENT_STAGE_LOADING);
+    aim->stage_ready = smokeAimStageCount(SCENE_EVENT_STAGE_READY);
+    aim->stage_teardown = smokeAimStageCount(SCENE_EVENT_STAGE_TEARDOWN);
+}
+
+static s32 smokeAimStageChanged(const SmokeAim *aim)
+{
+    return smokeAimStageCount(SCENE_EVENT_STAGE_LOADING) != aim->stage_loading
+        || smokeAimStageCount(SCENE_EVENT_STAGE_READY) != aim->stage_ready
+        || smokeAimStageCount(SCENE_EVENT_STAGE_TEARDOWN) != aim->stage_teardown;
+}
+
+/* The aim lost its target: "gone" (it died, or its prop went) or "stage"
+ * (its stage was swapped out). Logs only the aim's own numbers. */
+static void smokeAimLost(const char *reason)
+{
+    sysLogPrintf(LOG_NOTE, "SMOKE.AIM: lost target=%s slot=%d chrnum=%d pad=%d reason=%s at_ms=%d",
+        smokeAimKindName(s_SmokeAim.kind), s_SmokeAim.slot, s_SmokeAim.chrnum, s_SmokeAim.pad, reason,
+        s_SmokeAimNowMs);
+    smokeAimEnd("lost");
+}
+
 /* Each harness tick: count the time the target was the look picker's choice
  * of the frame before (Integration's point 5), and end the aim at end_ms. */
 static void smokeAimTick(s32 now_ms)
@@ -653,6 +695,10 @@ static void smokeAimTick(s32 now_ms)
 
     s_SmokeAimNowMs = now_ms;
     if (!s_SmokeAim.active) {
+        return;
+    }
+    if (smokeAimStageChanged(&s_SmokeAim)) {
+        smokeAimLost("stage");
         return;
     }
     if (player != NULL && player->lookingatprop.prop == s_SmokeAim.prop && now_ms > s_SmokeAim.last_ms) {
@@ -679,6 +725,10 @@ void smokeHarnessAimApply(void)
     if (!s_SmokeAim.active || g_Vars.currentplayernum != 0 || player == NULL || player->prop == NULL) {
         return;
     }
+    if (smokeAimStageChanged(&s_SmokeAim)) {
+        smokeAimLost("stage");
+        return;
+    }
     /* Integration on PR 56: on foot only. A bike turns through speedtheta in
      * bbikeTick right after this call, so clearing it would stop the bike
      * turning; a grab and a cutscene keep their own view. The aim waits and
@@ -701,10 +751,7 @@ void smokeHarnessAimApply(void)
         resumed = 1;
     }
     if (!smokeAimTargetLive(&s_SmokeAim)) {
-        sysLogPrintf(LOG_NOTE, "SMOKE.AIM: lost target=%s slot=%d chrnum=%d pad=%d at_ms=%d",
-            smokeAimKindName(s_SmokeAim.kind), s_SmokeAim.slot, s_SmokeAim.chrnum, s_SmokeAim.pad,
-            s_SmokeAimNowMs);
-        smokeAimEnd("lost");
+        smokeAimLost("gone");
         return;
     }
     /* Integration's point 4 (and Codex on PR 56): the aim wins over the
@@ -4192,6 +4239,7 @@ void smokeHarnessTick(void)
                     smokeAimKindName(ev->aim_kind), ev->aim_slot, ev->at_ms);
                 break;
             }
+            smokeAimStageMark(&s_SmokeAim);
             smokeAimEye(player, &eye);
             smokeAimPoint(s_SmokeAim.prop, &point);
             {

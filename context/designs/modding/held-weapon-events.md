@@ -1098,7 +1098,8 @@ override), so the look input of the frame cannot fight it and the movement tick 
 point), `override` (look input it cleared, the turn and pitch speeds it zeroes while it holds because
 `bwalkUpdateTheta` adds the turn after the hook, or a view change the game made, such as Look Ahead
 re-centring the pitch while walking, which aim mode turns off; a smoke that forbids it keeps the player
-still or aiming), `lost` (the target died or went), and `end` (`held_ms`,
+still or aiming), `lost` (the target died or went, or its stage was swapped out: an aim is bound to the
+stage it began in, so it ends before the old stage's pointers are read), and `end` (`held_ms`,
 `on_target_ms`: the time the look picker, which the lock takes from, chose the target). The B-1135
 schedule bound counts an aim to `at_ms + duration_ms`.
 
