@@ -377,6 +377,21 @@ Room offers mod modes in a networked room. They are decision D-055 in the
 Workbench (my pick: scores add up, Room only, no setup file change). Slices 5
 and 7 do not depend on it.
 
+Census for it (2026-11-22, dev 84bebb5a): outside the rule table
+(`mode_rules.c`) and the original's data (`mpconfigs.c`, `constants.h`), about
+100 checks still name a mode by its number: `scenarios.c` 21, `bot.c` 17,
+`pdgui_menu_room.cpp` 11, `netmsg.c` 9, `mplayer.c` 7, `mpstats.c` 6,
+`discord.c` 6, `assetcatalog_base_extended.c` 6, `propobj.c` 5, `setup.c` 5,
+`matchsetup.c` 5, `challenge.c` 2, and one each in `botinv.c`, `bondwalk.c`
+and `grid_edit_room_net.c` (search: `git grep -c -E
+'MPSCENARIO_(HOLDTHEBRIEFCASE|HACKERCENTRAL|POPACAP|KINGOFTHEHILL|CAPTURETHECASE|COMBAT)'
+-- src port`). A mod mode's modules behave as in their own mode only where
+those checks ask the plan (does this mode run the hill, does it carry a token)
+instead of the number. Slice 6 starts by listing the checks the worked
+example's two modules meet and turning those into plan questions, with the
+parity probe holding every base mode to the original; the rest can wait for a
+mode that needs them. Several of those files belong to other lanes.
+
 ## Slice 7 as written (Multiplayer and Rules, 2026-11-21; not run in the game yet)
 
 The simulants' mode commands become modules, chosen by two new events (runner
