@@ -19,6 +19,7 @@
 #include "mission_graph_runner.h"
 #include "weapon_rules.h"
 #include "weapon_events.h"
+#include "game/sight.h"
 
 /* Each player hand: a press waiting for the idle seam, the named states of
  * the function it holds (every state is false when the hand takes a weapon
@@ -47,6 +48,7 @@ static s32 s_WeaponEventTotals[WEAPON_EVENT_TOTALS];
 static s32 s_WeaponRuleCompared;
 static s32 s_WeaponRuleDiffer;
 static s32 s_WeaponAimingTotal; /* slice 6b: the aiming walks */
+static s32 s_WeaponLocksTaken;  /* slice 6c: the targets the sight took */
 
 /* The first choice for a weapon, function and event logs a line; later ones
  * only count. Bounded, so an automatic weapon cannot flood the log. The
@@ -846,6 +848,23 @@ const struct weapon_rule_lock *weaponSightLock(s32 aiming)
 	return &s_NativeLock;
 }
 
+void weaponSightLockTaken(s32 slot, struct prop *prop)
+{
+	s_WeaponLocksTaken++;
+	if (s_WeaponLocksTaken <= 16 && g_Vars.currentplayer && prop) {
+		const struct hand *hand = &g_Vars.currentplayer->hands[HAND_RIGHT];
+		const weapon_rule_lock_t *lock = weaponSightLock(0);
+		target_facts_t facts;
+
+		sightTargetFacts(prop, &facts);
+		sysLogPrintf(LOG_NOTE,
+			"SIGHT.LOCK: player=%d weapon=%s func=%s slot=%d of %d kind=%s occupied=%d relation=%s",
+			g_Vars.currentplayernum, weaponEventWeaponId(hand->gset.weaponnum),
+			hand->gset.weaponfunc == FUNC_SECONDARY ? "secondary" : "primary", slot + 1, lock->locks,
+			targetFilterKindName(facts.kind), facts.occupied, targetFilterRelationName(facts.relation));
+	}
+}
+
 void weaponEventReloadDone(s32 handnum, struct hand *hand)
 {
 	if (hand && hand->inuse) {
@@ -857,14 +876,15 @@ void weaponEventsReport(const char *why)
 {
 	sysLogPrintf(LOG_NOTE,
 		"WEAPON.EVENTS: %s trigger_pressed=%d ready_while_held=%d clip_empty=%d"
-		" trigger_released=%d reload_done=%d rules.compared=%d rules.differ=%d aiming=%d",
+		" trigger_released=%d reload_done=%d rules.compared=%d rules.differ=%d aiming=%d locks=%d",
 		why ? why : "report",
 		s_WeaponEventTotals[0], s_WeaponEventTotals[1], s_WeaponEventTotals[2],
 		s_WeaponEventTotals[3], s_WeaponEventTotals[4],
-		s_WeaponRuleCompared, s_WeaponRuleDiffer, s_WeaponAimingTotal);
+		s_WeaponRuleCompared, s_WeaponRuleDiffer, s_WeaponAimingTotal, s_WeaponLocksTaken);
 	memset(s_WeaponEventTotals, 0, sizeof(s_WeaponEventTotals));
 	s_WeaponRuleCompared = 0;
 	s_WeaponRuleDiffer = 0;
 	s_WeaponAimingTotal = 0;
+	s_WeaponLocksTaken = 0;
 	s_WeaponEventSeenCount = 0;
 }

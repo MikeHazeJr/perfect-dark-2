@@ -482,6 +482,7 @@ void sightTick(bool sighton)
 				trackedprop->y2 = g_Vars.currentplayer->lookingatprop.y2;
 
 				g_Vars.currentplayer->targetset[index] = 0;
+				weaponSightLockTaken(index, trackedprop->prop);
 			}
 		}
 		break;
@@ -505,6 +506,7 @@ void sightTick(bool sighton)
 				trackedprop->y2 = g_Vars.currentplayer->lookingatprop.y2;
 
 				g_Vars.currentplayer->targetset[index] = 0;
+				weaponSightLockTaken(index, trackedprop->prop);
 			}
 		}
 		break;

@@ -4292,6 +4292,20 @@ TEST_CASE("a lock that names vehicles seeks them, and the original's locks do no
 	REQUIRE(lv.find("? NULL : sightRiderVehicle(g_Vars.currentplayer->lookingatprop.prop);") != std::string::npos);
 	REQUIRE(lv.find("if (facts.kind == TARGET_KIND_VEHICLE && targetFilterAccepts(&lock->filter, &facts)) {\n"
 		"\t\t\t\t\t\t\t\tlook.things_must_react = 0;") != std::string::npos);
+
+	// The smoke's evidence: each target the sight takes is counted, the
+	// first ones logged with what it is.
+	const std::string take = "g_Vars.currentplayer->targetset[index] = 0;\n"
+		"\t\t\t\tweaponSightLockTaken(index, trackedprop->prop);";
+	REQUIRE(sight.find(take) != std::string::npos);
+	CHECK(sight.find(take, sight.find(take) + 1) != std::string::npos); // the rocket launcher's and the follow's
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("\"SIGHT.LOCK: player=%d weapon=%s func=%s slot=%d of %d kind=%s occupied=%d relation=%s\",")
+		!= std::string::npos);
+	REQUIRE(events.find("rules.differ=%d aiming=%d locks=%d\",") != std::string::npos);
+	CHECK(std::string(targetFilterKindName(TARGET_KIND_VEHICLE)) == "vehicle");
+	CHECK(std::string(targetFilterRelationName(TARGET_RELATION_NONE)) == "none");
+	CHECK(std::string(targetFilterRelationName(TARGET_RELATION_NOT_FRIEND)) == "not_friend");
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

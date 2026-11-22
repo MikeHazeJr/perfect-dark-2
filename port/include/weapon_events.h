@@ -133,9 +133,16 @@ void weaponEventReloadDone(s32 handnum, struct hand *hand);
  * the original's (rules.compared, rules.differ). Never NULL. */
 const struct weapon_rule_lock *weaponSightLock(s32 aiming);
 
+/* slice 6c: sightTick took a target into the lock's slot (0 up): counted for
+ * WEAPON.EVENTS (locks=N), and the stage's first sixteen logged as
+ * "SIGHT.LOCK: player=0 weapon=... func=... slot=1 of 1 kind=vehicle
+ * occupied=1 relation=enemy". */
+struct prop;
+void weaponSightLockTaken(s32 slot, struct prop *prop);
+
 /* Logs "WEAPON.EVENTS: <why> trigger_pressed=N ready_while_held=N
  * clip_empty=N trigger_released=N reload_done=N rules.compared=N
- * rules.differ=N aiming=N" and starts the counts again. */
+ * rules.differ=N aiming=N locks=N" and starts the counts again. */
 void weaponEventsReport(const char *why);
 
 #endif

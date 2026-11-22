@@ -382,6 +382,33 @@ static inline s32 targetFilterFromSettings(target_text_fn get, void *user, targe
 	return ok ? named : -1;
 }
 
+/* A candidate's kind and relation by name, for logs. */
+static inline const char *targetFilterKindName(u32 kind)
+{
+	switch (kind) {
+	case TARGET_KIND_PLAYER: return "player";
+	case TARGET_KIND_SIMULANT: return "simulant";
+	case TARGET_KIND_GUARD: return "guard";
+	case TARGET_KIND_VEHICLE: return "vehicle";
+	case TARGET_KIND_SENTRY: return "sentry";
+	case TARGET_KIND_OBJECT: return "object";
+	}
+	return "none";
+}
+
+static inline const char *targetFilterRelationName(s32 relation)
+{
+	switch (relation) {
+	case TARGET_RELATION_ANYONE: return "anyone";
+	case TARGET_RELATION_ENEMY: return "enemy";
+	case TARGET_RELATION_FRIEND: return "friend";
+	case TARGET_RELATION_OWNER: return "owner";
+	case TARGET_RELATION_NOT_OWNER: return "not_owner";
+	case TARGET_RELATION_NOT_FRIEND: return "not_friend";
+	}
+	return "none";
+}
+
 /* What a filter setting takes, for refusals; NULL for a key that is none. */
 static inline const char *targetFilterSettingHelp(const char *key)
 {

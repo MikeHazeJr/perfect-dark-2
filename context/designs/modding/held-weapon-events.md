@@ -777,7 +777,32 @@ rider the lock does not take as the vehicle they ride (`sightRiderVehicle`),
 so Mike's "Enemy vehicles" locks the bike when the aim is on its rider. A
 lock that takes every kind (the rocket launcher's, written `kinds: all`)
 takes what the look offers, as the original's did, so no base weapon locks a
-vehicle it could not before. The sample weapon and its smoke are part 2.
+vehicle it could not before.
+
+**6c part 2 as written (2026-11-22): the lock's evidence, and the sample.**
+Each target the sight takes is counted (`WEAPON.EVENTS ... locks=N`) and the
+stage's first sixteen are logged: `SIGHT.LOCK: player=0 weapon=... func=...
+slot=1 of 1 kind=vehicle occupied=1 relation=enemy`. The sample weapon is
+Authored Mods' to package (recipes, `dev-mods.json` and staging are theirs,
+and a sample made from a base weapon may not carry ROM data), to this spec:
+
+- A recipe from the `tri_weapon` template, as `maian_crystal_pistol` is,
+  with descriptor `track_type = default`.
+- Primary (`pd.weapon_graph.v2`): its record (`spawn.fired_projectile`,
+  `shoot_projectile`, its own rocket) and the program
+  `event.weapon.trigger_pressed -> og.weapon.fire_once -> og.weapon.launch
+  {item: own}` and `event.weapon.aiming -> og.weapon.lock_on {locks: 1,
+  kinds: vehicle, vehicles: occupied, relation: enemy, alive: true,
+  cloaked: never}` (Mike's "Enemy vehicles").
+- Secondary: the same with `vehicles: any`, launching
+  `{item: base:homingrocket}`: the base homing rocket never re-checks, so a
+  bike its rider left stays its target.
+- Its rocket (the primary projectile archive, `pd.projectile_graph.v2`):
+  `event.projectile.in_flight -> og.projectile.thrust, og.projectile.home
+  {kinds: vehicle, vehicles: occupied, relation: enemy, alive: true,
+  cloaked: never, lost: straight}, og.projectile.trail`, with the contact
+  and armed rules a rocket needs (the base homing rocket's wiring is the
+  reference).
 
 ## Smokes for Integration's finalization batch
 
@@ -811,6 +836,7 @@ Listed as each slice lands; none is run by Core Weapons.
 | 6b | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their `WEAPON.EVENTS` lines end with `aiming=N`; `rules.differ=0` as before |
 | 6b | `projectile_events_smoke` | the proximity mine, the Dragon and the proximity grenade go off as before (their proximity lines unchanged) |
 | 6b | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the crystal pistol's mine keeps its record's radius and filters (`BONDGUN.CRYSTAL: mine triggered` as before; the owner still sets off its own mine) |
+| 6c | a vehicle lock smoke with the sample above (none written yet: the Blank Room with a hoverbike, `--debug-forge-level-vehicle`, as `hoverbike_room_flow_smoke`) | aiming the secondary at the empty bike logs `SIGHT.LOCK: ... kind=vehicle occupied=0 relation=none`; the primary takes no lock on it; with a second player riding (split screen or a second client) the primary logs `occupied=1 relation=enemy`, and its rocket flies straight once the rider bails; `rules.differ=0` |
 | 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 
 ## Where to look
