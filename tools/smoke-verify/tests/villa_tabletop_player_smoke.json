@@ -17,11 +17,11 @@
     { "at_ms": 0, "type": "wait_until", "condition": "offline_gameplay_ready", "timeout_ms": 330000, "stable_ms": 1000, "assist_action": "ACTION_SKIP_CUTSCENE", "assist_condition": "cutscene_skip_ready", "assist_hold_ms": 1200 },
     { "at_ms": 100, "type": "movement_tabletop", "name": "place_player" },
     { "at_ms": 600, "type": "action", "name": "ACTION_JUMP", "action": "tap" },
-    { "at_ms": 775, "type": "action", "name": "ACTION_MOVE_FORWARD", "action": "press" },
-    { "at_ms": 1300, "type": "action", "name": "ACTION_MOVE_FORWARD", "action": "release" },
+    { "at_ms": 775, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "press" },
+    { "at_ms": 1300, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "release" },
     { "at_ms": 2850, "type": "movement_tabletop", "name": "walk_off" },
-    { "at_ms": 2900, "type": "action", "name": "ACTION_MOVE_BACKWARD", "action": "press" },
-    { "at_ms": 3950, "type": "action", "name": "ACTION_MOVE_BACKWARD", "action": "release" },
+    { "at_ms": 2900, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "press" },
+    { "at_ms": 3950, "type": "action", "name": "ACTION_AXIS_MOVE_Y", "action": "release" },
     { "at_ms": 4550, "type": "movement_tabletop", "name": "verify" },
     { "at_ms": 4650, "type": "exit" }
   ],
@@ -35,14 +35,16 @@
       {
         "name": "player-coffee-table-landing-and-walk-off",
         "patterns": [
+          "SMOKE\\.TABLETOP: phase=table_measured pos=",
           "SMOKE\\.TABLETOP: phase=table_bound command=492 model=base:model_cv_coffee_table pad=428 room=17 collision=dynamic_mesh",
-          "SMOKE\\.TABLETOP: phase=place actor=player .* room=17 feet=(?:-30[0-2]|-29[89])\\.",
+          "SMOKE\\.TABLETOP: phase=place actor=player .* room=17 feet=-?[0-9]+\\.",
           "JUMP: APPLIED impulse=",
           "SMOKE\\.TABLETOP: phase=takeoff",
-          "SMOKE\\.TABLETOP: phase=land .* room=17 feet=(?:-24[0-2]|-23[89])\\..* support=table",
-          "SMOKE\\.TABLETOP: phase=stay .* room=17 feet=(?:-24[0-2]|-23[89])\\..* support=table",
+          "SMOKE\\.TABLETOP: phase=land .* room=17 feet=-?[0-9]+\\..* support=table",
+          "SMOKE\\.TABLETOP: phase=stay .* room=17 feet=-?[0-9]+\\..* support=table",
+          "SMOKE\\.TABLETOP: phase=turn actor=player theta=180\\.0",
           "SMOKE\\.TABLETOP: phase=drop",
-          "SMOKE\\.TABLETOP: phase=lower_land .* room=17 feet=(?:-30[0-2]|-29[89])\\.",
+          "SMOKE\\.TABLETOP: phase=lower_land .* room=17 feet=-?[0-9]+\\.",
           "SMOKE\\.TABLETOP: result=pass actor=player",
           "SMOKE: result=scripted_exit"
         ]

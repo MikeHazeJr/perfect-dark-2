@@ -3216,6 +3216,12 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria)
 	s32 bestscore1;
 	bool done;
 
+	/* B-1310: a simulant the ledge or tabletop smoke holds takes no items, so
+	 * its hold is its only goal (smoke runs only). */
+	if (smokeHarnessBotPickupsHeld(chr)) {
+		return NULL;
+	}
+
 	if (&aibot);
 	if (&criteria);
 

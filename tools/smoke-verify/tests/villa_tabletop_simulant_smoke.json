@@ -30,14 +30,15 @@
       {
         "name": "simulant-coffee-table-landing-and-walk-off",
         "patterns": [
+          "SMOKE\\.TABLETOP: phase=table_measured pos=",
           "SMOKE\\.TABLETOP: phase=table_bound command=492 model=base:model_cv_coffee_table pad=428 room=17 collision=dynamic_mesh",
-          "SMOKE\\.TABLETOP: phase=place actor=simulant .* room=17 feet=(?:-30[0-2]|-29[89])\\.",
+          "SMOKE\\.TABLETOP: phase=place actor=simulant .* room=17 feet=-?[0-9]+\\.",
           "BOT\\.JUMP: chrnum=[0-9]+ reason=OBST",
           "SMOKE\\.TABLETOP: phase=takeoff",
-          "SMOKE\\.TABLETOP: phase=land .* room=17 feet=(?:-24[0-2]|-23[89])\\..* support=table",
-          "SMOKE\\.TABLETOP: phase=stay .* room=17 feet=(?:-24[0-2]|-23[89])\\..* support=table",
+          "SMOKE\\.TABLETOP: phase=land .* room=17 feet=-?[0-9]+\\..* support=table",
+          "SMOKE\\.TABLETOP: phase=stay .* room=17 feet=-?[0-9]+\\..* support=table",
           "SMOKE\\.TABLETOP: phase=drop",
-          "SMOKE\\.TABLETOP: phase=lower_land .* room=17 feet=(?:-30[0-2]|-29[89])\\.",
+          "SMOKE\\.TABLETOP: phase=lower_land .* room=17 feet=-?[0-9]+\\.",
           "SMOKE\\.TABLETOP: result=pass actor=simulant",
           "SMOKE: result=scripted_exit"
         ]

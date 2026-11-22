@@ -1,5 +1,35 @@
 # Bug Tracker
 
+## 2026-11-22 B-1310 D-052's four ledge and tabletop smokes cannot pass as written (T-ENGINE-006, open, found in Integration's finalization run R3)
+
+The four fixtures landed with D-052 (386a9389) never ran; their first admission was refused for disk space. On
+candidate 3 (dev 83d3aeb2, base 15) the three in R3 failed in the smokes themselves, not as regressions:
+- `complex_ledge_player_smoke`: the player jumped in place (feet 512 to 636 to 512 at x -1392, z -700 throughout;
+  the ledge needs z -628 to -500). The fixture presses `ACTION_MOVE_FORWARD`, but `bondmove.c` moves the player from
+  `ACTION_AXIS_MOVE_Y`; the digital action only feeds the legacy pad path (`input.c`). The Grid portal smoke
+  injects `ACTION_AXIS_MOVE_Y` for this reason. Smoke action injection sets an axis to +1.0 only
+  (`actionmapInjectStateForSmoke`), so the walk-off's backward step needs a virtual controller axis or a harness
+  change. `villa_tabletop_player_smoke` has the same inputs.
+- `villa_tabletop_player_smoke`: failed binding the table (`authored_tabletop_contact_missing`). The harness found
+  the coffee table (setup 492, pad 428, room 17) and its collision mesh, but its contact ray at the authored top
+  (x -4065, y -240 within 6, z 2348) missed. The numbers in `s_SmokeSupportFixtures` (`smoke_harness.c`) were never
+  checked against a live Villa.
+- `complex_ledge_simulant_smoke`: the jump fired (`BOT.JUMP ... OBST dy=39.0`; takeoff at feet 520, z -685). 0.3 s
+  later the simulant was over the ledge at (-1371,632,-576) and starting a route to an item in room 2: the harness's
+  `botApplyHold` does not stop item pickups. The harness never saw the "descended above 553" sample it needs before it
+  counts a landing; a per-frame trace is needed.
+Fix in progress on week-pd/mp-rules (needs a new candidate):
+- The player fixtures press `ACTION_AXIS_MOVE_Y`. At `walk_off` the harness turns the player to face back down the
+  approach (`vv_theta` 180), so the walk-off uses the same forward axis.
+- The tabletop measures the live table: its collision bounds through the prop transform, then the floor under the
+  start. The harness moves the authored approach onto the table and logs `phase=table_measured`. The tabletop
+  fixtures no longer hardcode -300/-240; the harness checks every height against the measured table.
+- A simulant the harness holds takes no items (`smokeHarnessBotPickupsHeld` at the top of `botFindPickup`).
+- After takeoff the harness logs 150 per-frame samples, and the failure line names the peak feet, so the next run
+  shows any remaining miss.
+Still open until all four pass on a candidate. Whether these proofs gate the release is Mike's call. Until they
+pass, D-052's ledge and tabletop landings are unproven in play.
+
 ## 2026-11-22 B-1309 `release.ps1` would commit Codex's memory from a fresh clone of this public repository (T-RELEASE-006, open: Mike's decision)
 
 Found by claude-pd-integration-20261121 while preparing step 9's release in a fresh clone. Before
