@@ -1,5 +1,35 @@
 # Bug Tracker
 
+## 2026-11-22 B-1313 A vehicle nested in a mod package looked for its behavior/variables.json at the package's root, so the bundled Maian Hover was refused (T-MODDING-011, fixed on week-pd/core-weapons-b1313, found in Integration's finalization run on candidate 3b)
+
+On candidate 3b `authored_bundled_first_run_smoke` saw the bundled Maian Hover refused at catalog admission:
+`PDVEHICLE.MODEL.REJECT ... source=...mods/bundled/mod.vehicle_maian_hover.pdmod::vehicle_maian_hover.pdvehicle
+error=behavior graph refused: node 'boost' (og.vehicle.boost_heat) param 'boost_speed' uses unknown variable
+'$boost_speed'`, then the package's transactional admission failed. The archive does carry
+`behavior/variables.json` with `boost_speed` (MP-RULES read the code; Integration's receipt
+`20261122T145159702291Z-authored_bundled_first_run_smoke-3546f99f`).
+
+Cause: `s_compileVehicleGraph` (`port/src/asset_runtime.c`) built the variables' path from the vehicle's MODEL path
+through `s_sourceMemberPath`, which takes everything before the FIRST "::". The bundled samples ship as `.pdmod`
+packages (PR 33), so the vehicle's members sit two archives deep (`pack.pdmod::vehicle.pdvehicle::...`) and the
+lookup named `pack.pdmod::behavior/variables.json`, which does not exist; it then compiled silently with no
+variables. The behavior graph itself loaded, from the catalog row's own full `::` path. Admission and the hydrate
+step both compiled this way. A vehicle archive that is itself the root (dev-mods, the vehicle smokes) has one "::",
+which is why nothing caught it, and `tests/test_maian_hover_vehicle.cpp` hands the variables to the compiler
+directly.
+
+Fix: the variables are the behavior graph's archive's member: the graph's path up to its LAST "::", plus
+`behavior/variables.json` (`assetRuntimeVehicleVariablesPath`); a bare graph member keeps the old sibling-of-the-
+model rule. Admission passes its behavior path and the hydrate step its `dependency_b`. A graph that names a
+`$variable` with no variables file is still refused by the variable's name. The test build now reads an archive
+member path `a::b` as the folder `a/b`, so pd-tests admit the bundled layout through `assetRuntimeVehicleGraphAdmits`
+(`tests/test_asset_runtime_adapters.cpp`, B-1313 case).
+
+Propagation: `s_sourceMemberPath`'s first-"::" rule is the class (a nested archive's sibling member resolved in the
+outermost archive). Its other users take full `::` member paths from the catalog row (the vehicle's physics and
+behavior files, part tables read inside the `.pdmesh` itself), so only the variables lookup was hit; a nested
+package's relative sibling members would be, if any appear.
+
 ## 2026-11-22 B-1311 The offline AI-buddy smoke ended its mission the instant play began, so its gameplay wait never held (T-NETWORKING-007, fixed on week-pd/mp-rules-b1311, found in Integration's finalization run R5)
 
 The first game run of `coop_ai_buddies_offline_smoke` since B-1278 (candidate 3, dev 83d3aeb2, checkout fb107aef)

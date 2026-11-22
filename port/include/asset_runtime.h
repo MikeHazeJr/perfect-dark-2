@@ -176,6 +176,13 @@ const char *assetRuntimeVehicleGraphError(void);
  */
 s32 assetRuntimeVehicleGraphAdmits(const char *model_path, const char *behavior_member,
                                    const char *catalog_id, char *err, size_t err_cap);
+/* B-1313: where a vehicle's behavior/variables.json is: a member of the
+ * archive its behavior graph is in (the graph's path up to its last "::", so
+ * a vehicle nested in a mod package keeps it in its own archive, not the
+ * package's); a bare graph member's variables are the model's sibling, as
+ * the graph is. 0 when the path does not fit. */
+s32 assetRuntimeVehicleVariablesPath(const char *model_path, const char *behavior_path,
+                                     char *out, size_t out_cap);
 /* gamemode-graphs.md slice 2: the compiled program of the hydrated mode
  * archive with this catalog id, or NULL. */
 const mission_graph_program_t *assetRuntimeModeProgram(const char *asset_id);
