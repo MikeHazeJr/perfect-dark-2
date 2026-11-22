@@ -93,6 +93,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./tools/smoke-verify/test-storage-reuse.ps1
 
+      - name: Check the smoke runner's prepare/execute boundary (T-TOOLING-019)
+        shell: pwsh
+        run: |
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/smoke-verify/test-prepare-execute.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./tools/smoke-verify/test-prepare-execute.ps1
+
       - name: Configure (CMake + Ninja)
         run: cmake -G Ninja -B Build .
 

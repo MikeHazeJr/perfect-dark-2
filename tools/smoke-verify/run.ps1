@@ -84,6 +84,26 @@
     For a single-process client smoke, keep its unique visible window focused
     while waiting. Use only for fixtures that exercise real menu input.
 
+.PARAMETER Prepare
+    Stage and verify every selected test's private managed install and
+    fixtures, hand each install to storage with a one-time token, write a
+    prepared-run record and exit. Launches nothing, so it runs outside the
+    game-runtime slot (AGENTS order 7, T-TOOLING-019).
+
+.PARAMETER PreparedRecord
+    With -Prepare: where to write the prepared-run record. Default:
+    .claude/smoke-verify-runs/prepared-<utc>-<id>.json.
+
+.PARAMETER Execute
+    Path of a prepared-run record. Adopts its installs (token, preparer
+    exited, staged content unchanged), launches, tests and tears down. Takes
+    the tests, installs and options from the record. Run it inside the
+    game-runtime slot.
+
+.PARAMETER DiscardPrepared
+    With -Execute: adopt and close every prepared install as not run,
+    launching nothing, so an abandoned batch frees its storage.
+
 .PARAMETER Verbose
     Print every assertion check, not just failures.
 
@@ -136,7 +156,11 @@ param(
     [string]   $OwnedProcessCueExpiresUtc = "",
     [string]   $NativeAssetManifest = "",
     [string]   $StoragePolicy = "",
-    [switch]   $VerboseAssertions
+    [switch]   $VerboseAssertions,
+    [switch]   $Prepare,
+    [string]   $PreparedRecord = "",
+    [string]   $Execute = "",
+    [switch]   $DiscardPrepared
 )
 
 Set-StrictMode -Version Latest
@@ -180,6 +204,24 @@ if ($ReuseInstallId) {
 elseif ($ReusePlan -or $ReuseSeed -or $ReuseBinarySha256 -or $ReuseConsumerBinary -or $ReuseConsumerSha256) { throw 'Reuse parameters require ReuseInstallId.' }
 if ($SourceSeed -and ($Build -or $Install -or $SourceBinary -or $SourceRom)) {
     throw 'SourceSeed requires a frozen batch: omit Build/Install/SourceBinary/SourceRom.'
+}
+# T-TOOLING-019: the prepare/execute boundary. -Prepare stages private
+# installs and fixtures outside the game-runtime slot; -Execute launches them.
+if ($Prepare -and $Execute) { throw 'Prepare and Execute are separate steps; pass one of them.' }
+if (($PreparedRecord -and -not $Prepare) -or ($DiscardPrepared -and -not $Execute)) {
+    throw '-PreparedRecord goes with -Prepare, and -DiscardPrepared with -Execute.'
+}
+if ($Prepare -or $Execute) {
+    if ($Build) { throw 'Prepare/Execute refuse -Build: build first (build FIFO), then prepare with -SourceBinary.' }
+    if ($ReuseInstallId -or $ReusePlan -or $RetainHousekeeping -or $NativeAssetManifest -or
+            $OwnedProcessCueDirectory -or $SharedInstall) {
+        throw 'Prepare/Execute use private managed installs only: omit -ReuseInstallId, -ReusePlan, -RetainHousekeeping, -NativeAssetManifest, -OwnedProcessCueDirectory and -SharedInstall.'
+    }
+}
+if ($Execute -and ($Test -or $Tag -or $AutoSelect -or $Install -or $SourceBinary -or $SourceRom -or
+        $SourceSeed -or $PerTestInstall -or $Keep -or $Timeout -or $StoragePolicy -or
+        $PSBoundParameters.ContainsKey('TestsDir'))) {
+    throw 'Execute takes its tests, installs, sources, timeout, keep and storage policy from the prepared-run record; pass only -Execute (plus -VerboseAssertions or -MaintainForeground).'
 }
 if (-not $TestsDir) { $TestsDir = Join-Path $ScriptDir "tests" }
 
@@ -889,6 +931,7 @@ try {
 $useSharedInstall = $true
 if ($PerTestInstall) { $useSharedInstall = $false }
 if ($Install)        { $useSharedInstall = $false }  # honour explicit -Install
+if ($Prepare)        { $useSharedInstall = $false }  # T-TOOLING-019: one private install per prepared test
 if ($PerTestInstall -and $SharedInstall) {
     Write-Warning "Both -SharedInstall and -PerTestInstall passed; -PerTestInstall wins."
 }
@@ -1547,7 +1590,9 @@ function Invoke-SmokeTestMultiProcess {
         [switch] $VerboseEval,
         [string] $BinaryOverride = "",
         [string] $RomOverride = "",
-        [switch] $Shared
+        [switch] $Shared,
+        [psobject] $PreparedTest = $null,
+        [switch] $PrepareOnly
     )
 
     $name = $Test.Name
@@ -1605,7 +1650,10 @@ function Invoke-SmokeTestMultiProcess {
     }
 
     $installInfo = $null
-    if ($ExistingInstall) {
+    if ($PreparedTest) {
+        # T-TOOLING-019: -Execute adopted the install the prepare step staged.
+        $installInfo = $PreparedTest.InstallInfo
+    } elseif ($ExistingInstall) {
         $installInfo = New-SmokeManagedInstall -ProjectRoot $ProjectRoot -TestName $name `
             -TemplateInstall $ExistingInstall -SourceBinary $BinaryOverride -Target $target
     } elseif ($Shared) {
@@ -1655,7 +1703,13 @@ function Invoke-SmokeTestMultiProcess {
         }
 
         $processInstallInfo = $installInfo
-        if ($separateProcessInstalls) {
+        if ($PreparedTest) {
+            $preparedProcess = @($PreparedTest.ProcessInstalls | Where-Object { $_.Name -ceq $pname })
+            if ($preparedProcess.Count -ne 1) {
+                throw "Prepared-run record holds $($preparedProcess.Count) installs for process '$pname' of '$name'; expected one."
+            }
+            $processInstallInfo = $preparedProcess[0].InstallInfo
+        } elseif ($separateProcessInstalls) {
             $processInstallState = $installState
             $explicitProcessState = $false
             if ($pdef.PSObject.Properties.Match('install_state').Count -gt 0 -and $pdef.install_state) {
@@ -1767,6 +1821,9 @@ function Invoke-SmokeTestMultiProcess {
         }
     }
 
+    # T-TOOLING-019: an adopted (prepared) install was staged by -Prepare;
+    # staging it again would change what the handoff verified.
+    if (-not $PreparedTest) {
     if ($separateProcessInstalls) {
         foreach ($plan in $processPlans) {
             Initialize-MultiProcessSmokeInstall -Definition $def -InstallDir $plan.InstallInfo.InstallDir -Label $plan.Name
@@ -1774,6 +1831,17 @@ function Invoke-SmokeTestMultiProcess {
         }
     } else {
         Initialize-MultiProcessSmokeInstall -Definition $def -InstallDir $installInfo.InstallDir -Label "shared"
+    }
+    }
+    if ($PrepareOnly) {
+        return [PSCustomObject]@{
+            PreparedKind = 'multi'
+            Name = $name
+            Path = $Test.Path
+            InstallInfo = $installInfo
+            ProcessInstalls = @($processPlans | ForEach-Object {
+                [PSCustomObject]@{ Name = $_.Name; InstallInfo = $_.InstallInfo } })
+        }
     }
 
     # B-801 memory-risk control: refuse to launch a live game process when host
@@ -2309,7 +2377,9 @@ function Invoke-SmokeTest {
         [switch] $VerboseEval,
         [string] $BinaryOverride = "",
         [string] $RomOverride = "",
-        [switch] $Shared
+        [switch] $Shared,
+        [psobject] $PreparedTest = $null,
+        [switch] $PrepareOnly
     )
 
     $name = $Test.Name
@@ -2342,7 +2412,9 @@ function Invoke-SmokeTest {
             -VerboseEval:$VerboseEval `
             -BinaryOverride $BinaryOverride `
             -RomOverride $RomOverride `
-            -Shared:$Shared
+            -Shared:$Shared `
+            -PreparedTest $PreparedTest `
+            -PrepareOnly:$PrepareOnly
     }
 
     $installState = "clean"
@@ -2396,7 +2468,10 @@ function Invoke-SmokeTest {
     }
 
     $installInfo = $null
-    if ($ReuseInstallId) {
+    if ($PreparedTest) {
+        # T-TOOLING-019: -Execute adopted the install the prepare step staged.
+        $installInfo = $PreparedTest.InstallInfo
+    } elseif ($ReuseInstallId) {
         Assert-SmokeReuseDefinition -Test $Test
         $originalFixtureHash=(Get-FileHash -LiteralPath $Test.Path -Algorithm SHA256).Hash
         $installInfo = New-SmokeReadOnlyProfile -ProjectRoot $ProjectRoot -InstallId $ReuseInstallId -Seed $ReuseSeed -BinarySha256 $ReuseBinarySha256
@@ -2449,6 +2524,9 @@ function Invoke-SmokeTest {
     # install dir before launching the binary. Optional `fixtures` array
     # in test JSON; entries shaped { src: <repo-relative>, dst: <install-relative> }.
     # Used by future mod_load_smoke / save_roundtrip_smoke / wall_jump_capsule_smoke.
+    # T-TOOLING-019: an adopted (prepared) install was staged by -Prepare;
+    # staging it again would change what the handoff verified.
+    if (-not $PreparedTest) {
     if ($def.PSObject.Properties.Match('remove_paths').Count -gt 0 -and $def.remove_paths) {
         $removeCount = Remove-SmokePaths -InstallDir $installInfo.InstallDir -Paths $def.remove_paths
         if ($removeCount -gt 0) {
@@ -2489,6 +2567,20 @@ function Invoke-SmokeTest {
     if ($def.PSObject.Properties.Match('temporary_recovery_fixtures').Count -gt 0 `
             -and $def.temporary_recovery_fixtures) {
         New-TemporaryRecoveryFixtures -ProjectRoot $ProjectRoot -InstallDir $installInfo.InstallDir
+    }
+    }
+    if ($PrepareOnly) {
+        $preparedExe = Join-Path $installInfo.InstallDir $(if ($installInfo.PSObject.Properties.Match('ExeName').Count -gt 0 -and $installInfo.ExeName) { [string]$installInfo.ExeName } else { 'PerfectDark.exe' })
+        if (-not (Test-Path -LiteralPath $preparedExe -PathType Leaf)) {
+            throw "Prepared install of '$name' has no game binary: $preparedExe"
+        }
+        return [PSCustomObject]@{
+            PreparedKind = 'single'
+            Name = $name
+            Path = $Test.Path
+            InstallInfo = $installInfo
+            ProcessInstalls = @()
+        }
     }
 
     # Resolve timeout
@@ -2984,6 +3076,232 @@ function Invoke-SmokeTest {
 }
 
 # ----------------------------------------------------------------
+# T-TOOLING-019: prepare/execute boundary (Mike's order of 2026-11-20,
+# step 7; AGENTS order 7: the game-runtime slot is for a ready batch only).
+# -Prepare stages every selected test's private install and fixtures,
+# checks each game binary, hands each install to storage with a one-time
+# token and writes a prepared-run record; it launches nothing. -Execute
+# adopts those exact installs (token, preparer exited, staged content
+# unchanged), then launches, tests and tears down as a plain run does.
+# ----------------------------------------------------------------
+
+$script:PreparedRunSchema = 'pd2.smoke.prepared-run.v1'
+
+function Get-SmokeRunnerFingerprint {
+    # The runner, its libraries and the storage backend. A record prepared by
+    # different code is refused, so prepare and execute always agree.
+    $files = @((Join-Path $ScriptDir 'run.ps1'), (Join-Path $ScriptDir 'storage.py')) +
+        @(Get-ChildItem -LiteralPath $LibDir -Filter '*.ps1' -File | Sort-Object Name | ForEach-Object { $_.FullName })
+    $lines = foreach ($file in $files) {
+        '{0}:{1}' -f (Split-Path -Leaf $file), (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant()
+    }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return -join ($sha.ComputeHash([Text.Encoding]::UTF8.GetBytes(($lines -join "`n"))) | ForEach-Object { $_.ToString('x2') }) }
+    finally { $sha.Dispose() }
+}
+
+function ConvertTo-SmokePreparedInstallRecord {
+    param([Parameter(Mandatory)] [psobject] $Info)
+    $record = [ordered]@{}
+    foreach ($property in $Info.PSObject.Properties) {
+        $value = $property.Value
+        if ($null -eq $value -or $value -is [string] -or $value -is [ValueType]) { $record[$property.Name] = $value }
+    }
+    return [PSCustomObject]$record
+}
+
+function Get-SmokePreparedInstalls {
+    # Every distinct managed install of a prepared test (a shared multi-process
+    # install appears once).
+    param([Parameter(Mandatory)] [psobject] $Prepared)
+    $seen = @{}
+    foreach ($info in @($Prepared.InstallInfo) + @($Prepared.ProcessInstalls | ForEach-Object { $_.InstallInfo })) {
+        if ($info -and -not $seen.ContainsKey([string]$info.StorageId)) {
+            $seen[[string]$info.StorageId] = $true
+            $info
+        }
+    }
+}
+
+function Close-SmokePreparedInstall {
+    # Close an install this process owns without running it (prepare failed,
+    # or -Execute -DiscardPrepared). Storage keeps its reconstructable receipt.
+    param([Parameter(Mandatory)] [psobject] $Info, [Parameter(Mandatory)] [string] $DefinitionPath,
+          [Parameter(Mandatory)] [string] $Reason)
+    try {
+        [void](Complete-SmokeManagedInstall -ProjectRoot $ProjectRoot -InstallInfo $Info -DefinitionPath $DefinitionPath `
+            -Passed $false -Keep $false -Outcome @{ not_run = $true; reason = $Reason })
+        Write-Info ("  closed without a run: {0}" -f $Info.StorageId)
+    } catch {
+        Write-Warn ("  could not close prepared install {0}: {1}" -f $Info.StorageId, $_.Exception.Message)
+    }
+}
+
+function Invoke-SmokePrepareBatch {
+    param([Parameter(Mandatory)] [object[]] $Selected)
+    foreach ($t in $Selected) {
+        if ($t.Definition.PSObject.Properties.Match('required_install_layout').Count -gt 0) {
+            if ([string]$t.Definition.required_install_layout -ne 'per-test') {
+                throw "Smoke test '$($t.Name)' has unsupported required_install_layout '$($t.Definition.required_install_layout)'."
+            }
+            if ($Install) {
+                throw "Smoke test '$($t.Name)' requires a per-test install; -Install cannot supply its path-length contract."
+            }
+        }
+    }
+    $token = [guid]::NewGuid().ToString('N') + [guid]::NewGuid().ToString('N')
+    $prepared = New-Object 'System.Collections.Generic.List[object]'
+    $handoffs = @{}
+    try {
+        foreach ($t in $Selected) {
+            $output = @(Invoke-SmokeTest -Test $t -ExistingInstall $Install -KeepOnSuccess:$Keep `
+                -TimeoutOverride $Timeout -VerboseEval:$VerboseAssertions -BinaryOverride $SourceBinary `
+                -RomOverride $SourceRom -Shared:$false -PrepareOnly)
+            $candidates = @($output | Where-Object {
+                $_ -and $_.PSObject -and $_.PSObject.Properties.Match('PreparedKind').Count -gt 0 })
+            if ($candidates.Count -ne 1) {
+                throw "Smoke test '$($t.Name)' prepared $($candidates.Count) records; expected exactly one."
+            }
+            $prepared.Add($candidates[0])
+        }
+        foreach ($p in $prepared) {
+            foreach ($info in @(Get-SmokePreparedInstalls -Prepared $p)) {
+                $handoffs[[string]$info.StorageId] = Register-SmokePreparedInstall -ProjectRoot $ProjectRoot -InstallInfo $info -Token $token
+            }
+        }
+        $tests = foreach ($p in $prepared) {
+            $exeLeaf = if ($p.InstallInfo.PSObject.Properties.Match('ExeName').Count -gt 0 -and $p.InstallInfo.ExeName) { [string]$p.InstallInfo.ExeName } else { 'PerfectDark.exe' }
+            [ordered]@{
+                name = $p.Name
+                path = [IO.Path]::GetFullPath($p.Path)
+                definition_sha256 = (Get-FileHash -LiteralPath $p.Path -Algorithm SHA256).Hash.ToLowerInvariant()
+                kind = $p.PreparedKind
+                binary_sha256 = (Get-FileHash -LiteralPath (Join-Path $p.InstallInfo.InstallDir $exeLeaf) -Algorithm SHA256).Hash.ToLowerInvariant()
+                install = ConvertTo-SmokePreparedInstallRecord -Info $p.InstallInfo
+                processes = @($p.ProcessInstalls | ForEach-Object {
+                    [ordered]@{ name = $_.Name; install = (ConvertTo-SmokePreparedInstallRecord -Info $_.InstallInfo) } })
+            }
+        }
+        $record = [ordered]@{
+            schema = $script:PreparedRunSchema
+            created_utc = (Get-Date).ToUniversalTime().ToString('o')
+            prepared_by_pid = $PID
+            project_root = $ProjectRoot
+            storage_root = (Get-SmokeStorageRoot -ProjectRoot $ProjectRoot)
+            runner_fingerprint = (Get-SmokeRunnerFingerprint)
+            tests_dir = [IO.Path]::GetFullPath($TestsDir)
+            token = $token
+            options = [ordered]@{ keep = [bool]$Keep; timeout = $Timeout; storage_policy = $StoragePolicy
+                source_binary = $SourceBinary; source_rom = $SourceRom; install_template = $Install }
+            tests = @($tests)
+            installs = @($handoffs.Keys | Sort-Object | ForEach-Object {
+                $h = $handoffs[$_]
+                [ordered]@{ storage_id = $_; content_sha256 = $h.ContentSha256; files = $h.Files; bytes = $h.Bytes } })
+        }
+        $path = $PreparedRecord
+        if (-not $path) {
+            $path = Join-Path $RunRoot ("prepared-{0:yyyyMMddTHHmmssZ}-{1}.json" -f (Get-Date).ToUniversalTime(), $token.Substring(0, 8))
+        }
+        $path = [IO.Path]::GetFullPath($path)
+        if (Test-Path -LiteralPath $path) { throw "Prepared-run record already exists: $path" }
+        [IO.Directory]::CreateDirectory((Split-Path -Parent $path)) | Out-Null
+        [IO.File]::WriteAllText($path, ($record | ConvertTo-Json -Depth 12), (New-Object Text.UTF8Encoding($false)))
+    } catch {
+        $failure = $_
+        foreach ($p in $prepared) {
+            foreach ($info in @(Get-SmokePreparedInstalls -Prepared $p)) {
+                Close-SmokePreparedInstall -Info $info -DefinitionPath $p.Path -Reason ('prepare failed: ' + $failure.Exception.Message)
+            }
+        }
+        throw $failure
+    }
+    Write-Host ""
+    Write-Ok ("Prepared {0} test(s), {1} install(s); nothing launched." -f $prepared.Count, $handoffs.Count)
+    Write-Info ("Prepared-run record: {0}" -f $path)
+    Write-Info ("Inside the game-runtime slot run: run.ps1 -Execute `"{0}`"" -f $path)
+    return $path
+}
+
+function Invoke-SmokePreparedRun {
+    param([Parameter(Mandatory)] [string] $RecordPath, [switch] $Discard)
+    $recordFile = [IO.Path]::GetFullPath($RecordPath)
+    $record = Get-Content -LiteralPath $recordFile -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($record.schema -cne $script:PreparedRunSchema) { throw "Not a prepared-run record ($script:PreparedRunSchema): $recordFile" }
+    if (-not [string]::Equals(([IO.Path]::GetFullPath([string]$record.project_root)).TrimEnd('\'),
+            ([IO.Path]::GetFullPath($ProjectRoot)).TrimEnd('\'), [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Prepared-run record belongs to another checkout: $($record.project_root)"
+    }
+    if ($record.runner_fingerprint -cne (Get-SmokeRunnerFingerprint)) {
+        throw 'The smoke runner, its libraries or storage.py changed since this record was prepared; prepare again.'
+    }
+    if ($record.options.storage_policy) { Initialize-SmokeStoragePolicy -Path ([string]$record.options.storage_policy) }
+    $all = @(Get-SmokeTests -Dir ([string]$record.tests_dir))
+    $results = @()
+    $discardFailures = 0
+    $mode = if ($Discard) { 'discarding' } else { 'executing' }
+    Write-Info ("Prepared-run record {0}: {1} {2} test(s)." -f $recordFile, $mode, @($record.tests).Count)
+    foreach ($entry in @($record.tests)) {
+        $found = @($all | Where-Object { [string]::Equals([IO.Path]::GetFullPath($_.Path), [string]$entry.path, [StringComparison]::OrdinalIgnoreCase) })
+        if ($found.Count -ne 1 -and -not $Discard) { throw "Prepared test '$($entry.name)' is not in $($record.tests_dir) any more." }
+        $prepared = [PSCustomObject]@{
+            PreparedKind = [string]$entry.kind
+            Name = [string]$entry.name
+            Path = [string]$entry.path
+            InstallInfo = $entry.install
+            ProcessInstalls = @(@($entry.processes) | Where-Object { $_ } | ForEach-Object {
+                [PSCustomObject]@{ Name = [string]$_.name; InstallInfo = $_.install } })
+        }
+        $adopted = @()
+        try {
+            foreach ($info in @(Get-SmokePreparedInstalls -Prepared $prepared)) {
+                $answer = Receive-SmokePreparedInstall -ProjectRoot $ProjectRoot -StorageId ([string]$info.StorageId) -Token ([string]$record.token)
+                if (-not [string]::Equals([IO.Path]::GetFullPath($answer.InstallDir), [IO.Path]::GetFullPath([string]$info.InstallDir), [StringComparison]::OrdinalIgnoreCase)) {
+                    throw "Adopted install $($info.StorageId) is not where the record says."
+                }
+                $adopted += $info
+            }
+        } catch {
+            $failure = $_
+            foreach ($info in $adopted) { Close-SmokePreparedInstall -Info $info -DefinitionPath $prepared.Path -Reason ('adoption failed: ' + $failure.Exception.Message) }
+            if (-not $Discard) { throw $failure }
+            # Discarding goes on: an install that cannot be adopted (already
+            # run, released, or changed) stays as storage left it.
+            Write-Warn ("  not discarded, {0}: {1}" -f $entry.name, $failure.Exception.Message)
+            $discardFailures++
+            continue
+        }
+        if ($Discard) {
+            foreach ($info in $adopted) { Close-SmokePreparedInstall -Info $info -DefinitionPath $prepared.Path -Reason 'prepared batch discarded' }
+            continue
+        }
+        if ((Get-FileHash -LiteralPath $prepared.Path -Algorithm SHA256).Hash.ToLowerInvariant() -cne [string]$entry.definition_sha256) {
+            foreach ($info in $adopted) { Close-SmokePreparedInstall -Info $info -DefinitionPath $prepared.Path -Reason 'fixture changed since prepare' }
+            throw "Fixture '$($entry.name)' changed since it was prepared; prepare again."
+        }
+        $invokeOutput = @(Invoke-SmokeTest -Test $found[0] -KeepOnSuccess:([bool]$record.options.keep) `
+            -TimeoutOverride ([int]$record.options.timeout) -VerboseEval:$VerboseAssertions `
+            -BinaryOverride ([string]$record.options.source_binary) -RomOverride ([string]$record.options.source_rom) `
+            -PreparedTest $prepared)
+        $resultCandidates = @($invokeOutput | Where-Object {
+            $_ -and $_.PSObject -and
+            $_.PSObject.Properties.Match('Passed').Count -gt 0 -and
+            $_.PSObject.Properties.Match('AssertionsTotal').Count -gt 0
+        })
+        if ($resultCandidates.Count -ne 1) {
+            throw "Smoke test '$($entry.name)' emitted $($resultCandidates.Count) typed result objects; expected exactly one."
+        }
+        $results += $resultCandidates[0]
+    }
+    if ($Discard) {
+        Write-Info ("Discarded the prepared installs of {0} test(s); {1} could not be adopted." -f (@($record.tests).Count - $discardFailures), $discardFailures)
+        if ($discardFailures) { throw "$discardFailures prepared test(s) could not be discarded; see the warnings above." }
+    }
+    # One typed result per executed test, each on the pipeline (the caller
+    # keeps only typed results, as the plain run does: B-1029).
+    foreach ($r in $results) { $r }
+}
+
+# ----------------------------------------------------------------
 # Optional: queued build first
 # ----------------------------------------------------------------
 
@@ -3015,6 +3333,19 @@ if ($Build) {
         }
     }
 }
+
+# T-TOOLING-019: -Execute runs exactly the tests and installs of its
+# prepared-run record; discovery, selection and staging happened at -Prepare.
+$results = @()
+if ($Execute) {
+    $results = @(Invoke-SmokePreparedRun -RecordPath $Execute -Discard:$DiscardPrepared | Where-Object {
+        $_ -and $_.PSObject -and
+        $_.PSObject.Properties.Match('Passed').Count -gt 0 -and
+        $_.PSObject.Properties.Match('AssertionsTotal').Count -gt 0
+    })
+    if ($DiscardPrepared) { exit 0 }
+}
+if (-not $Execute) {
 
 # ----------------------------------------------------------------
 # Discover + select
@@ -3074,6 +3405,12 @@ if ($useSharedInstall) {
     Write-Info ("Install mode: private managed install ({0})" -f (Join-Path (Get-SmokeStorageRoot -ProjectRoot $ProjectRoot) 'installs'))
 }
 
+if ($Prepare) {
+    # T-TOOLING-019: stage and hand off; launch nothing.
+    [void](Invoke-SmokePrepareBatch -Selected $selected)
+    exit 0
+}
+
 $results = @()
 foreach ($t in $selected) {
     $testSharedInstall = $useSharedInstall
@@ -3111,6 +3448,7 @@ foreach ($t in $selected) {
     }
     $results += $resultCandidates[0]
 }
+}  # end of the plain (non -Execute) discovery, selection and run
 
 # ----------------------------------------------------------------
 # Summary
