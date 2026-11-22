@@ -587,6 +587,83 @@ Mauler's arithmetic and a five-steps-a-frame charge),
 `tests/test_weapon_graph_editor_io.cpp` (validation by asset id),
 `tools/tests/test_projectile_program_conformance.py` (`test_charge_and_cook`).
 
+## Slice 6 plan: the target filter (Core Weapons, 2026-11-22, before code)
+
+Source: the audit's "A rocket that tracks vehicles but not players" and its
+eight pickers, read again at dev b66065f8 (every picker still exists; only
+their lines moved).
+
+**Mike's example.** A launcher whose held graph locks one target through the
+filter "Enemy vehicles" (kinds: vehicle, any or occupied only; relation
+enemy; alive; visible; line of sight; up to the launcher's lock range) while
+aiming, and hands the lock to its rocket; the rocket homes on it through the
+same filter, re-checked in flight, and flies straight when it fails. The
+rider is a separate player prop, so the bike is locked, never the rider;
+under "any" a bike its rider left stays a target, under "occupied only" the
+rocket drops it.
+
+**The pickers today** (file:line at b66065f8):
+
+| # | Picker | What it filters on |
+|---|---|---|
+| 1 | Auto-aim (`autoaimTick` prop.c:3245, `chrCalculateAutoAim` chr.c:5889, `func0f06438c` prop.c:3053) | on-screen chr or other player, not a friend, armed or force-flagged, not dying, drugged, dead or no-autoaim, cloaked only with IR, coop partners out, central box, line of sight; no range, no objects |
+| 2 | Farsight auto-target (`farsightChooseTarget` prop.c:3191) | every chr: not unexplodable, friend, dying, drugged or cloaked; best facing; no range or line of sight |
+| 3 | What you look at (`lvRender` lv.c:1912, `propFindAimingAt`) | chrs and players unless cloaked without IR; objects only with react-to-sight, not destroyed |
+| 4 | Lock-on (`sightCanTargetProp` sight.c:135, `sightTick` sight.c:222, `lvUpdateTrackedProp` lv.c:1141) | what you look at, the rocket launcher 1 slot, follow-lock 4; drops self, dead chrs, doors, eyespies |
+| 5 | Homing (`bgunCreateFiredProjectile` bondgun.c:6446, `projectileTick` propobj.c:8724) | the lock at fire time; never re-checked |
+| 6 | The bot Slayer (`rocketTickFbw` propobj.c:7955, 8096) | MP enemy of the owner, alive, not invisible, within 250 |
+| 7 | Proximity (`weaponTick` propobj.c:6095, `coordTriggerProxiesFor` 21817, `bgunModProxyDecision` bondgun_mod.c:1826) | the player of the tick within 250, or a moving object; mod mines: owner, team, hostile only |
+| 8 | Sentries and autoguns (`autogunTick` propobj.c:10869, `laptopDeploy` 22056) | team mask, chrs and players, range, 140-degree wake cone, yaw limits, line of sight |
+
+**The plan, in the slices' pattern:**
+
+- **6a. One filter, native for every picker.** A header-only table
+  (`port/include/target_filter.h`, linked into pd-tests): `target_filter_t`
+  (kinds: player, simulant, guard, vehicle with any or occupied only, sentry,
+  object with react-to-sight; relation to the owner: enemy, friend, anyone,
+  owner only, not owner; alive; visibility: visible, cloaked, cloaked with
+  IR; line of sight; range; cone) and `targetFilterAccepts` over a
+  candidate's facts (its kind, its relation, alive, cloaked, the viewer's IR,
+  line of sight, distance, angle, occupied). Each picker keeps its own search
+  (the screen box, the wake cone's yaw limits, the facing score) and asks
+  the filter where it tested kinds, teams and states inline, with the
+  original's filter as its native one; pd-tests compare each native filter
+  with a copy of the picker's inline conditions over every combination of
+  facts.
+- **6b. The filter on programs.** `og.weapon.lock_on` (held: lock type,
+  locks, filter, while aiming) replaces the rocket launcher's and the
+  CMP150's lock by weapon number; `og.projectile.home` takes `filter` and
+  `lost` (fly straight, keep the last point, re-target) and re-checks while
+  it flies (the record's `target_filter` and `retarget_policy`, parsed and
+  read nowhere today, become its settings); the proximity event carries the
+  candidate prop (`projectile_rule_context_t`) so a program's filter can
+  read it. The module word widens to 64 bits first (it is full).
+- **6c. Vehicles lockable.** The lock accepts a vehicle when its filter's
+  kinds have one (a hoverbike has no react-to-sight flag), the seat read
+  through `vehicleGraphRuntimeSeatOccupant`; Mike's example becomes a sample
+  weapon and a smoke for Integration.
+- **An empty vehicle's relation.** A vehicle's relation is its rider's; an
+  empty one is nobody's friend, so it passes "enemy" and "anyone" and fails
+  "friend" and "owner only" (Mike's "the bike stays a target under any").
+
+**6a as written so far (2026-11-22, `week-pd/core-weapons-w6`):** the filter
+(`port/include/target_filter.h`: kinds, things that must react to sight, the
+CI training targets, occupied vehicles, relation, alive, cloaks) and its
+first two pickers. `lvRender`'s look and `sightCanTargetProp`'s lock read a
+prop's facts (`sightTargetFacts`, sight.c) and ask their native filters; the
+rocket launcher's "locks whatever is looked at" is the lock table's answer
+for its weapon number. pd-tests compare both with copies of the inline tests
+as they stood, over 160 combinations of facts (the comparison caught a
+sentry that does not react to sight, which the first draft let through).
+Then the Farsight (`farsightChooseTarget`): its auto-target asks the
+Farsight's native filter (an enemy character or another player, alive and
+awake, not cloaked even through the IR scanner, not unexplodable; every other
+gun has none, so the Farsight's number is the table's), with the facts
+gaining the relation (owner, friend through `chrCompareTeams`, else enemy),
+alive, drugged and unexplodable; compared over 576 combinations. Homing's
+native filter takes anything (it never re-checks), so it waits for 6b.
+Next: auto-aim, the bot Slayer, proximity and sentries.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.

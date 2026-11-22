@@ -6,6 +6,10 @@
 
 bool sightIsPropFriendly(struct prop *prop);
 bool sightCanTargetProp(struct prop *prop, s32 max);
+/* held-weapon-events.md slice 6a: a prop's facts for the target filter
+ * (target_filter.h), as the current player sees it. */
+struct target_facts;
+void sightTargetFacts(struct prop *prop, struct target_facts *out);
 bool sightIsReactiveToProp(struct prop *prop);
 s32 sightFindFreeTargetIndex(s32 max);
 void func0f0d7364(void);
