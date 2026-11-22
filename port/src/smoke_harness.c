@@ -142,6 +142,10 @@
  *        each frame's look input (bmoveTick). Logs SMOKE.AIM begin (los, the
  *        eye and the point), override, lost and end (held_ms, on_target_ms:
  *        the time the look picker, which the lock takes from, chose it).
+ *        An override is any change of the view between two aim frames,
+ *        whatever made it: look input, or the game's own (Look Ahead
+ *        re-centring the pitch while walking, which aim mode turns off). A
+ *        smoke that forbids overrides keeps player 0 still or aiming.
  *
  *   { "at_ms": N, "type": "catalog_weapon_acquire", "path": "mod:id" }
  *   { "at_ms": N, "type": "catalog_weapon_release", "path": "mod:id" }
@@ -563,6 +567,9 @@ static s32 smokeAimPick(const SmokeEvent *ev, SmokeAim *aim)
     if (ev->aim_kind == SMOKE_FIXTURE_AIM_VEHICLE) {
         struct prop *prop;
 
+        /* The active props run on into the paused ones (activepropstail's
+         * next is pausedprops, prop.c), so a vehicle in a paused room is a
+         * candidate too. */
         for (prop = g_Vars.activeprops; prop != NULL; prop = prop->next) {
             struct target_facts facts;
             f32 dx;
@@ -675,8 +682,10 @@ void smokeHarnessAimApply(void)
         smokeAimEnd("lost");
         return;
     }
-    /* Integration's point 4: this frame's look input moved the view the aim
-     * set; the aim wins, and the first time it is logged. */
+    /* Integration's point 4: the view moved since the aim set it, and the
+     * aim wins; the first time is logged. What moved it is not told apart:
+     * this frame's look input, or the game's own view change (Look Ahead
+     * re-centring the pitch while walking, off in aim mode). */
     if (s_SmokeAim.frames > 0) {
         const f32 dtheta = player->vv_theta - s_SmokeAim.theta;
         const f32 dverta = player->vv_verta - s_SmokeAim.verta;

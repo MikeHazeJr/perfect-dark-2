@@ -1094,7 +1094,9 @@ or bot slot i) and holds player 0's view on its body centre, from the camera, fo
 applied by `smokeHarnessAimApply` right after `bmoveProcessInput` in `bmoveTick`, only for player 0's own
 tick and never in a cutscene, so the look input of the frame cannot fight it and the movement tick
 refreshes the trig. Its logs say why a lock did not come: `SMOKE.AIM: begin` (los, the eye and the
-point), `override` (look input it replaced), `lost` (the target died or went), and `end` (`held_ms`,
+point), `override` (a view change it replaced: look input, or the game's own, such as Look Ahead re-centring
+the pitch while walking, which aim mode turns off; a smoke that forbids it keeps the player still or
+aiming), `lost` (the target died or went), and `end` (`held_ms`,
 `on_target_ms`: the time the look picker, which the lock takes from, chose the target). The B-1135
 schedule bound counts an aim to `at_ms + duration_ms`.
 
