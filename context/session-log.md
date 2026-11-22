@@ -165,6 +165,24 @@ ledge and tabletop landings are unproven (Mike's call if they must pass first). 
 Pattern SP-101. Integration holds G1 to G4 (everything with simulant movement) for the rerun; base 15 stays
 (no data change). Lesson: D-052 went on by default with only its own feature smokes listed; an option that
 changes every simulant's movement needs the ordinary mode smokes before it is the default.
+Then (2026-11-22, 12:00 to 17:00 UTC) the rest of finalization. **B-1311** (PR 52, dev 11cb964d, fixture only): the
+offline AI-buddy smoke's `--debug-end-mission 40` counted Defection's intro, so the mission ended the instant play
+began; it now ends at 100 s. **B-1312** (PR 53, dev 1e9c6a34, candidate 3b): a co-op mission started from the solo
+Room ran under the Room's menu input layer whenever the Room owned it, which by the code is the case after a Combat
+Simulator match in that Room. Every gameplay control was then dead for the whole mission. `pdguiRoomStartOfflineCoop`
+was the one gameplay start that released no menu-pool slot (`mpStartMatch` covers Combat, B-1076), and the Room's
+slot is PC-only, so the per-frame watchdog never reclaims it. That start now releases the pool after its mission
+start and checks the stage archive first; both solo Room starts release `MENU_TYPE_ROOM` before they close the Room.
+Integration's R11 proved it (`coop_ai_buddies_offline_smoke` 42/42 on 3b). v0.1.106 shipped at 16:47 UTC from
+candidate 3c (my PRs 45, 47, 48, 50, 52 and 53), with my lane's release-note lines. After the cut **B-1310** landed
+(PR 51, dev 26505f13, candidate 4 with Core Weapons' PRs 44 and 49). Before it merged, its merge with dev built and
+passed full pd-tests, and dev's tree is that tested tree. I also traced Modding's B-1313 (the bundled Maian Hover's
+variables) from the code for Integration. Done: Mike's six items except slice 6; every lane PR is on dev. Open:
+candidate 4's G2 reruns (the four ledge and tabletop smokes, with `coop_ai_buddies_offline_smoke` and the six local
+modes as checks), and online Load Preset between two machines (N-1199). Next, Mike's decisions: D-055 (slice 6, a
+mod's own mode), D-054 (a custom level's own text), D-056 (host-set teams for online Quick Start). Lessons: a push to
+a held PR cancels its CI run too, so PR 53 waited a full run when its hold lifted; the hub's `wait-turn` waits for the
+Git lane in the background.
 
 2026-11-20 MULTIPLAYER, 16:40 to 18:44 UTC. Repo cleanup on Mike's order (Codex disabled, the
 week sessions archived): push and merge all PD work, fix collisions, clean up before fresh sessions
