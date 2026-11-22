@@ -677,8 +677,26 @@ the native filter (a character or another player who is not a friend and is
 armed: holding or carrying a gun, or flagged for auto-aim), and
 `chrCalculateAutoAim` keeps testing the state, the cloak and the screen (its
 state and cloak tests join the filter with the CMP150's lock-on branch).
-Next: proximity, where the projectile programs' gates already answer, and the
-mod mines' filters (`bgunModProxyDecision`).
+Proximity stays as it is in 6a: a base mine already decides through its
+program's gates (`trigger_close`, `trigger_character`, projectile slice 4),
+and a mod mine's filters (`bgunModProxyDecision`) are its record's (owner
+excluded or only, enemies only, objects ignored), not weapon numbers, with
+three answers (trigger, ignore, or the rule's) and one quirk to keep (with
+"enemies only" and no owner filter, the owner sets off its own mine). They
+move with 6b, when the proximity event carries its candidate and a program
+chooses its filter. So 6a ends with six of the eight on the filter: look,
+lock, the Farsight, the bot Slayer, sentries and auto-aim; homing and
+proximity are 6b's.
+
+**6b, as planned now.** No new module bits are needed: the filter is
+settings. `og.projectile.home` takes the filter's settings (`kinds`,
+`vehicles` any or occupied, `relation`, `alive`, `cloaked`, `line_of_sight`,
+`range`) and `lost` (fly straight, as Mike's example; the original never
+re-checks, so a base program's home writes none and keeps that), parsed by
+one function in `target_filter.h` that the held lock uses too; a held
+`og.weapon.lock_on` (weapon module bit 16: `style` rocket or follow, `locks`,
+the filter) replaces the aim settings' track type and the rocket
+launcher's number; the launch hands the lock to its object as today.
 
 ## Smokes for Integration's finalization batch
 
