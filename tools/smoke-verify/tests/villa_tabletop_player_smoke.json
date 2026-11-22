@@ -29,7 +29,8 @@
     "required_lines": [
       "SMOKE: scenario=villa_tabletop_player_smoke",
       "BOOT: --launch-mp-room direct match start",
-      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready"
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
+      "SMOKE\\.TABLETOP: phase=release stage=walk_off "
     ],
     "required_sequences": [
       {
@@ -40,6 +41,7 @@
           "SMOKE\\.TABLETOP: phase=place actor=player .* room=17 feet=-?[0-9]+\\.",
           "JUMP: APPLIED impulse=",
           "SMOKE\\.TABLETOP: phase=takeoff",
+          "SMOKE\\.TABLETOP: phase=release stage=approach ",
           "SMOKE\\.TABLETOP: phase=land .* room=17 feet=-?[0-9]+\\..* support=table",
           "SMOKE\\.TABLETOP: phase=stay .* room=17 feet=-?[0-9]+\\..* support=table",
           "SMOKE\\.TABLETOP: phase=turn actor=player theta=180\\.0",

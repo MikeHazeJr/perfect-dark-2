@@ -106,6 +106,29 @@ Fix in progress on week-pd/mp-rules (needs a new candidate):
 Still open until all four pass on a candidate. Whether these proofs gate the release is Mike's call. Until they
 pass, D-052's ledge and tabletop landings are unproven in play.
 
+Candidate 4 (dev 26505f13, base 16), Integration's R16: PR 51's fix took effect (the player moves), and all four
+failed in new ways. Three of them landed correctly, and the harness or fixture misjudged the landing:
+- `complex_ledge_player_smoke`: the player landed on the ledge (feet = ground = 551, settled) at z -423 and came
+  to rest at z -386, past the window (z -628 to -500). The fixture held forward from 735 to 1290 ms, about 33 frames.
+  The speed approaches about 8 units a frame and coasts down by about 0.93 a frame, so the player travelled about
+  314 units where the window needs about 140.
+- `complex_ledge_simulant_smoke`: it jumped (`OBST dy=39`), landed on the ledge at z -586, inside the window, and
+  stood at x -1431.4, 39.4 off the lane's line. A HOLD is `MA_AIBOTDEFEND`, which treats 40 units on an axis as at
+  post (`xdist > 40 || zdist > 40`), and the lane allowed 30, so `settled` stayed 0.
+- `villa_tabletop_player_smoke`: the same overshoot. It flew over the 84-unit table at feet about -178 and landed on
+  the floor at z 2521. `peak_feet=0.00`: the peak started at the struct's 0, and Villa's heights are all negative.
+- `villa_tabletop_simulant_smoke`: `takeoff_missing`, with no sample at all. From the code, a hold whose goal shares
+  the simulant's nearest waypoint gets no route: `chrGoToRoomPos` sets `ACT_GOPOS` only when `navFindRoute` returns
+  more than one waypoint. The goal is 98 units away on a 64-unit prop. With no route, `MA_AIBOTDEFEND` stands, and a
+  jump is only evaluated while moving. Complex's goal is 140 away and 39 up, and had a route. To be confirmed by the
+  next run's approach samples. If confirmed, the smoke cannot pass as designed, because D-052 has no jump-aware
+  routing: a decision for Mike.
+Fix (harness and fixtures): a simulant's lane allows its hold's post (44 units). The peak starts at takeoff. The
+harness releases the player's move axis once its coast (13.3 frames of the current speed) would stop it at the
+fixture's goal, for the jump and for the walk-off (`phase=release`), and logs predicted against actual
+(`phase=coast`). The scripted releases stay as a backstop. Every 10 frames before takeoff, a sample
+(`approach`, with a simulant's `routed` and route end). Tests: `[b1310]` in `tests/test_jump_two_stage_design.cpp`.
+
 ## 2026-11-22 B-1311 The offline AI-buddy smoke ended its mission the instant play began, so its gameplay wait never held (T-NETWORKING-007, fixed on week-pd/mp-rules-b1311, found in Integration's finalization run R5)
 
 The first game run of `coop_ai_buddies_offline_smoke` since B-1278 (candidate 3, dev 83d3aeb2, checkout fb107aef)
