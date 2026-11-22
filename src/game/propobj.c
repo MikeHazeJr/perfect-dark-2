@@ -109,6 +109,7 @@ extern void statIncrement(const char *key, u64 amount);
 #include "weapondata_authored.h"
 #include "projectile_events.h"
 #include "target_filter.h"
+#include "game/sight.h"
 #include "projectile_rules.h"
 #include <stdio.h>
 
@@ -8774,6 +8775,20 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 					struct coord sp2f8 = {0, 0, 0};
 					struct coord sp2ec = {0, 0, 1};
 					struct coord sp2e0 = {0, 1, 0};
+
+					/* held-weapon-events.md slice 6b: og.projectile.home's
+					 * filter, re-checked while it flies; a target that fails it
+					 * is lost and the rocket flies straight. The original's home
+					 * names none and never re-checks. */
+					if (projectile->targetprop && flightset->home_filtered) {
+						target_facts_t homefacts;
+
+						sightTargetFactsFor(projectile->targetprop, projectile->ownerprop, 0, &homefacts);
+
+						if (!targetFilterAccepts(&flightset->home_filter, &homefacts)) {
+							projectile->targetprop = NULL;
+						}
+					}
 
 					if (obj && obj->prop && projectile->targetprop) {
 						Mtxf mtx;

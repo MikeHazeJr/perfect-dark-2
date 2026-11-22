@@ -421,6 +421,34 @@ class FlightRule(unittest.TestCase):
         self.assertTrue(any("has no effect on" in m for m in messages), messages)
 
 
+class HomeFilter(unittest.TestCase):
+    """Held slice 6b: og.projectile.home's target filter settings."""
+
+    def _program(self, module: dict) -> dict:
+        return {
+            "schema": "pd.projectile_graph.v2", "asset_id": "base:test__projectile", "graph_id": "flight",
+            "nodes": [{"id": "flight", "kind": "event.projectile.in_flight"}, dict(module, id="flight_home")],
+            "edges": [{"from": "flight", "output": "out", "to": "flight_home", "input": "exec"}],
+        }
+
+    def test_mikes_enemy_vehicles(self):
+        self.assertEqual(conf.validate_projectile_graph_program("test", self._program(
+            {"kind": "og.projectile.home", "kinds": "vehicle", "vehicles": "occupied", "relation": "enemy",
+             "alive": True, "cloaked": "never", "lost": "straight"})), [])
+        self.assertEqual(conf.validate_projectile_graph_program("test", self._program(
+            {"kind": "og.projectile.home"})), [])
+
+    def test_malformed(self):
+        for module, why in (({"kind": "og.projectile.home", "kinds": "tank"}, "needs kinds player"),
+                            ({"kind": "og.projectile.home", "relation": "rival"}, "needs relation anyone"),
+                            ({"kind": "og.projectile.home", "alive": "yes"}, "needs alive true or false"),
+                            ({"kind": "og.projectile.home", "lost": "spiral"}, "needs lost straight")):
+            with self.subTest(module=module):
+                messages = conf.validate_projectile_graph_program("test", self._program(module))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+
+
 class Archives(unittest.TestCase):
     def rebuilt(self, relative: str, graph_edit) -> bytes:
         """The example archive with its behavior.graph.json edited."""

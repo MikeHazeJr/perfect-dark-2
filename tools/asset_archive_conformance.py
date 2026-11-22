@@ -2219,7 +2219,17 @@ PROJECTILE_GRAPH_FLIGHT_SETTINGS = {
                             "while": (("flying", "moving"), "flying or moving")},
     "og.projectile.hit_sound": {"sound": (("knife", "pinball"), "knife or pinball")},
     "og.projectile.bounce_smoke": {"smoke": (PROJECTILE_GRAPH_SMOKES, "rocket, homing, grenade or pinball")},
+    # Held slice 6b: the homing rocket's target filter, re-checked while it flies.
+    "og.projectile.home": {"kinds": ("kinds", "player, simulant, guard, vehicle, sentry, object, characters, "
+                                              "things or all, separated by commas"),
+                           "vehicles": (("any", "occupied"), "any or occupied"),
+                           "relation": (("anyone", "enemy", "friend", "owner"), "anyone, enemy, friend or owner"),
+                           "alive": ((True, False), "true or false"),
+                           "cloaked": (("never", "with_ir", "always"), "never, with_ir or always"),
+                           "lost": (("straight",), "straight")},
 }
+PROJECTILE_GRAPH_TARGET_KINDS = ("player", "simulant", "guard", "vehicle", "sentry", "object",
+                                 "characters", "things", "all")
 PROJECTILE_GRAPH_MAX_NODES = 4096
 PROJECTILE_GRAPH_MAX_EDGES = 16384
 
@@ -2272,6 +2282,11 @@ def validate_projectile_graph_program(where: str, graph: dict, entity: bool = Fa
                 value = node[key]
                 if allowed == "speed":
                     good = not isinstance(value, bool) and isinstance(value, (int, float)) and 0 < value <= 10000
+                elif allowed == "kinds":
+                    names = [n for n in value.replace(",", " ").split()] if isinstance(value, str) else []
+                    good = bool(names) and all(n in PROJECTILE_GRAPH_TARGET_KINDS for n in names)
+                elif isinstance(allowed, tuple) and allowed and isinstance(allowed[0], bool):
+                    good = isinstance(value, bool)
                 else:
                     good = value in allowed
                 if not good:

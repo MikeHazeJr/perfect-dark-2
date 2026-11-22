@@ -21,6 +21,8 @@
  * chosen, where that code has always run.
  */
 
+#include "target_filter.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -185,6 +187,7 @@ u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks
  * and "pinball". A setting left out is the original's for the object's
  * weapon number, else the defaults below.
  */
+#define PROJECTILE_HOME_LOST_PARAM "lost" /* slice 6b: what a homing rocket does when its target fails its filter: straight */
 #define PROJECTILE_THRUST_MAX_SPEED_PARAM "max_speed"
 #define PROJECTILE_THRUST_EXHAUST_PARAM "exhaust"
 #define PROJECTILE_SMOKE_PARAM "smoke"
@@ -198,6 +201,12 @@ u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks
 #define PROJECTILE_MAX_SPEED_LIMIT 10000
 
 typedef struct projectile_flight {
+	/* home (held-weapon-events.md slice 6b): the filter its target is
+	 * re-checked by while it flies; the original's home has none and
+	 * never re-checks. A target that fails it is lost: the rocket flies
+	 * straight. */
+	target_filter_t home_filter;
+	s8 home_filtered;
 	f32 max_speed;    /* thrust: its cap, units a tick */
 	s16 exhaust;      /* thrust: the smoke it leaves while powered, -1 none */
 	s16 trail_smoke;  /* trail: its smoke */

@@ -25,6 +25,7 @@ extern "C" {
 #include "weapon_graph_runtime.h"
 #include "weapon_rules.h"
 #include "target_filter.h"
+#include "projectile_rules.h"
 }
 
 namespace {
@@ -3718,6 +3719,122 @@ TEST_CASE("auto-aim's candidates are the target filter's native ones",
 		!= std::string::npos);
 	CHECK(prop.find("|| (chr->chrflags & CHRCFLAG_FORCEAUTOAIM)\n\t\t\t\t\t\t\t\t|| chr->gunprop)") == std::string::npos);
 	REQUIRE(readSource("src/game/sight.c").find("|| (chr->chrflags & CHRCFLAG_FORCEAUTOAIM) || chr->gunprop ? 1 : 0;")
+		!= std::string::npos);
+}
+
+// held-weapon-events.md slice 6b: the filter as settings, on og.projectile.home.
+TEST_CASE("a homing rocket's target filter is its home node's settings",
+	"[mission-graph][weapon-graph][held-weapon][target-filter]")
+{
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	// Mike's "Enemy vehicles".
+	Texts enemyVehicles;
+	enemyVehicles.values = { { "kinds", "vehicle" }, { "vehicles", "occupied" }, { "relation", "enemy" },
+		{ "alive", "true" }, { "cloaked", "never" } };
+	target_filter_t f;
+	const char *bad = nullptr;
+	REQUIRE(targetFilterFromSettings(Texts::get, &enemyVehicles, &f, &bad) == 1);
+	CHECK(f.kinds == TARGET_KIND_VEHICLE);
+	CHECK(f.vehicles_occupied == 1);
+	CHECK(f.relation == TARGET_RELATION_ENEMY);
+	CHECK(f.alive_only == 1);
+	CHECK(f.sees_cloaked == TARGET_SEES_CLOAKED_NEVER);
+	CHECK(f.things_must_react == 0); // a hoverbike does not react to sight
+	target_facts_t rider{};
+	rider.kind = TARGET_KIND_PLAYER;
+	rider.relation = TARGET_RELATION_ENEMY;
+	rider.alive = 1;
+	CHECK(targetFilterAccepts(&f, &rider) == 0); // the bike, never its rider
+	target_facts_t bike{};
+	bike.kind = TARGET_KIND_VEHICLE;
+	bike.occupied = 1;
+	bike.relation = TARGET_RELATION_ENEMY;
+	bike.alive = 1;
+	CHECK(targetFilterAccepts(&f, &bike) == 1);
+	bike.occupied = 0;
+	bike.relation = TARGET_RELATION_NONE;
+	CHECK(targetFilterAccepts(&f, &bike) == 0); // occupied only: the rider bailed out
+	// The written settings read back the same.
+	char text[256];
+	REQUIRE(targetFilterSettingsText(&f, text, sizeof(text)) > 0);
+	INFO(text);
+	CHECK(std::string(text).find("\"kinds\": \"vehicle\"") != std::string::npos);
+	// Kinds, defaults and refusals.
+	u32 kinds = 0;
+	CHECK(targetFilterKindsFromText("player,simulant", &kinds) == 0);
+	CHECK(kinds == (TARGET_KIND_PLAYER | TARGET_KIND_SIMULANT));
+	CHECK(targetFilterKindsFromText("characters, vehicle", &kinds) == 0);
+	CHECK(kinds == (TARGET_KINDS_CHARACTERS | TARGET_KIND_VEHICLE));
+	CHECK(targetFilterKindsFromText("tank", &kinds) == -1);
+	CHECK(targetFilterKindsFromText("", &kinds) == -1);
+	Texts none;
+	CHECK(targetFilterFromSettings(Texts::get, &none, &f, &bad) == 0); // names none: anything
+	CHECK(f.kinds == TARGET_KINDS_ALL);
+	Texts wrong;
+	wrong.values = { { "relation", "rival" } };
+	CHECK(targetFilterFromSettings(Texts::get, &wrong, &f, &bad) == -1);
+	REQUIRE(bad != nullptr);
+	CHECK(std::string(bad) == "relation");
+	CHECK(std::string(targetFilterSettingHelp("relation")) == "anyone, enemy, friend or owner");
+
+	// og.projectile.home: the original's names no filter and writes none.
+	projectile_flight_t native;
+	projectileRulesNativeFlight(WEAPON_HOMINGROCKET, FUNC_PRIMARY, &native);
+	CHECK(native.home_filtered == 0);
+	char buf[256];
+	CHECK(projectileRulesFlightSettingsText(PROJECTILE_MODULE_HOME, &native, buf, sizeof(buf)) == 0);
+	projectile_flight_t authored = native;
+	Texts home = enemyVehicles;
+	home.values["lost"] = "straight";
+	CHECK(projectileRulesFlightSettings(PROJECTILE_MODULE_HOME, Texts::get, &home, &authored, nullptr) == 1);
+	CHECK(authored.home_filtered == 1);
+	CHECK(authored.home_filter.kinds == TARGET_KIND_VEHICLE);
+	CHECK(projectileRulesFlightSame(PROJECTILE_MODULE_HOME, &authored, &native) == 0);
+	CHECK(projectileRulesFlightSame(PROJECTILE_MODULE_HOME, &native, &native) == 1);
+	REQUIRE(projectileRulesFlightSettingsText(PROJECTILE_MODULE_HOME, &authored, buf, sizeof(buf)) > 0);
+	{
+		// The written home reads back the same.
+		Texts back;
+		const std::string s(buf);
+		for (const char *key : { "kinds", "vehicles", "relation", "cloaked" }) {
+			const std::string needle = std::string("\"") + key + "\": \"";
+			const size_t at = s.find(needle);
+			REQUIRE(at != std::string::npos);
+			back.values[key] = s.substr(at + needle.size(), s.find('"', at + needle.size()) - (at + needle.size()));
+		}
+		back.values["alive"] = s.find("\"alive\": true") != std::string::npos ? "true" : "false";
+		projectile_flight_t again = native;
+		CHECK(projectileRulesFlightSettings(PROJECTILE_MODULE_HOME, Texts::get, &back, &again, nullptr) == 1);
+		CHECK(projectileRulesFlightSame(PROJECTILE_MODULE_HOME, &again, &authored) == 1);
+	}
+	Texts badlost;
+	badlost.values = { { "lost", "spiral" } };
+	const char *badkey = nullptr;
+	projectile_flight_t g = native;
+	CHECK(projectileRulesFlightSettings(PROJECTILE_MODULE_HOME, Texts::get, &badlost, &g, &badkey) == 0);
+	REQUIRE(badkey != nullptr);
+	CHECK(std::string(badkey) == "lost");
+
+	// The seams: the homing code re-checks a filtered home's target while it
+	// flies, with the facts as the rocket's owner reads them.
+	const std::string propobj = readSource("src/game/propobj.c");
+	REQUIRE(propobj.find("if (projectile->targetprop && flightset->home_filtered) {") != std::string::npos);
+	REQUIRE(propobj.find("sightTargetFactsFor(projectile->targetprop, projectile->ownerprop, 0, &homefacts);")
+		!= std::string::npos);
+	REQUIRE(propobj.find("if (!targetFilterAccepts(&flightset->home_filter, &homefacts)) {\n"
+		"\t\t\t\t\t\t\tprojectile->targetprop = NULL;") != std::string::npos);
+	const std::string sight = readSource("src/game/sight.c");
+	REQUIRE(sight.find("void sightTargetFactsFor(struct prop *prop, struct prop *ownerprop, s32 owner_ir, struct target_facts *out)")
+		!= std::string::npos);
+	REQUIRE(sight.find("sightTargetFactsFor(prop, g_Vars.currentplayer->prop, USINGDEVICE(DEVICE_IRSCANNER) ? 1 : 0, out);")
 		!= std::string::npos);
 }
 

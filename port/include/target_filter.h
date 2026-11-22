@@ -16,6 +16,8 @@
  * their filters (slice 6b) and vehicles become lockable (6c).
  */
 
+#include <stdio.h>
+#include <string.h>
 #include <PR/ultratypes.h>
 #include "constants.h"
 
@@ -211,6 +213,195 @@ static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t
 		}
 		break;
 	}
+}
+
+/*
+ * held-weapon-events.md slice 6b: the filter as a node's settings (on
+ * og.projectile.home now, on the held lock next).
+ *
+ * - "kinds": names separated by commas: player, simulant, guard, vehicle,
+ *   sentry, object, or characters, things, all.
+ * - "vehicles": any (a vehicle its rider left passes), or occupied.
+ * - "relation": anyone, enemy, friend or owner (an empty vehicle or an
+ *   object is nobody's friend: it passes enemy and anyone).
+ * - "alive": true for the living only.
+ * - "cloaked": never, with_ir (only while the owner uses the IR scanner) or
+ *   always.
+ *
+ * A setting left out takes the "anything" filter's (every kind, things that
+ * need not react to sight, any relation, the dead and the cloaked too).
+ */
+#define TARGET_FILTER_KINDS_PARAM "kinds"
+#define TARGET_FILTER_VEHICLES_PARAM "vehicles"
+#define TARGET_FILTER_RELATION_PARAM "relation"
+#define TARGET_FILTER_ALIVE_PARAM "alive"
+#define TARGET_FILTER_CLOAKED_PARAM "cloaked"
+
+static inline void targetFilterAnything(target_filter_t *f)
+{
+	f->kinds = TARGET_KINDS_ALL;
+	f->things_must_react = 0;
+	f->training_targets = 1;
+	f->vehicles_occupied = 0;
+	f->relation = TARGET_RELATION_ANYONE;
+	f->alive_only = 0;
+	f->awake_only = 0;
+	f->explodable_only = 0;
+	f->armed_only = 0;
+	f->sees_cloaked = TARGET_SEES_CLOAKED_ALWAYS;
+}
+
+static inline s32 targetFilterSame(const target_filter_t *a, const target_filter_t *b)
+{
+	return a->kinds == b->kinds && a->things_must_react == b->things_must_react
+		&& a->training_targets == b->training_targets && a->vehicles_occupied == b->vehicles_occupied
+		&& a->relation == b->relation && a->alive_only == b->alive_only && a->awake_only == b->awake_only
+		&& a->explodable_only == b->explodable_only && a->armed_only == b->armed_only
+		&& a->sees_cloaked == b->sees_cloaked;
+}
+
+/* "player,vehicle" into kind bits; -1 for an empty list or a name it does not know. */
+static inline s32 targetFilterKindsFromText(const char *text, u32 *out)
+{
+	static const struct {
+		const char *name;
+		u32 kinds;
+	} names[] = {
+		{ "player", TARGET_KIND_PLAYER }, { "simulant", TARGET_KIND_SIMULANT }, { "guard", TARGET_KIND_GUARD },
+		{ "vehicle", TARGET_KIND_VEHICLE }, { "sentry", TARGET_KIND_SENTRY }, { "object", TARGET_KIND_OBJECT },
+		{ "characters", TARGET_KINDS_CHARACTERS }, { "things", TARGET_KINDS_THINGS }, { "all", TARGET_KINDS_ALL },
+	};
+	u32 kinds = 0;
+	const char *p = text;
+
+	if (!text || !out) return -1;
+	while (*p) {
+		char word[16];
+		s32 n = 0;
+		s32 known = 0;
+		u32 i;
+
+		while (*p == ' ' || *p == ',') p++;
+		if (!*p) break;
+		while (*p && *p != ',' && *p != ' ') {
+			if (n >= (s32)sizeof(word) - 1) return -1;
+			word[n++] = *p++;
+		}
+		word[n] = '\0';
+		for (i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+			if (strcmp(word, names[i].name) == 0) {
+				kinds |= names[i].kinds;
+				known = 1;
+			}
+		}
+		if (!known) return -1;
+	}
+	if (!kinds) return -1;
+	*out = kinds;
+	return 0;
+}
+
+/* The filter a node's settings name, over "anything": 1 when it names any
+ * of them, 0 when it names none, -1 when one is malformed (*bad_key names
+ * it; the filter keeps that setting's default). */
+typedef const char *(*target_text_fn)(const char *key, void *user);
+static inline s32 targetFilterFromSettings(target_text_fn get, void *user, target_filter_t *out, const char **bad_key)
+{
+	const char *text;
+	s32 named = 0;
+	s32 ok = 1;
+
+	if (bad_key) *bad_key = NULL;
+	targetFilterAnything(out);
+	if (!get) return 0;
+#define TARGET_FILTER_BAD(key) do { ok = 0; if (bad_key && !*bad_key) *bad_key = (key); } while (0)
+	if ((text = get(TARGET_FILTER_KINDS_PARAM, user)) != NULL) {
+		u32 kinds;
+
+		named = 1;
+		if (targetFilterKindsFromText(text, &kinds) == 0) out->kinds = kinds;
+		else TARGET_FILTER_BAD(TARGET_FILTER_KINDS_PARAM);
+	}
+	if ((text = get(TARGET_FILTER_VEHICLES_PARAM, user)) != NULL) {
+		named = 1;
+		if (strcmp(text, "any") == 0) out->vehicles_occupied = 0;
+		else if (strcmp(text, "occupied") == 0) out->vehicles_occupied = 1;
+		else TARGET_FILTER_BAD(TARGET_FILTER_VEHICLES_PARAM);
+	}
+	if ((text = get(TARGET_FILTER_RELATION_PARAM, user)) != NULL) {
+		named = 1;
+		if (strcmp(text, "anyone") == 0) out->relation = TARGET_RELATION_ANYONE;
+		else if (strcmp(text, "enemy") == 0) out->relation = TARGET_RELATION_ENEMY;
+		else if (strcmp(text, "friend") == 0) out->relation = TARGET_RELATION_FRIEND;
+		else if (strcmp(text, "owner") == 0) out->relation = TARGET_RELATION_OWNER;
+		else TARGET_FILTER_BAD(TARGET_FILTER_RELATION_PARAM);
+	}
+	if ((text = get(TARGET_FILTER_ALIVE_PARAM, user)) != NULL) {
+		named = 1;
+		if (strcmp(text, "true") == 0) out->alive_only = 1;
+		else if (strcmp(text, "false") == 0) out->alive_only = 0;
+		else TARGET_FILTER_BAD(TARGET_FILTER_ALIVE_PARAM);
+	}
+	if ((text = get(TARGET_FILTER_CLOAKED_PARAM, user)) != NULL) {
+		named = 1;
+		if (strcmp(text, "never") == 0) out->sees_cloaked = TARGET_SEES_CLOAKED_NEVER;
+		else if (strcmp(text, "with_ir") == 0) out->sees_cloaked = TARGET_SEES_CLOAKED_WITH_IR;
+		else if (strcmp(text, "always") == 0) out->sees_cloaked = TARGET_SEES_CLOAKED_ALWAYS;
+		else TARGET_FILTER_BAD(TARGET_FILTER_CLOAKED_PARAM);
+	}
+#undef TARGET_FILTER_BAD
+	return ok ? named : -1;
+}
+
+/* What a filter setting takes, for refusals; NULL for a key that is none. */
+static inline const char *targetFilterSettingHelp(const char *key)
+{
+	if (!key) return NULL;
+	if (strcmp(key, TARGET_FILTER_KINDS_PARAM) == 0)
+		return "player, simulant, guard, vehicle, sentry, object, characters, things or all, separated by commas";
+	if (strcmp(key, TARGET_FILTER_VEHICLES_PARAM) == 0) return "any or occupied";
+	if (strcmp(key, TARGET_FILTER_RELATION_PARAM) == 0) return "anyone, enemy, friend or owner";
+	if (strcmp(key, TARGET_FILTER_ALIVE_PARAM) == 0) return "true or false";
+	if (strcmp(key, TARGET_FILTER_CLOAKED_PARAM) == 0) return "never, with_ir or always";
+	return NULL;
+}
+
+/* The filter as JSON members (", \"kinds\": \"vehicle\", ..."); the length,
+ * or -1 when it does not fit. */
+static inline s32 targetFilterSettingsText(const target_filter_t *f, char *buf, s32 cap)
+{
+	static const struct {
+		const char *name;
+		u32 kind;
+	} kinds[] = {
+		{ "player", TARGET_KIND_PLAYER }, { "simulant", TARGET_KIND_SIMULANT }, { "guard", TARGET_KIND_GUARD },
+		{ "vehicle", TARGET_KIND_VEHICLE }, { "sentry", TARGET_KIND_SENTRY }, { "object", TARGET_KIND_OBJECT },
+	};
+	char list[96];
+	s32 len = 0;
+	s32 n;
+	u32 i;
+
+	if (!f || !buf || cap <= 0) return -1;
+	list[0] = '\0';
+	for (i = 0; i < sizeof(kinds) / sizeof(kinds[0]); i++) {
+		if (f->kinds & kinds[i].kind) {
+			n = snprintf(list + len, sizeof(list) - (size_t)len, "%s%s", len ? "," : "", kinds[i].name);
+			if (n < 0 || n >= (s32)sizeof(list) - len) return -1;
+			len += n;
+		}
+	}
+	n = snprintf(buf, (size_t)cap,
+		", \"" TARGET_FILTER_KINDS_PARAM "\": \"%s\", \"" TARGET_FILTER_VEHICLES_PARAM "\": \"%s\", \""
+		TARGET_FILTER_RELATION_PARAM "\": \"%s\", \"" TARGET_FILTER_ALIVE_PARAM "\": %s, \""
+		TARGET_FILTER_CLOAKED_PARAM "\": \"%s\"",
+		list, f->vehicles_occupied ? "occupied" : "any",
+		f->relation == TARGET_RELATION_ENEMY ? "enemy" : f->relation == TARGET_RELATION_FRIEND ? "friend"
+			: f->relation == TARGET_RELATION_OWNER ? "owner" : "anyone",
+		f->alive_only ? "true" : "false",
+		f->sees_cloaked == TARGET_SEES_CLOAKED_NEVER ? "never"
+			: f->sees_cloaked == TARGET_SEES_CLOAKED_WITH_IR ? "with_ir" : "always");
+	return n < 0 || n >= cap ? -1 : n;
 }
 
 #ifdef __cplusplus

@@ -698,6 +698,21 @@ one function in `target_filter.h` that the held lock uses too; a held
 the filter) replaces the aim settings' track type and the rocket
 launcher's number; the launch hands the lock to its object as today.
 
+**6b part 1 as written (2026-11-22, `week-pd/core-weapons-w6b`):** the filter
+as settings (`target_filter.h`: `kinds` as names with commas, `vehicles`,
+`relation`, `alive`, `cloaked`; parsed by `targetFilterFromSettings`, written
+by `targetFilterSettingsText`, a setting left out takes the "anything"
+filter's). `og.projectile.home` takes them and `lost: straight`
+(`projectile_flight_t.home_filter`, `home_filtered`), and `projectileTick`
+re-checks a filtered home's target each tick it homes, with the facts as the
+rocket's owner reads them (`sightTargetFactsFor`, the IR scanner not
+counted for a rocket); a target that fails is dropped and the rocket flies
+straight. The original's home names no filter and writes none, so base
+rockets and their archives are unchanged (no marker bump). Registration and
+conformance refuse a malformed setting with what it takes. Mike's "Enemy
+vehicles" passes an occupied enemy bike and refuses its rider; vehicles
+cannot be locked until 6c.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.

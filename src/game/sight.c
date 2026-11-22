@@ -140,7 +140,7 @@ Gfx *sight0f0d7164(Gfx *gdl)
  * it is one of the CI training stage's targets, and whether it is cloaked
  * and the player sees through cloaks.
  */
-void sightTargetFacts(struct prop *prop, struct target_facts *out)
+void sightTargetFactsFor(struct prop *prop, struct prop *ownerprop, s32 owner_ir, struct target_facts *out)
 {
 	out->kind = 0;
 	out->reacts_to_sight = 0;
@@ -149,7 +149,7 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 	out->relation = TARGET_RELATION_NONE;
 	out->alive = 1;
 	out->cloaked = 0;
-	out->owner_ir = USINGDEVICE(DEVICE_IRSCANNER) ? 1 : 0;
+	out->owner_ir = owner_ir ? 1 : 0;
 	out->drugged = 0;
 	out->unexplodable = 0;
 	out->armed = 0;
@@ -166,9 +166,9 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 		out->cloaked = chr && (chr->hidden & CHRHFLAG_CLOAKED) ? 1 : 0;
 
 		if (chr) {
-			struct chrdata *self = g_Vars.currentplayer->prop ? g_Vars.currentplayer->prop->chr : NULL;
+			struct chrdata *self = ownerprop ? ownerprop->chr : NULL;
 
-			out->relation = prop == g_Vars.currentplayer->prop ? TARGET_RELATION_OWNER
+			out->relation = prop == ownerprop ? TARGET_RELATION_OWNER
 				: (self && chrCompareTeams(self, chr, COMPARE_FRIENDS) ? TARGET_RELATION_FRIEND : TARGET_RELATION_ENEMY);
 			out->alive = chr->actiontype != ACT_DIE && chr->actiontype != ACT_DEAD;
 
@@ -202,6 +202,12 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 				&& (obj->modelnum == MODEL_TARGET || obj->modelnum == MODEL_CIHUB || obj->modelnum == MODEL_COMHUB);
 		}
 	}
+}
+
+/* As the current player sees it. */
+void sightTargetFacts(struct prop *prop, struct target_facts *out)
+{
+	sightTargetFactsFor(prop, g_Vars.currentplayer->prop, USINGDEVICE(DEVICE_IRSCANNER) ? 1 : 0, out);
 }
 
 /**

@@ -10,6 +10,9 @@ bool sightCanTargetProp(struct prop *prop, s32 max);
  * (target_filter.h), as the current player sees it. */
 struct target_facts;
 void sightTargetFacts(struct prop *prop, struct target_facts *out);
+/* slice 6b: the same facts as another owner reads them (a rocket's owner);
+ * owner_ir is whether that owner sees through cloaks. */
+void sightTargetFactsFor(struct prop *prop, struct prop *ownerprop, s32 owner_ir, struct target_facts *out);
 bool sightIsReactiveToProp(struct prop *prop);
 s32 sightFindFreeTargetIndex(s32 max);
 void func0f0d7364(void);
