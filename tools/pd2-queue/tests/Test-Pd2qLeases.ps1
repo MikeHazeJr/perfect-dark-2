@@ -227,7 +227,9 @@ try {
     Check (-not (Leases).leases['T-UNIT-010']) "the dead owner's lease is freed"
     $kept = @(Get-ChildItem -LiteralPath (Join-Path $root 'scratch\_kept') -Directory -Filter 'claude-r-*' -ErrorAction SilentlyContinue)
     Check ($kept.Count -eq 1 -and (Get-Content -LiteralPath (Join-Path $kept[0].FullName 'src\a.c') -Raw) -match 'return 12' -and -not (Test-Path -LiteralPath (Join-Path $root 'scratch\claude-r'))) 'a failed checkpoint moves the scratch to scratch\_kept'
-    Check ((Get-Content -LiteralPath (Join-Path $root 'queue\alarms.json') -Raw) -match 'checkpoint-failed[^}]*_kept') 'and an alarm says where the edits are'
+    # Parsed, not matched as text: a hashtable's keys have no fixed order in the JSON.
+    $alarmR = @((Get-Content -LiteralPath (Join-Path $root 'queue\alarms.json') -Raw | ConvertFrom-Json).alarms | Where-Object { $_.kind -eq 'checkpoint-failed' -and $_.detail -match '_kept' })
+    Check ($alarmR.Count -ge 1) 'and an alarm says where the edits are'
     $o7 = Owner; $owners += $o7
     $r = Q @('claim', 'T-UNIT-010', '-Session', 'claude-r', '-OwnerPid', $o7.Id)
     Check ($r.Code -eq 0 -and (Get-Content -LiteralPath $fileR -Raw) -match 'return 11' -and (Get-Content -LiteralPath (Join-Path $kept[0].FullName 'src\a.c') -Raw) -match 'return 12') "the same session's reclaim restores the saved patch and leaves the kept edits alone`n$($r.Out)"
