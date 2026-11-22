@@ -2514,13 +2514,6 @@ bool scenarioChrsAreSameTeam(s32 playernum1, s32 playernum2)
 	return false;
 }
 
-/**
- * gamemode-graphs.md slice 4: the plan's pickup module for this kind of token
- * (the briefcase of Hold the Briefcase and Capture the Case, the data uplink
- * of Hacker Central), or nothing.
- *
- * The return value is a TICKOP constant.
- */
 /* Whether chr holds the token of this mode: its state's holder (the briefcase
  * of Hold the Briefcase, a case of Capture the Case, the uplink of Hacker
  * Central). */
@@ -2548,6 +2541,13 @@ static bool scenarioTokenHeldBy(s32 owner, const struct chrdata *chr)
 	}
 }
 
+/**
+ * gamemode-graphs.md slice 4: the plan's pickup module for this kind of token
+ * (the briefcase of Hold the Briefcase and Capture the Case, the data uplink
+ * of Hacker Central), or nothing.
+ *
+ * The return value is a TICKOP constant.
+ */
 static s32 scenarioPlanPickUpToken(struct chrdata *chr, struct prop *prop, s32 weaponnum)
 {
 	const mode_rules_plan_t *plan;
