@@ -24,9 +24,16 @@ dispatchers run the program's plan; `MODE.PLAN` and the `MODE.PARITY` probe), **
 use, protocol v67; the simulants' command choice and idle action as modules, `event.mode.bot_command`
 and `bot_idle`, 73 modules, meta kind `_modegraph_outside_bots`). Open: PR 39 (**B-1295**: the preset
 names cut at the language file's line feed; the Room's `--debug-room-load-preset` and
-`--debug-room-quick-start` smoke hooks and their two fixtures). Slice 6 (a mod's own mode) waits for
-**decision D-055** (Workbench): what the first worked example plays like, whether setup files remember a
-mod mode, how the Room offers one; my pick A (scores add up, Room only).
+`--debug-room-quick-start` smoke hooks and their two fixtures; it lands on dev once its CI is green, by
+the house rule, so check `gh pr view 39`). Slice 6 (a mod's own mode) waits for **decision D-055**
+(Workbench): what the first worked example plays like, whether setup files remember a mod mode, how the
+Room offers one; my pick A (scores add up, Room only); the design doc's slice 6 section has the census of
+the about 100 mode-number checks it starts from. dev moved under PR 37 (PR 36) and PR 39 (PRs 35, 38):
+each time the branch took dev with no file in common, and PR 38's build change was proven on the merge
+(`-Target full`, full pd-tests). Next, besides D-055: when Core Weapons' PR 31 is on dev, bot.c's
+simulant Mauler charge on `weaponWeaponCharge` and netmsg.c's drop-handler cloak on `weaponCloakToggle`
+(Workbench N-1191, hub 00:54 and 00:59 UTC; Core Weapons may take them into PR 31 instead, my OK is in
+the hub); D-054 (a custom level's own text) is also Mike's.
 The shared tree's runner and validator copies carry my hunks beside Core Weapons' (they commit by
 hunk). Mistakes to avoid next time: a full SHA typed by hand for `--match-head-commit` (use `git
 rev-parse`), and heredocs for anything with doubled backslashes (Write or Edit instead). Finalization smokes for Integration
