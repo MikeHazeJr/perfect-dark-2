@@ -1,5 +1,43 @@
 # Unreleased Changes
 
+- Simulants jump in Combat Simulator at every difficulty, and Bot Jumping is
+  now on by default in the Room's options. Simulants guarding their own case
+  in Capture the Case, or holding a King of the Hill hill, are no longer moved
+  away as if they were stuck, which also cost them a quarter of their health
+  each time.
+- Networked co-op and counter-op play as missions again rather than as
+  Combat Simulator matches: guards use their co-op behaviour, and the
+  mission's own death rules and music apply.
+- Play co-op with simulant buddies: start a mission alone from a hosted Room,
+  or offline from the Combat Simulator Room's Campaign tab, where Partner sets
+  how many simulants come along (one, more once the co-op campaign is
+  finished on harder difficulties).
+- If your partner drops out of a networked co-op mission, the host plays on,
+  and the partner can rejoin the mission in progress with their weapons.
+- The Combat Simulator Room's Load Preset fills in one of the original preset
+  games, simulants included, and Quick Start sets up a match in one step:
+  Players Only, Players and Simulants, Player Teams, Players vs. Simulants or
+  Player-Simulant Teams. In a hosted Room with other players, the last two
+  are unavailable for now.
+- New installs come with five sample mods, enabled on a fresh profile: the
+  Crystal Pistol, the Maian Hover vehicle, and three arenas (Blank Room, Model
+  Room, Grid Two Rooms). A copy of a sample in your own mods folder takes its
+  place.
+- An "Open Mods Folder" shortcut in the install folder opens your mods folder
+  (%LOCALAPPDATA%\perfectdark\mods).
+- Importing a .pdpack is safer: its files unpack only inside the mods folder,
+  and a pack that tries to reach outside it is refused whole.
+- The Crystal Pistol (0.2.1) sits in the hand at its own grip.
+- Mod weapons: a weapon archive can carry a program for each of its functions
+  (`pd.weapon_graph.v2`). It decides how the trigger fires (once; in bursts of
+  a set count and gap; automatically, with its own rate, spin-up and
+  spin-down; charging, then releasing on a press or when full; or held to cook
+  a fuse), how many rounds a shot takes and when the clip reloads, what the
+  shot is (bullets with any number of pellets, through walls if it says so; a
+  beam; any launched item; a throw; a melee strike; a special action; a cloak
+  that drains rounds), and how it reloads (a magazine, one round at a time, or
+  regrowing on its own). Simulants follow the same program as players. The
+  original weapons are wired to fire as they always did.
 - Every room of every stage is drawn again. Stage scenes were missing
   their largest rooms: about half of dataDyne Central (Defection and
   Extraction, its whole exterior included), between a tenth and two thirds
@@ -26,7 +64,10 @@
   item's), what it does when it strikes something and when it lands, what sets
   it off (something coming near, the detonator, a shot or a blast), what goes
   off then (an explosion of a chosen type, or an N-bomb storm), whether a
-  throw becomes a sentry gun and whether an aimed sentry fires. The original
+  throw becomes a sentry gun and whether an aimed sentry fires, and how it
+  flies: fly-by-wire steering, a rocket's thrust and exhaust, homing on its
+  target, a smoke trail, a thrown knife's woosh, its collision sound and a puff
+  of smoke where it bounces. The original
   weapons are wired to do what they always did, and a v1 archive keeps working
   unchanged. Weapon archives update once on boot.
 
@@ -40,7 +81,7 @@
   frame rates before the agent picker opens.
 - The Carrington Institute intro preserves the original camera angles so
   Joanna and her workstation are in view.
-- Online play requires protocol 65. A new match in the same Room gets a fresh
+- Online play requires protocol 67. A new match in the same Room gets a fresh
   stage ID. Grid matches verify the pinned level and every required original
   mod. Guests approve one download for missing packages. Room members can
   propose mods, and approved proposals are shared when the match uses them.
