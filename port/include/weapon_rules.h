@@ -834,13 +834,26 @@ static inline const char *weaponRulesActionName(s32 action)
 	return NULL;
 }
 
+/* PR 31 review: the actions a special function carries out, the original
+ * specials' attack types (the remote mine's detonate, the Combat Boost's
+ * boost and revert_boost, the sniper rifle's crouch, the Data Uplink's
+ * uplink). The shoot, launch, throw and melee attack types read their own
+ * function families' data, so a special that named one would do nothing (a
+ * launch creates no object for a special) or read past its function. */
+static inline s32 weaponRulesSpecialActionRuns(s32 action)
+{
+	return action == HANDATTACKTYPE_DETONATE || action == HANDATTACKTYPE_BOOST
+		|| action == HANDATTACKTYPE_REVERTBOOST || action == HANDATTACKTYPE_CROUCH
+		|| action == HANDATTACKTYPE_UPLINK;
+}
+
 static inline s32 weaponRulesActionFromText(const char *text)
 {
 	if (!text) return -1;
 	for (s32 a = 1; a <= 12; a++) {
 		const char *name = weaponRulesActionName(a);
 
-		if (name && strcmp(name, text) == 0) return a;
+		if (name && strcmp(name, text) == 0) return weaponRulesSpecialActionRuns(a) ? a : -1;
 	}
 	return -1;
 }

@@ -116,16 +116,19 @@ class Schemas(unittest.TestCase):
 
 class Programs(unittest.TestCase):
     def test_the_events_and_modules_a_projectile_program_has(self):
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 20)
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 16)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 27)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 17)
         # Slice 6: the arms, in the order weaponTick tests them.
         self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.armed"],
                          ("og.projectile.arm_fuse", "og.projectile.arm_wall_fuse",
                           "og.projectile.arm_struck_fuse", "og.projectile.arm_mine_fuse",
                           "og.projectile.arm_remote", "og.projectile.arm_proximity",
                           "og.projectile.arm_bolt"))
-        self.assertEqual(conf.PROJECTILE_GRAPH_MODULES[13:],
+        self.assertEqual(conf.PROJECTILE_GRAPH_MODULES[13:20],
                          conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.armed"])
+        # Slice 7: the flight modules, last.
+        self.assertEqual(conf.PROJECTILE_GRAPH_MODULES[20:],
+                         conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.in_flight"])
         self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.thrown"],
                          ("og.projectile.deploy_sentry",))
         self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.sentry_aimed"],
@@ -369,6 +372,53 @@ class Programs(unittest.TestCase):
         self.assertEqual(one({"from": "spawn_state", "to": "motion"},
                              {"from": "motion", "to": "nowhere"}), [])
         self.assertIn("edges must be an array", program_errors(edited(edges={}))[0])
+
+
+class FlightRule(unittest.TestCase):
+    """projectile-events.md slice 7: event.projectile.in_flight chooses the
+    flight modules, whose settings are values of their kinds."""
+
+    def _program(self, module: dict) -> dict:
+        return {
+            "schema": "pd.projectile_graph.v2", "asset_id": "base:test__projectile", "graph_id": "flight",
+            "nodes": [
+                {"id": "flight", "kind": "event.projectile.in_flight"},
+                dict(module, id="flight_module"),
+            ],
+            "edges": [{"from": "flight", "output": "out", "to": "flight_module", "input": "exec"}],
+        }
+
+    def _errors(self, module: dict) -> list:
+        return conf.validate_projectile_graph_program("test", self._program(module))
+
+    def test_the_original_settings(self):
+        for module in ({"kind": "og.projectile.thrust", "max_speed": 166.666656, "exhaust": "rocket"},
+                       {"kind": "og.projectile.thrust", "exhaust": "none"},
+                       {"kind": "og.projectile.trail", "smoke": "homing", "while": "flying"},
+                       {"kind": "og.projectile.trail", "smoke": "grenade", "while": "moving"},
+                       {"kind": "og.projectile.hit_sound", "sound": "pinball"},
+                       {"kind": "og.projectile.bounce_smoke", "smoke": "pinball"},
+                       {"kind": "og.projectile.fly_by_wire"}, {"kind": "og.projectile.home"},
+                       {"kind": "og.projectile.woosh"}):
+            with self.subTest(module=module):
+                self.assertEqual(self._errors(module), [])
+
+    def test_malformed_settings(self):
+        for module, why in (({"kind": "og.projectile.thrust", "max_speed": 0}, "needs max_speed above 0"),
+                            ({"kind": "og.projectile.thrust", "exhaust": "steam"}, "needs exhaust rocket"),
+                            ({"kind": "og.projectile.trail", "smoke": "none"}, "needs smoke rocket"),
+                            ({"kind": "og.projectile.trail", "while": "always"}, "needs while flying or moving"),
+                            ({"kind": "og.projectile.hit_sound", "sound": "bell"}, "needs sound knife or pinball")):
+            with self.subTest(module=module):
+                messages = self._errors(module)
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+
+    def test_a_flight_module_elsewhere_does_nothing(self):
+        program = self._program({"kind": "og.projectile.thrust"})
+        program["nodes"][0]["kind"] = "event.projectile.armed"
+        messages = conf.validate_projectile_graph_program("test", program)
+        self.assertTrue(any("has no effect on" in m for m in messages), messages)
 
 
 class Archives(unittest.TestCase):
@@ -659,7 +709,11 @@ class HeldWeaponPrograms(unittest.TestCase):
             ({"kind": "og.weapon.beam", "range": 0}, "shoot_single", "needs range from 1 to 65536"),
             ({"kind": "og.weapon.launch", "item": "Rocket"}, "shoot_projectile", "needs item own or an item's catalog id"),
             ({"kind": "og.weapon.launch", "item_function": 3}, "shoot_projectile", "needs item_function gun, 0, 1 or 2"),
-            ({"kind": "og.weapon.special", "action": "cloak"}, "special", "needs action shoot, launch"),
+            ({"kind": "og.weapon.special", "action": "cloak"}, "special",
+             "needs action detonate, boost, revert_boost, crouch, uplink"),
+            # PR 31 review: a special carries out only a special's actions.
+            ({"kind": "og.weapon.special", "action": "launch"}, "special", "needs action detonate, boost"),
+            ({"kind": "og.weapon.special", "action": "shoot"}, "special", "needs action detonate, boost"),
             ({"kind": "og.weapon.mode_toggle", "mode": "x"}, "special", "needs mode cloak"),
             ({"kind": "og.weapon.mode_toggle", "drain": -1}, "special", "needs drain above 0"),
         ]
@@ -668,6 +722,12 @@ class HeldWeaponPrograms(unittest.TestCase):
                 messages = weapon_errors(with_shot(node, function_type))
                 self.assertEqual(len(messages), 1, messages)
                 self.assertIn(why, messages[0])
+        # PR 31 review: a cloak drains its function's rounds.
+        graph = with_shot({"kind": "og.weapon.mode_toggle", "mode": "cloak"}, "special")
+        graph["nodes"][1]["params"]["ammo_slot"] = -1
+        messages = weapon_errors(graph)
+        self.assertEqual(len(messages), 1, messages)
+        self.assertIn("its cloak drains its function's rounds", messages[0])
         # A shot on a record event does nothing.
         graph = copy.deepcopy(V2_HELD)
         graph["nodes"].append({"id": "late", "kind": "event.weapon.reload_done"})
