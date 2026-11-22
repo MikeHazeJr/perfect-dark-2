@@ -4,6 +4,8 @@
  * context/designs/modding/projectile-events.md (slices 3 to 6).
  */
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <PR/ultratypes.h>
 #include "constants.h"
@@ -34,6 +36,13 @@ static const struct {
 	{ PROJECTILE_MODULE_ARM_REMOTE, "og.projectile.arm_remote" },
 	{ PROJECTILE_MODULE_ARM_PROXIMITY, "og.projectile.arm_proximity" },
 	{ PROJECTILE_MODULE_ARM_BOLT, "og.projectile.arm_bolt" },
+	{ PROJECTILE_MODULE_FLY_BY_WIRE, "og.projectile.fly_by_wire" },
+	{ PROJECTILE_MODULE_THRUST, "og.projectile.thrust" },
+	{ PROJECTILE_MODULE_HOME, "og.projectile.home" },
+	{ PROJECTILE_MODULE_TRAIL, "og.projectile.trail" },
+	{ PROJECTILE_MODULE_WOOSH, "og.projectile.woosh" },
+	{ PROJECTILE_MODULE_HIT_SOUND, "og.projectile.hit_sound" },
+	{ PROJECTILE_MODULE_BOUNCE_SMOKE, "og.projectile.bounce_smoke" },
 };
 
 static const struct {
@@ -80,6 +89,7 @@ static const struct {
 	{ MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, "event.projectile.sentry_aimed",
 		PROJECTILE_MODULE_SENTRY_FIRE },
 	{ MISSION_GRAPH_EVENT_PROJECTILE_ARMED, "event.projectile.armed", PROJECTILE_MODULE_ARMS },
+	{ MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT, "event.projectile.in_flight", PROJECTILE_MODULE_FLIGHT },
 };
 #define PROJECTILE_EVENT_ROWS ((s32)(sizeof(s_ProjectileEvents) / sizeof(s_ProjectileEvents[0])))
 
@@ -339,9 +349,214 @@ u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks
 			return PROJECTILE_MODULE_ARM_BOLT;
 		}
 		return 0;
+	case MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT:
+		/* projectileTick's flight and presentation, which the original
+		 * picks by weapon number: the Skedar rocket flies by wire instead
+		 * of freely; the rocket thrusts; the homing rocket homes and
+		 * trails; the grenade round trails; the knife (either function)
+		 * sounds its hit, and its second function wooshes; the pinball
+		 * grenade sounds its hit and puffs where it bounces. */
+		if (weaponnum == WEAPON_SKROCKET) {
+			return PROJECTILE_MODULE_FLY_BY_WIRE;
+		}
+		if (weaponnum == WEAPON_ROCKET) {
+			return PROJECTILE_MODULE_THRUST;
+		}
+		if (weaponnum == WEAPON_HOMINGROCKET) {
+			return PROJECTILE_MODULE_HOME | PROJECTILE_MODULE_TRAIL;
+		}
+		if (weaponnum == WEAPON_GRENADEROUND) {
+			return PROJECTILE_MODULE_TRAIL;
+		}
+		if (weaponnum == WEAPON_COMBATKNIFE) {
+			return PROJECTILE_MODULE_HIT_SOUND | (gunfunc == FUNC_SECONDARY ? PROJECTILE_MODULE_WOOSH : 0);
+		}
+		if (weaponnum == WEAPON_GRENADE && gunfunc == FUNC_SECONDARY) {
+			return PROJECTILE_MODULE_HIT_SOUND | PROJECTILE_MODULE_BOUNCE_SMOKE;
+		}
+		return 0;
 	default:
 		return 0;
 	}
+}
+
+/* projectile-events.md slice 7: the smokes a flight module names. */
+static const struct {
+	const char *name;
+	s16 type;
+} s_ProjectileSmokes[] = {
+	{ "rocket", SMOKETYPE_ROCKETTAIL },
+	{ "homing", SMOKETYPE_HOMINGTAIL },
+	{ "grenade", SMOKETYPE_GRENADETAIL },
+	{ "pinball", SMOKETYPE_PINBALL },
+};
+#define PROJECTILE_SMOKE_ROWS ((s32)(sizeof(s_ProjectileSmokes) / sizeof(s_ProjectileSmokes[0])))
+
+const char *projectileRulesSmokeName(s32 smoketype)
+{
+	s32 i;
+
+	for (i = 0; i < PROJECTILE_SMOKE_ROWS; i++) {
+		if (s_ProjectileSmokes[i].type == smoketype) {
+			return s_ProjectileSmokes[i].name;
+		}
+	}
+	return NULL;
+}
+
+/* A smoke's type from its name; -1 for "none" where allowed; -2 for a name it
+ * does not know. */
+static s32 projectileRulesSmokeFromText(const char *text, s32 allow_none)
+{
+	s32 i;
+
+	for (i = 0; i < PROJECTILE_SMOKE_ROWS; i++) {
+		if (strcmp(text, s_ProjectileSmokes[i].name) == 0) {
+			return s_ProjectileSmokes[i].type;
+		}
+	}
+	return allow_none && strcmp(text, "none") == 0 ? -1 : -2;
+}
+
+void projectileRulesNativeFlight(s32 weaponnum, s32 gunfunc, projectile_flight_t *out)
+{
+	if (!out) {
+		return;
+	}
+	memset(out, 0, sizeof(*out));
+	out->max_speed = PROJECTILE_ROCKET_MAX_SPEED;
+	out->exhaust = SMOKETYPE_ROCKETTAIL;
+	out->trail_smoke = weaponnum == WEAPON_GRENADEROUND ? SMOKETYPE_GRENADETAIL : SMOKETYPE_HOMINGTAIL;
+	out->trail_while = weaponnum == WEAPON_GRENADEROUND
+		? PROJECTILE_TRAIL_WHILE_MOVING : PROJECTILE_TRAIL_WHILE_FLYING;
+	out->hit_sound = weaponnum == WEAPON_GRENADE && gunfunc == FUNC_SECONDARY
+		? PROJECTILE_HIT_SOUND_PINBALL : PROJECTILE_HIT_SOUND_KNIFE;
+	out->bounce_smoke = SMOKETYPE_PINBALL;
+}
+
+s32 projectileRulesFlightSettings(u32 module, projectile_text_fn get, void *user, projectile_flight_t *flight,
+	const char **bad_key)
+{
+	const char *text;
+	s32 ok = 1;
+
+#define PROJECTILE_FLIGHT_BAD(key) do { ok = 0; if (bad_key && !*bad_key) *bad_key = (key); } while (0)
+	if (bad_key) {
+		*bad_key = NULL;
+	}
+	if (!get || !flight) {
+		return 0;
+	}
+	if (module == PROJECTILE_MODULE_THRUST) {
+		text = get(PROJECTILE_THRUST_MAX_SPEED_PARAM, user);
+		if (text) {
+			char *end = NULL;
+			const f32 speed = strtof(text, &end);
+
+			if (!end || end == text || *end || !(speed > 0.0f) || speed > (f32)PROJECTILE_MAX_SPEED_LIMIT) {
+				PROJECTILE_FLIGHT_BAD(PROJECTILE_THRUST_MAX_SPEED_PARAM);
+			} else {
+				flight->max_speed = speed;
+			}
+		}
+		text = get(PROJECTILE_THRUST_EXHAUST_PARAM, user);
+		if (text) {
+			const s32 smoke = projectileRulesSmokeFromText(text, 1);
+
+			if (smoke == -2) PROJECTILE_FLIGHT_BAD(PROJECTILE_THRUST_EXHAUST_PARAM);
+			else flight->exhaust = (s16)smoke;
+		}
+	} else if (module == PROJECTILE_MODULE_TRAIL) {
+		text = get(PROJECTILE_SMOKE_PARAM, user);
+		if (text) {
+			const s32 smoke = projectileRulesSmokeFromText(text, 0);
+
+			if (smoke < 0) PROJECTILE_FLIGHT_BAD(PROJECTILE_SMOKE_PARAM);
+			else flight->trail_smoke = (s16)smoke;
+		}
+		text = get(PROJECTILE_TRAIL_WHILE_PARAM, user);
+		if (text) {
+			if (strcmp(text, "flying") == 0) flight->trail_while = PROJECTILE_TRAIL_WHILE_FLYING;
+			else if (strcmp(text, "moving") == 0) flight->trail_while = PROJECTILE_TRAIL_WHILE_MOVING;
+			else PROJECTILE_FLIGHT_BAD(PROJECTILE_TRAIL_WHILE_PARAM);
+		}
+	} else if (module == PROJECTILE_MODULE_HIT_SOUND) {
+		text = get(PROJECTILE_HIT_SOUND_PARAM, user);
+		if (text) {
+			if (strcmp(text, "knife") == 0) flight->hit_sound = PROJECTILE_HIT_SOUND_KNIFE;
+			else if (strcmp(text, "pinball") == 0) flight->hit_sound = PROJECTILE_HIT_SOUND_PINBALL;
+			else PROJECTILE_FLIGHT_BAD(PROJECTILE_HIT_SOUND_PARAM);
+		}
+	} else if (module == PROJECTILE_MODULE_BOUNCE_SMOKE) {
+		text = get(PROJECTILE_SMOKE_PARAM, user);
+		if (text) {
+			const s32 smoke = projectileRulesSmokeFromText(text, 0);
+
+			if (smoke < 0) PROJECTILE_FLIGHT_BAD(PROJECTILE_SMOKE_PARAM);
+			else flight->bounce_smoke = (s16)smoke;
+		}
+	}
+#undef PROJECTILE_FLIGHT_BAD
+	return ok;
+}
+
+const char *projectileRulesFlightSettingHelp(const char *key)
+{
+	if (!key) return "";
+	if (strcmp(key, PROJECTILE_THRUST_MAX_SPEED_PARAM) == 0) return "above 0 and up to 10000 (units a tick)";
+	if (strcmp(key, PROJECTILE_THRUST_EXHAUST_PARAM) == 0) return "rocket, homing, grenade, pinball or none";
+	if (strcmp(key, PROJECTILE_SMOKE_PARAM) == 0) return "rocket, homing, grenade or pinball";
+	if (strcmp(key, PROJECTILE_TRAIL_WHILE_PARAM) == 0) return "flying or moving";
+	if (strcmp(key, PROJECTILE_HIT_SOUND_PARAM) == 0) return "knife or pinball";
+	return "";
+}
+
+s32 projectileRulesFlightSettingsText(u32 module, const projectile_flight_t *flight, char *buf, s32 cap)
+{
+	const char *smoke;
+	s32 n = 0;
+
+	if (!buf || cap <= 0 || !flight) {
+		return -1;
+	}
+	buf[0] = '\0';
+	if (module == PROJECTILE_MODULE_THRUST) {
+		smoke = flight->exhaust >= 0 ? projectileRulesSmokeName(flight->exhaust) : "none";
+		n = snprintf(buf, (size_t)cap, ", \"" PROJECTILE_THRUST_MAX_SPEED_PARAM "\": %.9g, \""
+			PROJECTILE_THRUST_EXHAUST_PARAM "\": \"%s\"", (double)flight->max_speed, smoke ? smoke : "none");
+	} else if (module == PROJECTILE_MODULE_TRAIL) {
+		smoke = projectileRulesSmokeName(flight->trail_smoke);
+		n = snprintf(buf, (size_t)cap, ", \"" PROJECTILE_SMOKE_PARAM "\": \"%s\", \"" PROJECTILE_TRAIL_WHILE_PARAM
+			"\": \"%s\"", smoke ? smoke : "homing",
+			flight->trail_while == PROJECTILE_TRAIL_WHILE_MOVING ? "moving" : "flying");
+	} else if (module == PROJECTILE_MODULE_HIT_SOUND) {
+		n = snprintf(buf, (size_t)cap, ", \"" PROJECTILE_HIT_SOUND_PARAM "\": \"%s\"",
+			flight->hit_sound == PROJECTILE_HIT_SOUND_PINBALL ? "pinball" : "knife");
+	} else if (module == PROJECTILE_MODULE_BOUNCE_SMOKE) {
+		smoke = projectileRulesSmokeName(flight->bounce_smoke);
+		n = snprintf(buf, (size_t)cap, ", \"" PROJECTILE_SMOKE_PARAM "\": \"%s\"", smoke ? smoke : "pinball");
+	}
+	return n < 0 || n >= cap ? -1 : n;
+}
+
+s32 projectileRulesFlightSame(u32 modules, const projectile_flight_t *a, const projectile_flight_t *b)
+{
+	if (!a || !b) {
+		return a == b;
+	}
+	if ((modules & PROJECTILE_MODULE_THRUST) && (a->max_speed != b->max_speed || a->exhaust != b->exhaust)) {
+		return 0;
+	}
+	if ((modules & PROJECTILE_MODULE_TRAIL) && (a->trail_smoke != b->trail_smoke || a->trail_while != b->trail_while)) {
+		return 0;
+	}
+	if ((modules & PROJECTILE_MODULE_HIT_SOUND) && a->hit_sound != b->hit_sound) {
+		return 0;
+	}
+	if ((modules & PROJECTILE_MODULE_BOUNCE_SMOKE) && a->bounce_smoke != b->bounce_smoke) {
+		return 0;
+	}
+	return 1;
 }
 
 s32 projectileRulesExplosionFromText(const char *text)

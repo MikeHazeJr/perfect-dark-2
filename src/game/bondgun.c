@@ -10278,7 +10278,10 @@ void bgunTickGameplay2(void)
 					if (hand->loadedammo[cloakslot] == 0 && hand->state != HANDSTATE_RELOAD) {
 						s32 stilltogo = hand->matmot1;
 
-						if (stilltogo > player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]]) {
+						/* PR 31 review: a slot with no ammunition type has no
+						 * reserve to read (ammotypes -1). */
+						if (player->gunctrl.ammotypes[cloakslot] < 0
+								|| stilltogo > player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]]) {
 							g_Vars.currentplayer->devicesactive &= ~DEVICE_CLOAKRCP120;
 						}
 					}
@@ -10304,7 +10307,7 @@ void bgunTickGameplay2(void)
 			hand->matmot1 -= usedqty;
 			hand->loadedammo[cloakslot] -= usedqty;
 
-			if (hand->matmot1 > 1.0f) {
+			if (hand->matmot1 > 1.0f && player->gunctrl.ammotypes[cloakslot] >= 0) {
 				s32 usedqty = hand->matmot1;
 
 				if (usedqty > player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]]) {
@@ -10312,6 +10315,9 @@ void bgunTickGameplay2(void)
 				}
 
 				player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]] -= usedqty;
+				hand->matmot1 = 0;
+			} else if (hand->matmot1 > 1.0f) {
+				/* PR 31 review: no reserve to settle from (ammotypes -1). */
 				hand->matmot1 = 0;
 			}
 		}

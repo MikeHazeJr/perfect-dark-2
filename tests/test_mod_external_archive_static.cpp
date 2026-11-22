@@ -2586,9 +2586,9 @@ TEST_CASE("weapon content pipeline accepts pdweapon only",
 	REQUIRE(extractor.find("projectile_model_ref") == std::string::npos);
 	REQUIRE(extractor.find("shoot_sound_catalog_id") != std::string::npos);
 	REQUIRE(extractor.find("special_sound_catalog_id") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v21\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v22\"") != std::string::npos);
 	REQUIRE(extractor.find("dependency_closure = \" PDWEAPON_DEPENDENCY_CLOSURE_MARKER") != std::string::npos);
-	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges\"") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules\"") != std::string::npos);
 	REQUIRE(extractor.find("\\\"primary_graph\\\": \\\"") != std::string::npos);
 	REQUIRE(extractor.find("\\\"shared_context_file\\\": \\\"") != std::string::npos);
 	REQUIRE(extractor.find("shared_context = \" PDWEAPON_SHARED_CONTEXT_ENTRY") != std::string::npos);
@@ -4393,7 +4393,7 @@ TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
 	 * the proximity arm to any weapon object. */
 	REQUIRE(propobj.find("a proxy left in g_Proxies would dangle") != std::string::npos);
 	REQUIRE(propobj.find("\t\tweaponUnregisterProxy(weapon);\n\n"
-		"\t\tif (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {") != std::string::npos);
+		"\t\t/* projectile-events.md slice 7a: what the object holds goes with it,") != std::string::npos);
 
 	/* Wave 5 Unit 6: detonator provenance. Sidecar array beside the mask,
 	 * the predicate exported from the runtime, the widened

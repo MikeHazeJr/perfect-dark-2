@@ -562,6 +562,14 @@ Round 2:
   frame paid, because the original delivers one shot a frame for every
   automatic (`shotCreate`'s count only gates the shot): a decision for Mike if
   fire should not depend on the frame rate.
+- **Round 5 (after PR 31 merged; fixed in PR 40).** A special carries out only
+  a special's actions (`weaponRulesSpecialActionRuns`: detonate, boost,
+  revert_boost, crouch, uplink, every base special's): shoot, launch, throw and
+  melee read their own families' data, so a special that named one launched
+  nothing or read past its function. A cloak needs rounds: a function with no
+  ammunition is no cloak (`weaponCloakToggle` no longer takes its slot -1 for
+  slot 0), registration and conformance refuse `og.weapon.mode_toggle` on one,
+  and the drain never reads the reserve of ammunition type -1.
 - **Reloads follow the program.** A manual reload (no reload planned by the
   idle seam: Reload pressed with rounds in the clip) is the reload the
   function's program plans for an empty clip (`weaponProgramReloadWalk`), so

@@ -57,15 +57,19 @@
  * end it with its shot node; a throw and a special spend through use_ammo.
  * v20 (slice 4b): and name their reload's style. */
 /* v21 (slice 5): the Mauler's charge and the grenade's cook are trigger nodes. */
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v21"
+/* v22 (projectile-events.md slice 7): projectile archives wire the flight
+ * rule (event.projectile.in_flight), which an older one lacks: its object
+ * would fly plain (no thrust cap, homing, trail or sounds of its own). */
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v22"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
 /* _heldprograms: the held function graphs carry their programs
  * (held-weapon-events.md slice 2). _heldtriggers: and the programs' trigger
  * and use_ammo nodes (slice 3). _heldshots: and their shot nodes (slice 4). _heldreloads: and their reload
- * styles (slice 4b). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges"
+ * styles (slice 4b). _flightrules: projectile archives wire the flight rule
+ * (projectile-events.md slice 7). */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -1810,6 +1814,8 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_o
 		{ MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, "damaged" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_THROWN, "thrown" },
 		{ MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, "sentry_aimed" },
+		/* Slice 7: how the object flies (the arm and the fuse stay first). */
+		{ MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT, "in_flight" },
 	};
 	const struct weaponfunc *f = p->func;
 	size_t nlen = 0;
@@ -1819,6 +1825,7 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_o
 	s32 sticks = 0;
 	s32 has_object;
 	u32 thrown;
+	projectile_flight_t flightset;
 
 	nodes[0] = '\0';
 	edges[0] = '\0';
@@ -1839,6 +1846,8 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_o
 			(const struct weaponfunc *)g_WeaponData[objweapon]->functions[objfunc];
 		sticks = objf && (objf->flags & FUNCFLAG_STICKTOWALL) != 0;
 	}
+	/* Slice 7: the object's flight modules carry the original's settings. */
+	projectileRulesNativeFlight(objweapon, objfunc, &flightset);
 
 	for (size_t i = 0; i < sizeof(events) / sizeof(events[0]); i++) {
 		u32 modules = 0;
@@ -1896,6 +1905,16 @@ static s32 s_projectileRuleWiring(const pdweapon_nested_payload_t *p, s32 fuse_o
 				n = snprintf(nodes + nlen, nodes_cap - nlen,
 					",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\", \"" PROJECTILE_EXPLODE_TYPE_PARAM "\": %d }",
 					events[i].id, shortname, kind, explosion);
+			} else if ((1u << m) & PROJECTILE_MODULE_FLIGHT) {
+				/* Slice 7: a flight module with the original's settings. */
+				char settings[192];
+
+				if (projectileRulesFlightSettingsText(1u << m, &flightset, settings, (s32)sizeof(settings)) < 0) {
+					return -1;
+				}
+				n = snprintf(nodes + nlen, nodes_cap - nlen,
+					",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\"%s }",
+					events[i].id, shortname, kind, settings);
 			} else {
 				n = snprintf(nodes + nlen, nodes_cap - nlen,
 					",\n    { \"id\": \"%s_%s\", \"kind\": \"%s\" }",
@@ -1991,8 +2010,8 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 	/* projectile-events.md slices 3 to 6: the rules of what this function
 	 * launches (its arm, its fuse, its contacts, what sets it off), wired as
 	 * the original has them. */
-	char rule_nodes[3072];
-	char rule_edges[3072];
+	char rule_nodes[4096]; /* slice 7: room for the flight rule */
+	char rule_edges[4096];
 	if (s_projectileRuleWiring(p, 0, rule_nodes, sizeof(rule_nodes),
 			rule_edges, sizeof(rule_edges)) != 0) {
 		return -1;
@@ -2000,7 +2019,7 @@ static s32 s_writeProjectileArchive(const pdweapon_nested_payload_t *p)
 
 	/* projectile-events.md slice 2: v2, the records plus the program that
 	 * decides for the object; the base archive wires the original rules. */
-	char graph[8192];
+	char graph[12288];
 	int graph_len = snprintf(graph, sizeof(graph),
 		"{\n"
 		"  \"schema\": \"pd.projectile_graph.v2\",\n"

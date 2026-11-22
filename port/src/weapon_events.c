@@ -707,8 +707,14 @@ s32 weaponCloakToggle(s32 weaponnum, f32 *drain, s32 *ammo_slot)
 			weapon_rule_function_t record;
 
 			weaponRuleFunctionOfHeld(weaponnum, f, &record);
+			/* PR 31 review: the cloak drains its function's rounds, so a
+			 * function with no ammunition carries none (registration refuses
+			 * its node); its slot is never taken for slot 0. */
+			if (record.ammo_slot < 0 || record.ammo_slot > 1) {
+				continue;
+			}
 			if (drain) *drain = plan.drain;
-			if (ammo_slot) *ammo_slot = record.ammo_slot >= 0 && record.ammo_slot <= 1 ? record.ammo_slot : 0;
+			if (ammo_slot) *ammo_slot = record.ammo_slot;
 			return 1;
 		}
 	}

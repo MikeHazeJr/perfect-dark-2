@@ -1477,6 +1477,13 @@ set(SRC_TESTS
   ${CMAKE_SOURCE_DIR}/tests/test_catalog_stage_ownership.cpp
   ${CMAKE_SOURCE_DIR}/port/src/pdca_extract_transaction.c
   ${CMAKE_SOURCE_DIR}/tests/test_pdca_extract_transaction.cpp
+  # T-MODDING-022/023 (CAT-C01, CAT-C02): .pdpack component archives, built in
+  # sorted order and named only by safe folder components.
+  ${CMAKE_SOURCE_DIR}/port/src/modpack_archive.c
+  ${CMAKE_SOURCE_DIR}/tests/test_modpack_archive.cpp
+  # T-RELEASE-007: the bundled sample inventory a fresh profile starts from.
+  ${CMAKE_SOURCE_DIR}/port/src/modmgr_bundled_samples.c
+  ${CMAKE_SOURCE_DIR}/tests/test_modmgr_bundled_samples.cpp
   ${CMAKE_SOURCE_DIR}/port/src/assetprovider_file.c
   ${CMAKE_SOURCE_DIR}/tests/test_asset_path_contract.cpp
 

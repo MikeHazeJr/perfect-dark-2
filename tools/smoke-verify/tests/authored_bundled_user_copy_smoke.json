@@ -1,0 +1,105 @@
+{
+  "scenario_name": "authored_bundled_user_copy_smoke",
+  "description": "T-RELEASE-007: a player's own copy of a bundled sample wins and is never enabled for them. The install carries the five bundled samples as tools/stage_bundled_samples.py stages them; the profile (--savedir, so its mods folder is user-home/mods, read before the install's) holds its own loose crystal_pistol and no saved mod choice. The mod manager keeps the profile's crystal_pistol, does not use the bundled copy, does not enable either, and enables the other four bundled samples. Stage the commit under test first: python -B tools/stage_bundled_samples.py --install-root C:/Users/mikeh/Perfect-Dark-2/pd2-authored-smoke/stage.",
+  "tags": [
+    "modding",
+    "bundled-samples",
+    "release",
+    "first-run",
+    "user-mods",
+    "smoke",
+    "pillar:modding",
+    "T-RELEASE-007"
+  ],
+  "paths_of_interest": [
+    "port/src/modmgr.c",
+    "port/src/modmgr_bundled_samples.c",
+    "tools/stage_bundled_samples.py"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods",
+    "mods-enabled.json",
+    "bundled-mods.sha256",
+    "user-home"
+  ],
+  "fixtures": [
+    {
+      "src": "../pd2-authored-smoke/stage/mods/bundled",
+      "dst": "mods/bundled"
+    },
+    {
+      "src": "../pd2-authored-smoke/stage/bundled-mods.sha256",
+      "dst": "bundled-mods.sha256"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "mods/.pdmod-migration-done"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "user-home/mods/.pdmod-migration-done"
+    },
+    {
+      "src": "dev-mods/crystal_pistol",
+      "dst": "user-home/mods/crystal_pistol"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--savedir",
+    "./user-home",
+    "--skip-intro",
+    "--debug-exit-after-catalog-probes",
+    "--debug-load-catalog-assets",
+    "vehicle=mod:vehicle_maian_hover,arena=mod_blank_room:arena_blank_room"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Boot; the scan finds the profile's crystal_pistol first and does not use the bundled copy; the bundled default enables the other four."
+    },
+    {
+      "at_ms": 200000,
+      "type": "exit",
+      "comment": "Fallback only: --debug-exit-after-catalog-probes normally ends the launch."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=authored_bundled_user_copy_smoke",
+      "modmgr: 'crystal_pistol' at '.*mods[/\\\\]bundled[/\\\\]crystal_pistol\\.pdmod' is already installed from an earlier mods folder; this copy is not used",
+      "modmgr: bundled sample 'crystal_pistol' not selected",
+      "modmgr: selected bundled sample 'mod\\.vehicle_maian_hover'",
+      "modmgr: selected bundled sample 'blank_room'",
+      "modmgr: selected bundled sample 'model_room'",
+      "modmgr: selected bundled sample 'grid_two_rooms'",
+      "BOOT: --debug-load-catalog-assets result type=vehicle id='mod:vehicle_maian_hover' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=arena id='mod_blank_room:arena_blank_room' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "modmgr: selected bundled sample 'crystal_pistol'",
+      "modmgr: loading mod 'crystal_pistol'",
+      "modmgr: ignored bundled sample inventory"
+    ],
+    "required_counts": [
+      {
+        "pattern": "modmgr: selected bundled sample '",
+        "min": 4,
+        "max": 4
+      }
+    ]
+  }
+}

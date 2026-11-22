@@ -1,22 +1,55 @@
 # Session Log (Active)
 
-2026-11-21 CORE WEAPONS (claude-pd-core-weapons-20261121), 21:00 UTC onward (after the morning's
+2026-11-21 AUTHORED MODS (claude-pd-authored-mods-20261121), 04:29 to 05:15 UTC, then from 23:24 UTC
+after the Shadowbane crash. Mike's order: seven items, canonical checkout, own branch
+`week-pd/authored-mods` from dev (temporary-index commits; HEAD and the shared index never switched),
+merge proven work to dev, smokes listed for Integration's finalization batch. Each commit is built
+from an exact export of itself (`C:\Users\mikeh\Perfect-Dark-2\authored-src`, the MP-RULES pattern).
+On the branch: **bundled samples** (D-053 decided: A, widened to five; `crystal_pistol`,
+`mod.vehicle_maian_hover`, `blank_room`, `model_room`, `grid_two_rooms`, dev and release true;
+`tools/stage_bundled_samples.py` packs each from `mod.json` and its top-level typed archives into
+`mods/bundled/<id>.pdmod` and writes `bundled-mods.sha256`, for `release.ps1` and
+`build-headless.ps1` alike; `modmgr.c`'s pistol-only first-run enable is now the verified inventory,
+`modmgr_bundled_samples.c`; the hover vehicle ships as `dev-mods/vehicle_maian_hover`, byte-identical to
+what its recipe builds, pinned by `[maian-vehicle][bundled]`); **Crystal Pistol 0.2.1** (posx 10.5 and
+posz -24.5 from its own grip and bounds, no Phoenix values; rebuilt by the vault's `build_pdweapon.py`,
+only `weapon.ini` changed; the retired 0.1.0 recipe and its test take the same numbers); **Tripo**
+(README Credits: "Some 3D models in this project were created using Tripo3D"); **CAT-C01** (B-1293)
+and **CAT-C02** in `.pdpack` (`modpack_archive.c`); **Open Mods Folder** in `release.ps1` (N-1086; it
+starts `explorer.exe` by its full path, Mike's rule after the Chitubox crash); **startup A/B** generator,
+tests and finalization recipe (`tools/smoke-verify/STARTUP-AB.md`, inputs in
+`C:\Users\mikeh\Perfect-Dark-2\pd2-startup-ab`); **Characters tool** proof as
+`character_tool_play_smoke`. Proof so far: exact export built (client, pd-tests), pd-tests 2,605 cases
+/ 711,008 assertions all passed, asset-native-source and native write-route guards pass, stager 9/9,
+A/B generator 4/4, Open Mods Folder 33 checks with the explorer start mocked. Nothing run in a game.
+Open: the finalization smokes (week note entry), Mike's look at the pistol's held view, B-1294.
+
+2026-11-21/22 CORE WEAPONS (claude-pd-core-weapons-20261121), 21:00 UTC onward (after the morning's
 slices 1 and 2). Mike's assignment: held weapons on behavior graphs, the eight slices of the gun-code
-audit (artifact `7fgSVVLGzHGRddzXoUJ1Xz`), in the order 1-5, projectile slice 7, 6, 7, 8; own branch
-`week-pd/core-weapons`, committed through a temporary index (canonical HEAD and index untouched). On
-dev: **slices 1 and 2** (PR 26, `1b875417`: the held v2 graph on the shared runner; the idle choice is
-each function's program, parity probe `WEAPON.RULE`), **slice 3** (PR 29, `32de66d6`: an attack's
-cadence is its program's trigger node, fire once, burst, automatic, with Use ammo; simulants' ticks per
-shot from the same programs). In review: **slice 4a** (PR 31: the shot is its program's shot node, one
-per family; the Shotgun, Farsight, Laser, launcher if-chain, Laptop gun, RCP120 cloak and Tranquilizer
-cases are node settings) and **slice 4b** (`cf76853c`: a reload's style); **slice 5** committed (`d2ac9937`: Charge then release
-and Hold to cook are trigger nodes; the Mauler, the crystal pistol and the grenade run from them). The rule table, the plan and
-the walk are header-only (`port/include/weapon_rules.h`), so pd-tests run the game's walk and a copy of
-the original cadence code tick by tick. Every slice's record, the design and the smokes for Integration's
-batch (`held_weapon_cadence_smoke` and `held_weapon_shot_smoke` are new fixtures) are in
-`context/designs/modding/held-weapon-events.md`. Open: `bot.c`'s single-shot burst still reads
-`FUNCFLAG_BURST2/3` (MP-RULES' file; `weaponProgramBurstRounds` is ready). Next: projectile slice 7 (flight,
-spawn and free as rule events), then weapon slices 6, 7 and 8.
+audit (artifact `7fgSVVLGzHGRddzXoUJ1Xz`), in the order 1-5, projectile slice 7, 6, 7, 8; own branches
+from dev, committed through a temporary index (canonical HEAD and index untouched). On dev: **slices 1
+and 2** (PR 26, `1b875417`), **slice 3** (PR 29, `32de66d6`: an attack's cadence is its program's
+trigger node), **slices 4a, 4b and 5** (PR 31, `10a5740b`, 2026-11-22: the shot node per family with the
+base guns' quirks as settings; a reload's style; the Mauler's charge, the crystal pistol's committed
+charge and the grenade's cook as trigger nodes). PR 31 took four Codex review rounds (`45204a1a`,
+`1ab5ef76`, `1a23e440`, `f43a7be5`): settings read through variables get their own buffers, the held
+rocket gives way to a launch's item, manual reloads and regrowing clips follow the program, the Weapons
+creator keeps programs (v2), charge start/release pairs the runtime cannot run are refused, the
+committed charge comes from its plan for players and bots, the charge level is `hand->chargelevel`
+(`types.h`'s spare `fspare3`), each charge step is paid in full and steps are capped at 25, cooked
+fuses and authored timers are clamped to the s16 timer, the beam's reach is its range, and a
+graph-authored cloak cloaks the player. In review: **projectile slice 7a and 7b** (PR 40,
+`week-pd/core-weapons-p7`): `objFree`'s clean-ups follow what the object holds; the flight is the
+object's choice (`event.projectile.in_flight`, kind 40: fly_by_wire, thrust, home, trail, woosh,
+hit_sound, bounce_smoke with settings; gates moved to bits 27-30; `embedded.v22`). Records and smokes:
+`context/designs/modding/held-weapon-events.md`, `context/designs/modding/projectile-events.md`.
+Open for Mike: PR 31's pellet thread (one shot's pellets a frame, as the original delivers one shot a
+frame for every automatic) and the charge shapes not built (hold and let go; a selected charge that
+fires itself). Open for MP-RULES: the simulants' Mauler charge (N-1191, answered in N-1194),
+`botact.c`'s self-loading check for program-regrow base weapons, `netmsg.c`'s RCP120 cloak drop line.
+Next: projectile slice 7c (spawn by weapon number: the pinball's bounce and the knife's flags at the
+throw, the fired projectiles' power limit, the guards' and chopper's `projectileCreate`, a dropped
+grenade's fuse), then weapon slices 6, 7 and 8.
 
 2026-11-21 MULTIPLAYER AND RULES (claude-pd-mp-rules-20261121), 04:30 to 05:15 and 21:27 UTC onward.
 Mike's order: six items, canonical checkout, own branch `week-pd/mp-rules` from dev (commits through a
