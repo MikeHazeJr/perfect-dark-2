@@ -65,6 +65,12 @@ try {
     Check ($r.Code -ne 0 -and $r.Out -match 'held by s1|is held by s1') 'a held issue refuses another claim'
     $r = Q @('claim', 'T-UNIT-009', '-Session', 's1', '-OwnerPid', $o1.Id)
     Check ($r.Code -ne 0 -and $r.Out -match 's1 already holds lease \d+ on T-UNIT-001') "a session holding a lease cannot claim a second issue (one scratch folder)`n$($r.Out)"
+    $r = Q @('claim', 'T-UNIT-009', '-Session', 'S1', '-OwnerPid', $o1.Id)
+    Check ($r.Code -ne 0 -and $r.Out -match 'already holds lease \d+ on T-UNIT-001') "nor can the same name in another case (Windows: one folder)`n$($r.Out)"
+    foreach ($badName in @('s1.', 'nul', 'COM1', 'con.txt')) {
+        $r = Q @('claim', 'T-UNIT-009', '-Session', $badName, '-OwnerPid', $o1.Id)
+        Check ($r.Code -ne 0 -and $r.Out -match 'may not end with a dot|is a Windows device name') "session '$badName' is refused (Windows would not keep it as its own folder)"
+    }
 
     # No renew for 10 minutes frees it.
     $r = Q @('check', 'T-UNIT-001') @{ PD2Q_TEST_NOW_UTC = $start.AddMinutes(11).ToString('o') }

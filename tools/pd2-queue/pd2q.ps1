@@ -142,7 +142,9 @@ switch ($Command) {
             # A session has one scratch folder, so one held lease at a time: a
             # second would share it, and either submit would carry both issues'
             # edits. A submitted (queued) lease has already cleared its scratch.
-            $mine = @($l.leases.Values | Where-Object { $_.holder.session -ceq $Session -and $_.state -eq 'held' })
+            # Compared without case, as Windows compares their scratch folders:
+            # s1 and S1 are one folder.
+            $mine = @($l.leases.Values | Where-Object { $_.holder.session -eq $Session -and $_.state -eq 'held' })
             if ($mine) { throw "$Session already holds lease $($mine[0].lease) on $($mine[0].issue), and a session has one scratch folder. Submit or release it before claiming $issueId." }
             $number = New-Pd2qNumber lease
             $now = Get-Pd2qNow

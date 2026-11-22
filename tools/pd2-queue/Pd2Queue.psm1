@@ -87,6 +87,11 @@ function Assert-Pd2qIssue([string] $Issue) {
 }
 function Assert-Pd2qSession([string] $Session) {
     if ($Session -notmatch $script:SessionPattern) { throw "Session id must match $($script:SessionPattern): '$Session'" }
+    # A session names its scratch folder, and Windows drops a trailing dot from
+    # a folder name and treats CON, NUL, COM1 and the like as devices. (Case is
+    # handled where sessions are compared: Windows ignores it in paths.)
+    if ($Session.EndsWith('.')) { throw "Session id may not end with a dot: '$Session'" }
+    if ($Session -match '^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$') { throw "Session id '$Session' is a Windows device name." }
 }
 
 # ---------------------------------------------------------------- lock and files
