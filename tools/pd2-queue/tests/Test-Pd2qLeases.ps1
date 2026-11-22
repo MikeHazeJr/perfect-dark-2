@@ -325,6 +325,10 @@ try {
     $main = 'C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike'
     $good = [pscustomobject]@{ canonical = $true; isolated = $false; projectRoot = $main; dataDir = "$main\Tools\Workbench\data" }
     Check (Test-Pd2qWorkbenchMeta $good $main) 'the main checkout Workbench passes the gate'
+    # B-1308: a landing is noted on the title's Workbench item. A bug id issue is
+    # not one, and the Workbench refused the note with 400.
+    Check ((Get-Pd2qLandingNoteTarget @{ title = 'Tooling - T-TOOLING-020: Let pd2q edit create new files'; issue = 'B-1307' }) -ceq 'T-TOOLING-020') "a bug id job's landing is noted on its title's item"
+    Check ((Get-Pd2qLandingNoteTarget @{ title = 'Release - T-RELEASE-006: Keep release.ps1 -DryRun from pushing'; issue = 'T-RELEASE-006' }) -ceq 'T-RELEASE-006') "and an item's own job on that item"
     Check (Test-Pd2qWorkbenchMeta ([pscustomobject]@{ canonical = $true; isolated = $false; projectRoot = 'c:/users/mikeh/perfect-dark-2/perfect_dark-mike/'; dataDir = 'C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/Tools/Workbench/data' }) $main) 'whatever the case and slashes'
     foreach ($bad in @(
         @{ canonical = $true; isolated = $false; projectRoot = 'D:\other-clone'; dataDir = 'D:\other-clone\Tools\Workbench\data' },

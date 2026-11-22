@@ -398,14 +398,17 @@ function Send-WorkbenchNote([hashtable] $Request, [string] $JobId, [hashtable] $
     try {
         $meta = Invoke-RestMethod -Uri 'http://127.0.0.1:8378/api/meta' -TimeoutSec 3
         if (-not (Test-Pd2qWorkbenchMeta $meta $canonical)) { Write-Pd2qLog "workbench note for $JobId skipped: the Workbench on 8378 is not the main checkout's ($($meta.projectRoot))"; return }
-        $body = @{ target = $Request.issue; author = 'pd2-queue'; text = "Landed by the build queue: $JobId, commit $($Info.pushed) on dev (built from $($Info.devCommit)); $($Request.title). Session $($Request.session) ($($Request.agent))." } | ConvertTo-Json
+        # On the title's item: a bug id issue is not a Workbench item (B-1308).
+        $target = Get-Pd2qLandingNoteTarget $Request
+        $forIssue = if ($target -cne [string]$Request.issue) { " for $($Request.issue)" } else { '' }
+        $body = @{ target = $target; author = 'pd2-queue'; text = "Landed by the build queue: $JobId$forIssue, commit $($Info.pushed) on dev (built from $($Info.devCommit)); $($Request.title). Session $($Request.session) ($($Request.agent))." } | ConvertTo-Json
         [void](Invoke-RestMethod -Uri 'http://127.0.0.1:8378/api/notes' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 5)
         # The item itself carries the pushed commit as evidence.
         $roadmap = Invoke-RestMethod -Uri 'http://127.0.0.1:8378/api/roadmap' -TimeoutSec 5
-        $item = @($roadmap.items | Where-Object { $_.id -ceq $Request.issue })[0]
+        $item = @($roadmap.items | Where-Object { $_.id -ceq $target })[0]
         if ($item) {
-            $evidence = @(@($item.evidence) | Where-Object { $_ }) + @("dev $($Info.pushed.Substring(0, 12)) landed by the build queue ($JobId): $($Request.title)")
-            $update = @{ id = $Request.issue; by = 'pd2-queue'; reason = "landed by the build queue ($JobId)"; patch = @{ evidence = $evidence } } | ConvertTo-Json -Depth 6
+            $evidence = @(@($item.evidence) | Where-Object { $_ }) + @("dev $($Info.pushed.Substring(0, 12)) landed by the build queue ($JobId$forIssue): $($Request.title)")
+            $update = @{ id = $target; by = 'pd2-queue'; reason = "landed by the build queue ($JobId)"; patch = @{ evidence = $evidence } } | ConvertTo-Json -Depth 6
             [void](Invoke-RestMethod -Uri 'http://127.0.0.1:8378/api/roadmap/update' -Method Post -ContentType 'application/json' -Body $update -TimeoutSec 5)
         }
     } catch { Write-Pd2qLog "workbench note for $JobId skipped: $($_.Exception.Message)" }

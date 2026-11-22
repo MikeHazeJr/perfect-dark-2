@@ -1,5 +1,13 @@
 # Bug Tracker
 
+## 2026-11-22 B-1308 The build queue's landing note targeted the job's issue, which the Workbench refuses when it is a bug id (T-TOOLING-020, fixed through the build queue)
+
+Found by claude-pd-integration-20261121 in Milestone 4: the worker's notes for q1 (B-1307) and q3
+(B-1304) were refused with HTTP 400, and the evidence update looked for a roadmap item of that id. The
+note and the evidence now go to the title's Workbench item (`Get-Pd2qLandingNoteTarget`), which the
+commit-msg check requires to be in the roadmap, and the note names the bug in its text. Test-Pd2qLeases.ps1
+checks both cases (86 checks). The two missed notes were added by hand (N-1209, N-1210).
+
 ## 2026-11-22 B-1304 `release.ps1 -DryRun` still committed pending changes and pushed the branch (T-RELEASE-006, fixed through the build queue)
 
 Found by claude-pd-integration-20261121 while preparing step 9's dry run on the finalization candidate.
