@@ -1,14 +1,14 @@
 # Session Log (Active)
 
-2026-11-21 AUTHORED MODS (claude-pd-authored-mods-20261121), 04:29 to 05:15 UTC, then from 23:24 UTC
-after the Shadowbane crash. Mike's order: seven items, canonical checkout, own branch
+2026-11-21 AUTHORED MODS (claude-pd-authored-mods-20261121), 04:29 to 05:15 UTC, then 23:24 UTC to
+03:50 UTC on 11-22, after the Shadowbane crash. Mike's order: seven items, canonical checkout, own branch
 `week-pd/authored-mods` from dev (temporary-index commits; HEAD and the shared index never switched),
 merge proven work to dev, smokes listed for Integration's finalization batch. Each commit is built
 from an exact export of itself (`C:\Users\mikeh\Perfect-Dark-2\authored-src`, the MP-RULES pattern).
-On the branch: **bundled samples** (D-053 decided: A, widened to five; `crystal_pistol`,
-`mod.vehicle_maian_hover`, `blank_room`, `model_room`, `grid_two_rooms`, dev and release true;
-`tools/stage_bundled_samples.py` packs each from `mod.json` and its top-level typed archives into
-`mods/bundled/<id>.pdmod` and writes `bundled-mods.sha256`, for `release.ps1` and
+On dev with PR 33 (`96882002`, 2026-11-22): **bundled samples** (D-053 decided: A, widened to five;
+`crystal_pistol`, `mod.vehicle_maian_hover`, `blank_room`, `model_room`, `grid_two_rooms`, dev and
+release true; `tools/stage_bundled_samples.py` packs each from `mod.json` and its top-level typed
+archives into `mods/bundled/<id>.pdmod` and writes `bundled-mods.sha256`, for `release.ps1` and
 `build-headless.ps1` alike; `modmgr.c`'s pistol-only first-run enable is now the verified inventory,
 `modmgr_bundled_samples.c`; the hover vehicle ships as `dev-mods/vehicle_maian_hover`, byte-identical to
 what its recipe builds, pinned by `[maian-vehicle][bundled]`); **Crystal Pistol 0.2.1** (posx 10.5 and
@@ -19,10 +19,14 @@ and **CAT-C02** in `.pdpack` (`modpack_archive.c`); **Open Mods Folder** in `rel
 starts `explorer.exe` by its full path, Mike's rule after the Chitubox crash); **startup A/B** generator,
 tests and finalization recipe (`tools/smoke-verify/STARTUP-AB.md`, inputs in
 `C:\Users\mikeh\Perfect-Dark-2\pd2-startup-ab`); **Characters tool** proof as
-`character_tool_play_smoke`. Proof so far: exact export built (client, pd-tests), pd-tests 2,605 cases
-/ 711,008 assertions all passed, asset-native-source and native write-route guards pass, stager 9/9,
-A/B generator 4/4, Open Mods Folder 33 checks with the explorer start mocked. Nothing run in a game.
-Open: the finalization smokes (week note entry), Mike's look at the pistol's held view, B-1294.
+`character_tool_play_smoke`. Codex review fixes: first-run flags are per sample (a player's own copy
+that won the scan can be enabled by hand), and `removeTree` in `pdca_extract_transaction.c` removes a
+junction or symbolic link without following it (netdistrib's received mods too). Proof at the landed
+head `27a30d95` (dev `b66065f8` merged in): exact export built (client, pd-tests), pd-tests 2,636 cases
+/ 720,734 assertions all passed, the guards and the CI workflow's Python checks pass, stager 9/9, A/B
+generator 4/4, Open Mods Folder 33 checks with the explorer start mocked, hosted CI green. Nothing run
+in a game. Open: the finalization smokes (week note entry, Integration's group G6), Mike's look at the
+pistol's held view, B-1294 (networking's file). Next in this lane: whatever those smokes report.
 
 2026-11-21/22 CORE WEAPONS (claude-pd-core-weapons-20261121), 21:00 UTC onward (after the morning's
 slices 1 and 2). Mike's assignment: held weapons on behavior graphs, the eight slices of the gun-code
