@@ -10892,6 +10892,24 @@ void fanUpdateModel(struct prop *prop)
 	mtx3Copy(sp24, fan->base.realrot);
 }
 
+/* held-weapon-events.md slice 6a: a character's facts as a sentry with a
+ * team mask reads them (its search already chose the team; hidden and
+ * cloaked are the cloak). */
+static void autogunTargetFacts(struct chrdata *chr, target_facts_t *out)
+{
+	out->kind = chr->prop && chr->prop->type == PROPTYPE_PLAYER ? TARGET_KIND_PLAYER
+		: (chr->aibot ? TARGET_KIND_SIMULANT : TARGET_KIND_GUARD);
+	out->reacts_to_sight = 0;
+	out->training_target = 0;
+	out->occupied = 0;
+	out->relation = TARGET_RELATION_ENEMY;
+	out->alive = chrIsDead(chr) ? 0 : 1;
+	out->cloaked = (chr->chrflags & CHRCFLAG_HIDDEN) || (chr->hidden & CHRHFLAG_CLOAKED) ? 1 : 0;
+	out->owner_ir = 0;
+	out->drugged = 0;
+	out->unexplodable = 0;
+}
+
 void autogunTick(struct prop *prop)
 {
 	// In netplay, only the server handles autogun AI (targeting, rotation).
@@ -11026,6 +11044,13 @@ void autogunTick(struct prop *prop)
 			if (1);
 		} else if (autogun->targetteam != 0) {
 			// Autogun (solo or MP) configured to attack specific teams
+			/* held-weapon-events.md slice 6a: the sentry's filter (its
+			 * native one: a character of a team it attacks, alive, neither
+			 * hidden nor cloaked). */
+			target_filter_t sentryfilter;
+
+			targetFilterNative(TARGET_PICKER_SENTRY, -1, &sentryfilter);
+
 			if (g_Vars.normmplayerisrunning) {
 				numchrs = g_MpNumChrs;
 			} else {
@@ -11076,11 +11101,15 @@ void autogunTick(struct prop *prop)
 					}
 				}
 
-				if ((chr->chrflags & CHRCFLAG_HIDDEN) == 0
-						&& (chr->hidden & CHRHFLAG_CLOAKED) == 0
-						&& !chrIsDead(chr)) {
-					target = chr->prop;
-					break;
+				{
+					target_facts_t facts;
+
+					autogunTargetFacts(chr, &facts);
+
+					if (targetFilterAccepts(&sentryfilter, &facts)) {
+						target = chr->prop;
+						break;
+					}
 				}
 
 				if (1);

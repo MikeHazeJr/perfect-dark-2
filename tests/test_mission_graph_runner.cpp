@@ -3654,6 +3654,38 @@ TEST_CASE("the bot Slayer's proximity is the target filter's native one",
 		== std::string::npos);
 }
 
+TEST_CASE("the sentry's target is the target filter's native one",
+	"[mission-graph][weapon-graph][held-weapon][target-filter]")
+{
+	// autogunTick's test as it stood (propobj.c at b66065f8), for a chr of a
+	// team the autogun attacks.
+	const auto original = [](bool hidden, bool cloaked, bool dead) -> bool {
+		return !hidden && !cloaked && !dead;
+	};
+	target_filter_t sentry;
+	targetFilterNative(TARGET_PICKER_SENTRY, -1, &sentry);
+	s32 compared = 0;
+	for (u32 kind : { TARGET_KIND_GUARD, TARGET_KIND_SIMULANT, TARGET_KIND_PLAYER }) {
+		for (s32 bits = 0; bits < 8; bits++) {
+			const bool hidden = bits & 1, cloaked = bits & 2, dead = bits & 4;
+			target_facts_t c{};
+			c.kind = kind;
+			c.relation = TARGET_RELATION_ENEMY;
+			c.alive = !dead;
+			c.cloaked = hidden || cloaked;
+			INFO("kind " << kind << " bits " << bits);
+			CHECK((targetFilterAccepts(&sentry, &c) != 0) == original(hidden, cloaked, dead));
+			compared++;
+		}
+	}
+	CHECK(compared == 24);
+
+	const std::string propobj = readSource("src/game/propobj.c");
+	REQUIRE(propobj.find("targetFilterNative(TARGET_PICKER_SENTRY, -1, &sentryfilter);") != std::string::npos);
+	REQUIRE(propobj.find("static void autogunTargetFacts(struct chrdata *chr, target_facts_t *out)") != std::string::npos);
+	CHECK(propobj.find("&& (chr->hidden & CHRHFLAG_CLOAKED) == 0\n\t\t\t\t\t\t&& !chrIsDead(chr)) {") == std::string::npos);
+}
+
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
 	"[mission][graph][runner]")
 {

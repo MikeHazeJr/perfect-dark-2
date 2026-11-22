@@ -78,6 +78,7 @@ typedef struct target_filter {
 #define TARGET_PICKER_LOCK 2 /* the lock that takes it (sightCanTargetProp) */
 #define TARGET_PICKER_FARSIGHT 3 /* the Farsight's auto-target (farsightChooseTarget) */
 #define TARGET_PICKER_BOT_SLAYER 4 /* what sets off a bot's Slayer rocket (rocketTickFbw) */
+#define TARGET_PICKER_SENTRY 5 /* what a sentry or autogun with a team mask takes (autogunTick) */
 
 /*
  * The candidate's relation passes the filter's. An empty vehicle and an
@@ -147,6 +148,8 @@ static inline s32 targetFilterAccepts(const target_filter_t *f, const target_fac
  * - BOT_SLAYER (rocketTickFbw): an enemy of the bot that flies it, alive,
  *   and not invisible to bots (its facts as the bot reads them:
  *   COMPARE_ENEMIES, chrIsDead, botIsTargetInvisible as the cloak).
+ * - SENTRY (autogunTick): a character of a team it attacks (its search
+ *   picks the team), alive, neither hidden nor cloaked.
  */
 static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t *out)
 {
@@ -174,6 +177,11 @@ static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t
 	case TARGET_PICKER_BOT_SLAYER:
 		out->kinds = TARGET_KINDS_CHARACTERS;
 		out->relation = TARGET_RELATION_ENEMY;
+		out->alive_only = 1;
+		out->sees_cloaked = TARGET_SEES_CLOAKED_NEVER;
+		break;
+	case TARGET_PICKER_SENTRY:
+		out->kinds = TARGET_KINDS_CHARACTERS;
 		out->alive_only = 1;
 		out->sees_cloaked = TARGET_SEES_CLOAKED_NEVER;
 		break;

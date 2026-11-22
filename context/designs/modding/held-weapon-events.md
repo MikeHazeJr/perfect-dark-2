@@ -667,7 +667,12 @@ native filter (an enemy of the bot, alive, not invisible to bots) over the
 facts as the bot reads them (`rocketFbwTargetFacts`: `COMPARE_ENEMIES`,
 `chrIsDead`, `botIsTargetInvisible` as the cloak; the distance and the
 re-route stay the picker's). Each picker builds the facts as it reads them,
-and the filter is one. Next: auto-aim, proximity and sentries.
+and the filter is one. Then sentries (`autogunTick`, an autogun with a
+team mask): its search still picks the team (the mask, the owner left out in
+a match, a model, an enabled prop), and its take asks the native filter (a
+character, alive, neither hidden nor cloaked) over `autogunTargetFacts`; the
+re-checks of a held target and the aim distance are next with the laptop's
+filters. Next: auto-aim, proximity.
 
 ## Smokes for Integration's finalization batch
 
