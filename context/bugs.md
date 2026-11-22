@@ -30,6 +30,24 @@ Fix in progress on week-pd/mp-rules (needs a new candidate):
 Still open until all four pass on a candidate. Whether these proofs gate the release is Mike's call. Until they
 pass, D-052's ledge and tabletop landings are unproven in play.
 
+## 2026-11-22 B-1311 The offline AI-buddy smoke ended its mission the instant play began, so its gameplay wait never held (T-NETWORKING-007, fixed on week-pd/mp-rules-b1311, found in Integration's finalization run R5)
+
+The first game run of `coop_ai_buddies_offline_smoke` since B-1278 (candidate 3, dev 83d3aeb2, checkout fb107aef)
+failed 38/42. Everything in the game worked:
+- The offline Room opened and Start Match fired (`COOP.AIBUDDIES: offline start ... buddies=1 requested=2 max=1`).
+- Defection loaded and the buddy spawned (`spawned 1 of 1`).
+- `--debug-end-mission` ended the mission, and the end screen was up at 84.58 s (`MENUPOOL: acquired endscreen_solo`).
+
+The smoke missed all of it. Its first wait (`offline_gameplay_ready`, stable 2 s, with the cutscene-skip assist)
+starts at boot. The assist pressed and released in CI's fly-in (16.44 to 20.36 s) and never skipped Defection's
+intro of about 64 s. `--debug-end-mission 40:complete` counts stage time (`lvframe60`, intro included) and fires only
+in normal play, so it ended the mission at lvframe 3842, the instant play began. Play never held for 2 s, the wait
+timed out at 420 s, and the end-screen wait never started. The hosted twin passes because a networked co-op start
+does not sit through that intro.
+
+Fix (fixture only): `--debug-end-mission 100:complete`, which leaves about 36 s of play after an unskipped intro
+and also works if the assist does skip it. Not yet rerun.
+
 ## 2026-11-22 B-1309 `release.ps1` would commit Codex's memory from a fresh clone of this public repository (T-RELEASE-006, open: Mike's decision)
 
 Found by claude-pd-integration-20261121 while preparing step 9's release in a fresh clone. Before
