@@ -54,7 +54,10 @@ extern "C" {
 #define MODE_SEAM_TOKEN_DROPPED   17 /* droppedtokenfunc: its carrier dropped it */
 #define MODE_SEAM_PROP_ACTIVATED  18 /* activatedpropfunc: an object is used (the terminal) */
 #define MODE_SEAM_PLAYER_DIED     19 /* playerdiedfunc: a player or simulant died */
-#define MODE_SEAM_COUNT           20
+/* Slice 7: the simulants' mode commands (bot.c). */
+#define MODE_SEAM_BOT_COMMAND     20 /* botcommandfunc: the command a simulant picks with no human teammate */
+#define MODE_SEAM_BOT_IDLE        21 /* botidlefunc: what a simulant does with no command */
+#define MODE_SEAM_COUNT           22
 
 /* The owner of a default module: the code a dispatcher runs for a mode
  * without the callback (kills minus suicides for the score, the general
@@ -164,6 +167,9 @@ void modeRulesNativePlan(s32 mode, mode_rules_plan_t *plan);
 s32 modeRulesPlanRuns(const mode_rules_plan_t *plan, s32 seam, s32 owner);
 /* Whether two plans run the same modules, in the same order, at the seam. */
 s32 modeRulesPlanSeamEqual(const mode_rules_plan_t *a, const mode_rules_plan_t *b, s32 seam);
+/* gamemode-graphs.md slice 5: the mode states the plan's modules use, one
+ * bit per mode (1u << MPSCENARIO_*); the defaults use none. */
+u32 modeRulesPlanStates(const mode_rules_plan_t *plan);
 
 #ifdef __cplusplus
 }

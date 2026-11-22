@@ -447,3 +447,108 @@ net_scenario_state_status_e netScenarioStatePayloadRead(struct netbuf *src,
 	*out = candidate;
 	return NET_SCENARIO_STATE_OK;
 }
+
+net_scenario_state_status_e netScenarioStateListValidate(const net_scenario_state_list_t *list)
+{
+	u32 seen = 0;
+	u8 i;
+
+	if (list == NULL) {
+		return NET_SCENARIO_STATE_BAD_ARGUMENT;
+	}
+
+	if (list->count < 1 || list->count > NET_SCENARIO_STATE_MAX_SECTIONS) {
+		return NET_SCENARIO_STATE_BAD_SECTIONS;
+	}
+
+	for (i = 0; i < list->count; i++) {
+		const net_scenario_state_t *section = &list->sections[i];
+		net_scenario_state_status_e status = netScenarioStateValidate(section);
+
+		if (status != NET_SCENARIO_STATE_OK) {
+			return status;
+		}
+
+		if (section->scenario >= 32 || (seen & (1u << section->scenario))
+				|| section->revision != list->sections[0].revision) {
+			return NET_SCENARIO_STATE_BAD_SECTIONS;
+		}
+
+		seen |= 1u << section->scenario;
+	}
+
+	return NET_SCENARIO_STATE_OK;
+}
+
+s32 netScenarioStateListWrite(struct netbuf *dst, const net_scenario_state_list_t *list)
+{
+	u8 i;
+
+	if (dst == NULL || dst->error) {
+		return 0;
+	}
+
+	if (netScenarioStateListValidate(list) != NET_SCENARIO_STATE_OK) {
+		dst->error = 1;
+		return 0;
+	}
+
+	netbufWriteU8(dst, list->count);
+
+	for (i = 0; i < list->count; i++) {
+		if (!netScenarioStatePayloadWrite(dst, &list->sections[i])) {
+			if (!dst->error) {
+				dst->error = 1;
+			}
+			return 0;
+		}
+	}
+
+	return dst->error ? 0 : 1;
+}
+
+net_scenario_state_status_e netScenarioStateListRead(struct netbuf *src,
+		net_scenario_state_list_t *out)
+{
+	net_scenario_state_list_t candidate;
+	net_scenario_state_status_e status;
+	u8 i;
+
+	if (src == NULL || out == NULL || src->error) {
+		if (src) {
+			src->error = 1;
+		}
+		return NET_SCENARIO_STATE_BAD_ARGUMENT;
+	}
+
+	memset(&candidate, 0, sizeof(candidate));
+
+	if (netbufReadLeft(src) < 1) {
+		src->error = 1;
+		return NET_SCENARIO_STATE_TRUNCATED;
+	}
+	candidate.count = netbufReadU8(src);
+
+	if (candidate.count < 1 || candidate.count > NET_SCENARIO_STATE_MAX_SECTIONS) {
+		src->error = 1;
+		return NET_SCENARIO_STATE_BAD_SECTIONS;
+	}
+
+	for (i = 0; i < candidate.count; i++) {
+		status = netScenarioStatePayloadRead(src, &candidate.sections[i]);
+
+		if (status != NET_SCENARIO_STATE_OK) {
+			return status;
+		}
+	}
+
+	status = netScenarioStateListValidate(&candidate);
+
+	if (status != NET_SCENARIO_STATE_OK) {
+		src->error = 1;
+		return status;
+	}
+
+	*out = candidate;
+	return NET_SCENARIO_STATE_OK;
+}

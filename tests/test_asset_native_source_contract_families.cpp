@@ -951,7 +951,7 @@ TEST_CASE("c3843 remaining base asset families emit clean native archives",
 	REQUIRE(meta.find("s_emitEffect") != std::string::npos);
 	REQUIRE(meta.find("s_emitProp") != std::string::npos);
 	REQUIRE(meta.find("s_emitVehicle") != std::string::npos);
-	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings_vehiclegraph_modegraph_outside\"") !=
+	REQUIRE(meta.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings_vehiclegraph_modegraph_outside_bots\"") !=
 	        std::string::npos);
 	REQUIRE(texture_extractor.find("texture.png") != std::string::npos);
 	REQUIRE(meta.find("material.json") != std::string::npos);

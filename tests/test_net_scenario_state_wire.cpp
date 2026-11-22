@@ -987,3 +987,154 @@ TEST_CASE("Scenario state wire consumes exactly its own bytes",
 	REQUIRE(netbufReadU8(&read) == 0xa7);
 	REQUIRE(read.error == 0);
 }
+
+namespace {
+
+/* gamemode-graphs.md slice 5: the raw bytes of a section list, written with
+ * the section codec, so the decoder sees exactly what a peer could send. */
+u32 write_raw_list(u8 *buffer, u32 size, u8 count, std::initializer_list<net_scenario_state_t> sections)
+{
+	netbuf raw{buffer, size, 0, 0, 0};
+	netbufStartWrite(&raw);
+	netbufWriteU8(&raw, count);
+	for (const net_scenario_state_t &section : sections) {
+		REQUIRE(netScenarioStatePayloadWrite(&raw, &section));
+	}
+	REQUIRE(raw.error == 0);
+	return raw.wp;
+}
+
+void require_list_rejected_everywhere(const net_scenario_state_list_t &bad, u8 count,
+		std::initializer_list<net_scenario_state_t> sections, net_scenario_state_status_e expected)
+{
+	u8 encoded[1024]{};
+	netbuf write{encoded, sizeof(encoded), 0, 0, 0};
+	netbufStartWrite(&write);
+	REQUIRE(netScenarioStateListValidate(&bad) == expected);
+	REQUIRE_FALSE(netScenarioStateListWrite(&write, &bad));
+	REQUIRE(write.error != 0);
+
+	u8 raw[1024]{};
+	const u32 length = write_raw_list(raw, sizeof(raw), count, sections);
+	netbuf read{};
+	netbufStartReadData(&read, raw, length);
+	net_scenario_state_list_t output;
+	std::memset(&output, 0x5a, sizeof(output));
+	const net_scenario_state_list_t before = output;
+	REQUIRE(netScenarioStateListRead(&read, &output) == expected);
+	REQUIRE(read.error != 0);
+	REQUIRE(std::memcmp(&before, &output, sizeof(output)) == 0);
+}
+
+} // namespace
+
+TEST_CASE("Scenario state wire carries one section per mode state in use",
+          "[net][scenario][wire][gamemode-graphs][slice5]")
+{
+	/* A base mode sends its own state alone; a mode that runs King of the
+	 * Hill's hill and Hold the Briefcase's token sends both, on one revision. */
+	net_scenario_state_list_t one;
+	std::memset(&one, 0, sizeof(one));
+	one.count = 1;
+	one.sections[0] = make_ctc_state();
+
+	net_scenario_state_list_t two;
+	std::memset(&two, 0, sizeof(two));
+	two.count = 2;
+	two.sections[0] = make_koh_state();
+	two.sections[1] = make_htb_state();
+	two.sections[1].revision = two.sections[0].revision;
+
+	for (const net_scenario_state_list_t &input : {one, two}) {
+		REQUIRE(netScenarioStateListValidate(&input) == NET_SCENARIO_STATE_OK);
+		u8 bytes[1024]{};
+		netbuf write{bytes, sizeof(bytes), 0, 0, 0};
+		netbufStartWrite(&write);
+		REQUIRE(netScenarioStateListWrite(&write, &input));
+		REQUIRE(write.error == 0);
+		u32 expected = 1;
+		for (u8 i = 0; i < input.count; i++) {
+			expected += netScenarioStatePayloadSize(input.sections[i].scenario);
+		}
+		REQUIRE(write.wp == expected);
+		REQUIRE(bytes[0] == input.count);
+		/* The next message in the same packet. */
+		netbufWriteU8(&write, 0xa7);
+		REQUIRE(write.error == 0);
+
+		netbuf read{};
+		netbufStartReadData(&read, bytes, write.wp);
+		net_scenario_state_list_t output;
+		std::memset(&output, 0x5a, sizeof(output));
+		REQUIRE(netScenarioStateListRead(&read, &output) == NET_SCENARIO_STATE_OK);
+		REQUIRE(output.count == input.count);
+		for (u8 i = 0; i < input.count; i++) {
+			REQUIRE(output.sections[i].scenario == input.sections[i].scenario);
+			REQUIRE(output.sections[i].revision == input.sections[i].revision);
+		}
+		if (input.count == 2) {
+			REQUIRE(koh_equal(input.sections[0], output.sections[0]));
+			REQUIRE(output.sections[1].body.htb.holder == input.sections[1].body.htb.holder);
+		}
+		REQUIRE(netbufReadU8(&read) == 0xa7);
+		REQUIRE(read.error == 0);
+	}
+}
+
+TEST_CASE("Scenario state wire refuses a bad section list on both sides",
+          "[net][scenario][wire][gamemode-graphs][slice5]")
+{
+	const net_scenario_state_t koh = make_koh_state();
+	net_scenario_state_t htb = make_htb_state();
+	htb.revision = koh.revision;
+	net_scenario_state_t late = make_htb_state();
+	late.revision = koh.revision + 1;
+
+	net_scenario_state_list_t bad;
+
+	/* The same state twice. */
+	std::memset(&bad, 0, sizeof(bad));
+	bad.count = 2;
+	bad.sections[0] = koh;
+	bad.sections[1] = koh;
+	require_list_rejected_everywhere(bad, 2, {koh, koh}, NET_SCENARIO_STATE_BAD_SECTIONS);
+
+	/* Sections that disagree on the revision. */
+	std::memset(&bad, 0, sizeof(bad));
+	bad.count = 2;
+	bad.sections[0] = koh;
+	bad.sections[1] = late;
+	require_list_rejected_everywhere(bad, 2, {koh, late}, NET_SCENARIO_STATE_BAD_SECTIONS);
+
+	/* No section. */
+	std::memset(&bad, 0, sizeof(bad));
+	bad.count = 0;
+	require_list_rejected_everywhere(bad, 0, {}, NET_SCENARIO_STATE_BAD_SECTIONS);
+
+	/* A count past the five states the codec knows. */
+	u8 raw[64]{};
+	const u32 length = write_raw_list(raw, sizeof(raw), NET_SCENARIO_STATE_MAX_SECTIONS + 1, {});
+	netbuf read{};
+	netbufStartReadData(&read, raw, length);
+	net_scenario_state_list_t output;
+	std::memset(&output, 0x5a, sizeof(output));
+	const net_scenario_state_list_t before = output;
+	REQUIRE(netScenarioStateListRead(&read, &output) == NET_SCENARIO_STATE_BAD_SECTIONS);
+	REQUIRE(std::memcmp(&before, &output, sizeof(output)) == 0);
+
+	/* A list cut short after its first section. */
+	u8 cut[1024]{};
+	const u32 cut_length = write_raw_list(cut, sizeof(cut), 2, {koh});
+	netbuf short_read{};
+	netbufStartReadData(&short_read, cut, cut_length);
+	REQUIRE(netScenarioStateListRead(&short_read, &output) == NET_SCENARIO_STATE_TRUNCATED);
+	REQUIRE(short_read.error != 0);
+	REQUIRE(std::memcmp(&before, &output, sizeof(output)) == 0);
+
+	/* Nothing at all, and null arguments. */
+	netbuf empty{};
+	netbufStartReadData(&empty, raw, 0);
+	REQUIRE(netScenarioStateListRead(&empty, &output) == NET_SCENARIO_STATE_TRUNCATED);
+	REQUIRE(netScenarioStateListValidate(nullptr) == NET_SCENARIO_STATE_BAD_ARGUMENT);
+	REQUIRE(netScenarioStateListRead(nullptr, &output) == NET_SCENARIO_STATE_BAD_ARGUMENT);
+}

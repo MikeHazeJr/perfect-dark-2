@@ -489,7 +489,7 @@ static void kohNetPresent(f32 *targetr, f32 *targetg, f32 *targetb)
 {
 	net_scenario_state_t state;
 
-	if (scenarioNetTakePending(&state)) {
+	if (scenarioNetTakePending(NET_SCENARIO_STATE_KINGOFTHEHILL, &state)) {
 		const net_scenario_koh_state_t *in = &state.body.koh;
 		// The room indexes g_Rooms, so it must be a room of this stage; the
 		// local value may still be left from an earlier stage

@@ -4378,7 +4378,9 @@ MODE_GRAPH_EVENTS = ("event.mode.chosen", "event.mode.stage_reset", "event.mode.
                      "event.mode.props_init", "event.mode.tick", "event.mode.chr_tick",
                      "event.mode.score", "event.mode.spawn", "event.mode.token_picked_up",
                      "event.mode.token_dropped", "event.mode.prop_activated",
-                     "event.mode.player_died")
+                     "event.mode.player_died",
+                     # slice 7: the simulants' mode commands
+                     "event.mode.bot_command", "event.mode.bot_idle")
 # A module is a choice the seam of its event acts on: each event chooses the
 # modules listed for it, one per callback g_MpScenarios[] gives a mode, and the
 # dispatchers' defaults. event.mode.chosen chooses what every peer needs to know
@@ -4417,6 +4419,11 @@ MODE_GRAPH_EVENT_MODULES = {
     "event.mode.token_dropped": ("og.mode.ctc.token_dropped",),
     "event.mode.prop_activated": ("og.mode.htm.prop_activated",),
     "event.mode.player_died": ("og.mode.pac.player_died",),
+    "event.mode.bot_command": ("og.mode.htb.bot_command", "og.mode.htm.bot_command",
+                               "og.mode.pac.bot_command", "og.mode.koh.bot_command",
+                               "og.mode.ctc.bot_command"),
+    "event.mode.bot_idle": ("og.mode.htb.bot_idle", "og.mode.htm.bot_idle",
+                            "og.mode.pac.bot_idle", "og.mode.ctc.bot_idle"),
 }
 MODE_GRAPH_MODULES = tuple(module for modules in MODE_GRAPH_EVENT_MODULES.values()
                            for module in modules)

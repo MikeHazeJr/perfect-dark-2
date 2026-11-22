@@ -74,7 +74,8 @@ extern "C" {
  *
  * Mode programs (gamemode-graphs.md slice 2): event.mode.chosen,
  * .stage_reset, .intro_pad, .props_init, .tick, .chr_tick, .score, .spawn,
- * .token_picked_up, .token_dropped, .prop_activated and .player_died belong
+ * .token_picked_up, .token_dropped, .prop_activated, .player_died, and
+ * (slice 7) .bot_command and .bot_idle belong
  * to a mode archive's mode.graph.json only (missionGraphProgramCompileMode).
  * Any other graph that names one is refused, and a mode program refuses every
  * other event. They filter nothing: "objective" on their nodes is refused.
@@ -191,6 +192,10 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_MODE_TOKEN_DROPPED 73
 #define MISSION_GRAPH_EVENT_MODE_PROP_ACTIVATED 74
 #define MISSION_GRAPH_EVENT_MODE_PLAYER_DIED 75
+/* Slice 7: a simulant on a team with no humans picks its command; a simulant
+ * with no command looks for something to do. */
+#define MISSION_GRAPH_EVENT_MODE_BOT_COMMAND 76
+#define MISSION_GRAPH_EVENT_MODE_BOT_IDLE 77
 
 /* Compile limits; a larger graph is refused, not truncated. */
 #define MISSION_GRAPH_MAX_NODES 4096
