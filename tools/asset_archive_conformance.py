@@ -2331,7 +2331,7 @@ def validate_projectile_graph_program(where: str, graph: dict, entity: bool = Fa
     return errors
 
 
-# Held weapon function graphs (held-weapon-events.md slices 1 to 3). v1 is the
+# Held weapon function graphs (held-weapon-events.md slices 1 to 4). v1 is the
 # function's record alone; v2 adds a program of event.weapon.*, gate.* and og.*
 # nodes joined by execution edges (the record's own event.trigger_* node is
 # inert). pd.weapon_graph.v2 with "profile": "held_single_shot.v1" is the
@@ -2346,12 +2346,25 @@ WEAPON_GRAPH_EVENTS = ("event.weapon.trigger_pressed", "event.weapon.ready_while
                        "event.weapon.reload_done")
 # Slice 3: the attack is one of three trigger modules, and use_ammo names the
 # rounds each of its shots takes.
-WEAPON_GRAPH_TRIGGERS = ("og.weapon.fire_once", "og.weapon.burst", "og.weapon.automatic")
+WEAPON_GRAPH_TRIGGERS = ("og.weapon.fire_once", "og.weapon.burst", "og.weapon.automatic",
+                         "og.weapon.charge", "og.weapon.cook")
 WEAPON_GRAPH_IDLE_ACTIONS = WEAPON_GRAPH_TRIGGERS + ("og.weapon.dry_fire", "og.weapon.reload")
-WEAPON_GRAPH_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state", "og.weapon.use_ammo")
+# Slice 4: the attack's shot, one module per attack family, each fitting
+# only its function's record type.
+WEAPON_GRAPH_SHOT_FAMILIES = {
+    "og.weapon.hitscan": ("shoot_single", "shoot_automatic"),
+    "og.weapon.beam": ("shoot_single", "shoot_automatic"),
+    "og.weapon.launch": ("shoot_projectile",),
+    "og.weapon.throw": ("throw",),
+    "og.weapon.melee": ("melee",),
+    "og.weapon.special": ("special",),
+    "og.weapon.mode_toggle": ("special",),
+}
+WEAPON_GRAPH_SHOTS = tuple(WEAPON_GRAPH_SHOT_FAMILIES)
+WEAPON_GRAPH_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state", "og.weapon.use_ammo") + WEAPON_GRAPH_SHOTS
 # A module is a choice the seam of its event acts on: the idle seam's three
-# rule events apply the idle actions, use_ammo and set_state, the records
-# set_state.
+# rule events apply the idle actions, use_ammo, the shots and set_state, the
+# records set_state.
 WEAPON_GRAPH_EVENT_MODULES = {
     "event.weapon.trigger_pressed": WEAPON_GRAPH_MODULES,
     "event.weapon.ready_while_held": WEAPON_GRAPH_MODULES,
@@ -2374,7 +2387,25 @@ WEAPON_GRAPH_SETTINGS = {
                             "spin_up": ("whole", 0, 10000), "spin_down": ("whole", 0, 10000),
                             "burst": ("whole", 0, 255), "aimed_burst": ("bool",)},
     "og.weapon.use_ammo": {"rounds": ("whole", 1, WEAPON_GRAPH_MAX_ROUNDS)},
+    "og.weapon.hitscan": {"pellets": ("whole", 1, 32), "through_walls": ("bool",),
+                          "shield_damage": ("number", 100)},
+    "og.weapon.beam": {"range": ("whole", 1, 65536)},
+    "og.weapon.launch": {"item": ("item",), "item_function": ("item_function",)},
+    "og.weapon.throw": {"give_up_gun": ("bool",)},
+    "og.weapon.special": {"action": ("choice", ("shoot", "launch", "throw", "melee", "detonate", "boost",
+                                                "revert_boost", "crouch", "melee_no_uncloak", "uplink"))},
+    "og.weapon.mode_toggle": {"mode": ("choice", ("cloak",)), "drain": ("number", WEAPON_GRAPH_MAX_RATE)},
+    # Slice 5: charge then release, hold to cook.
+    "og.weapon.charge": {"start": ("choice", ("while_selected", "on_press")), "time": ("whole", 1, 10000),
+                         "steps": ("whole", 1, 25), "ammo_per_step": ("whole", 0, 255),
+                         "min_clip": ("whole", 0, 255), "fall_time": ("whole", 0, 10000),
+                         "release": ("choice", ("on_press", "on_full")), "damage_per_step": ("nonneg", 100)},
+    "og.weapon.cook": {"fuse": ("whole", 1, 10000)},
+    # Slice 4b: how og.weapon.reload fills the clip.
+    "og.weapon.reload": {"style": ("choice", ("magazine", "one_at_a_time", "regrow")),
+                         "regrow_time": ("whole", 1, 10000)},
 }
+WEAPON_GRAPH_ITEM_RE = re.compile(r"[a-z0-9_]+:[a-z0-9_]+")
 
 
 def _weapon_setting_error(kind: str, key: str, spec: tuple, value: object) -> str | None:
@@ -2386,8 +2417,51 @@ def _weapon_setting_error(kind: str, key: str, spec: tuple, value: object) -> st
         if isinstance(value, bool) or not isinstance(value, (int, float)) \
                 or not 0 < value <= WEAPON_GRAPH_MAX_RATE:
             return f"needs {key} in rounds per minute, above 0 and up to {WEAPON_GRAPH_MAX_RATE}"
+    elif spec[0] == "nonneg":
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 <= value <= spec[1]:
+            return f"needs {key} from 0 up to {spec[1]}"
+    elif spec[0] == "number":
+        if isinstance(value, bool) or not isinstance(value, (int, float)) or not 0 < value <= spec[1]:
+            return f"needs {key} above 0 and up to {spec[1]}"
+    elif spec[0] == "item":
+        if not isinstance(value, str) or (value != "own" and (len(value) >= 64
+                                                             or WEAPON_GRAPH_ITEM_RE.fullmatch(value) is None)):
+            return f"needs {key} own or an item's catalog id such as base:rocket"
+    elif spec[0] == "item_function":
+        if value != "gun" and (isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 2):
+            return f"needs {key} gun, 0, 1 or 2"
+    elif spec[0] == "choice":
+        if value not in spec[1]:
+            return f"needs {key} " + ", ".join(spec[1])
     elif not isinstance(value, bool):
         return f"needs {key} true or false"
+    return None
+
+
+def _weapon_charge_error(node: dict, committed: bool, custom: bool | None) -> str | None:
+    """Slice 5 (PR 31 review): only the charges the runtime runs. One that
+    builds while selected is fired by the trigger (release on_press; the
+    Mauler); one that a press starts is a custom weapon's committed launch,
+    which goes by itself when full (release on_full; the crystal pistol). A
+    start left out is the function's (on_press for a custom weapon's committed
+    launch), a release left out its start's."""
+    start, release = node.get("start"), node.get("release")
+    if _weapon_variable_name(start) or _weapon_variable_name(release):
+        return None  # read from the weapon's variables when it registers
+    if start is None:
+        start = "on_press" if committed else "while_selected"
+    if release is None:
+        release = "on_full" if start == "on_press" else "on_press"
+    if start not in ("while_selected", "on_press") or release not in ("on_press", "on_full"):
+        return None  # the setting check names it
+    if start == "while_selected" and release != "on_press":
+        return "a charge that builds while_selected is fired by the trigger (release on_press)"
+    if start == "on_press":
+        if release != "on_full":
+            return "a charge that a press starts goes by itself when full (release on_full)"
+        if custom is False:
+            return ("start on_press is a custom weapon's committed launch; a base weapon's charge builds "
+                    "while_selected")
     return None
 
 
@@ -2421,6 +2495,25 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
         errors.append(f"{where} names its function in graph_id (primary or secondary)")
     kinds: dict[str, str] = {}
     keys: set[str] = set()
+    # Slice 4: the function's record type, which a shot module must fit.
+    record_type = None
+    for node in nodes:
+        if isinstance(node, dict) and isinstance(node.get("params"), dict) \
+                and isinstance(node["params"].get("function_type"), str) \
+                and not _is_weapon_program_kind(node.get("kind")):
+            record_type = node["params"]["function_type"]
+            break
+    # Slice 5 (review): a custom weapon's function whose record is a committed
+    # charge launch (its charge starts on a press unless the node says).
+    asset_id = graph.get("asset_id")
+    custom = (not asset_id.startswith("base:")) if isinstance(asset_id, str) and ":" in asset_id else None
+    committed = custom is not False and any(
+        isinstance(node, dict) and isinstance(node.get("params"), dict)
+        and not _is_weapon_program_kind(node.get("kind"))
+        and isinstance(node["params"].get("charge_time_ticks60"), int)
+        and not isinstance(node["params"]["charge_time_ticks60"], bool)
+        and node["params"]["charge_time_ticks60"] > 0
+        for node in nodes)
     # A program node may not take a record node's id (slice 3; the runner
     # refuses it): the record compiler reads every node.
     record_ids = {node.get("id") for node in nodes if isinstance(node, dict)
@@ -2457,11 +2550,18 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
                     or not 1 <= rounds <= WEAPON_GRAPH_MAX_ROUNDS):
                 errors.append(f"{where} gate.weapon.has_ammo {node_id!r} needs rounds from 1 to "
                               f"{WEAPON_GRAPH_MAX_ROUNDS}")
+        if kind in WEAPON_GRAPH_SHOT_FAMILIES and record_type is not None \
+                and record_type not in WEAPON_GRAPH_SHOT_FAMILIES[kind]:
+            errors.append(f"{where} {kind} {node_id!r} does not fit this function (its record is {record_type})")
         for key, spec in WEAPON_GRAPH_SETTINGS.get(kind, {}).items():
             if key in node and not _weapon_variable_name(node[key]):
                 why = _weapon_setting_error(kind, key, spec, node[key])
                 if why:
                     errors.append(f"{where} {kind} {node_id!r} {why}")
+        if kind == "og.weapon.charge":
+            why = _weapon_charge_error(node, committed, custom)
+            if why:
+                errors.append(f"{where} og.weapon.charge {node_id!r}: {why}")
         if kind in ("gate.weapon.state_is", "og.weapon.set_state"):
             flag = "equals" if kind == "gate.weapon.state_is" else "value"
             key = node.get("key")

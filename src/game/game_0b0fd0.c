@@ -20,6 +20,7 @@
 #include "weapon_graph_runtime.h"
 #include "weapon_graph_v2_runtime.h"
 #include "weapon_events.h"
+#include "weapon_rules.h"
 
 /**
  * Canonical weapon accessor. Routes through the Catalog Manager
@@ -477,8 +478,10 @@ void gsetPopulateFromCurrentPlayer(s32 handnum, struct gset *gset)
 	gset->unk063a = g_Vars.currentplayer->hands[handnum].gset.unk063a;
 	gset->unk0639 = g_Vars.currentplayer->hands[handnum].gset.unk0639;
 
-	if (gset->weaponnum == WEAPON_MAULER) {
-		gset->unk063a = g_Vars.currentplayer->hands[handnum].matmot1 * 10.0f;
+	/* held-weapon-events.md slice 5: the shot carries the weapon's charge
+	 * (tenths of a step), as the Mauler's did. */
+	if (weaponWeaponCharge(gset->weaponnum, NULL)) {
+		gset->unk063a = g_Vars.currentplayer->hands[handnum].chargelevel * 10.0f;
 	}
 
 	if (gset->weaponnum == WEAPON_LASER) {
@@ -593,8 +596,18 @@ f32 gsetGetDamage(struct gset *gset)
 		}
 	}
 
-	if (gset->weaponnum == WEAPON_MAULER) {
-		damage = (gset->unk063a / 3.0f + 1.0f) * damage;
+	/* slice 5: each step of the weapon's charge adds its damage_per_step of
+	 * the damage (the Mauler's 10/3, the original's own expression). */
+	{
+		weapon_rule_trigger_t charge;
+
+		if (weaponWeaponCharge(gset->weaponnum, &charge)) {
+			if (charge.charge_damage == WEAPON_RULE_MAULER_CHARGE_DAMAGE) {
+				damage = (gset->unk063a / 3.0f + 1.0f) * damage;
+			} else {
+				damage = (gset->unk063a / 10.0f * charge.charge_damage + 1.0f) * damage;
+			}
+		}
 	}
 
 	if (!wgV2RuntimeIsWeapon(gset->weaponnum) && bgunIsFiring(HAND_LEFT) && bgunIsFiring(HAND_RIGHT)) {

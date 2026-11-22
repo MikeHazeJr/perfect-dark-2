@@ -103,6 +103,10 @@ f32 bgunGetPlayerShotSpreadFromGset(struct gset *accepted, s32 burstbullets);
 void bgunCalculateBotShotSpread(struct coord *arg0, s32 weaponnum, s32 funcnum, bool arg3, s32 crouchpos, bool dual);
 void bgunSetLastShootInfo(struct coord *pos, struct coord *dir, s32 handnum);
 s32 bgunGetShotsToTake(s32 handnum);
+struct weapon_rule_trigger;
+/* held-weapon-events.md slice 4: the plan of the attack the hand is in (its
+ * shot and the shot's settings). */
+const struct weapon_rule_trigger *bgunHandPlan(s32 handnum);
 void bgunFreeWeapon(s32 handnum);
 void bgunTickSwitch2(void);
 void bgunEquipWeapon(s32 weaponnum);

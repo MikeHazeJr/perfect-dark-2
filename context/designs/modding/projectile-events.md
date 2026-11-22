@@ -724,6 +724,36 @@ the Super Dragon's grenade). The campaigns must keep `rules.differ` and
 `fuse.differ` at 0, and the mod weapon smoke (a v1 archive) must run its
 record arms as before.
 
+## Slice 7 survey: flight, spawn and free (Core Weapons, 2026-11-21, before code)
+
+Mike's order for the held-weapon work (2026-11-21) puts this slice after held
+weapon slice 5 and before held slice 6 (the target filter), which shares its
+seams. What still goes by weapon number in `propobj.c`, read on
+`week-pd/core-weapons` after held slice 5:
+
+| Where | Test | What it decides |
+|---|---|---|
+| `projectileTick`, the flight model | `WEAPON_SKROCKET` runs `rocketTickFbw` (the Slayer's fly-by-wire, the bot Slayer's waypoints, its own fuse) | flight |
+| `projectileTick`, homing | `WEAPON_HOMINGROCKET`, `PROJECTILEFLAG_HOMING` or the gun's `FUNCFLAG_HOMINGROCKET` makes it home on its target | flight (held slice 6 gives the target a filter) |
+| `projectileTick`, in flight | `WEAPON_ROCKET`: the thrust cap and power limit with its smoke; `WEAPON_HOMINGROCKET`: the homing tail smoke; `WEAPON_GRENADEROUND`: the trail; the pinball grenade's smoke; the thrown knife's woosh | flight and presentation |
+| `projectileTick`, a bounce | the knife's and the pinball grenade's bounce sounds | presentation |
+| `objFree` | the pinball grenade, the bolt and the fly-by-wire rocket each clean up their own way | free |
+| `objInit` | the briefcase and the data uplink as objects | spawn (not a projectile) |
+| `objDrop` | a dropped grenade keeps its fuse | spawn |
+| `projectileCreate` (guards, the chopper, autoguns) | the Tranquilizer's dart, the chopper gun, the watch laser, the guards' rocket launcher | spawn by a character |
+| `weaponCreateProjectileFromGset` | a switch whose cases are all the default | nothing (dead) |
+| pickups: `weaponPlayPickupSound`, `propPickupByPlayer`, `objPickupRulesAllow`, `weaponGetPickupText`, `weaponGetPickupAmmoQty` | per-weapon sounds, texts, ammo and pickup rules | pickup (object-events' pickup rule decides whether; these decide what) |
+
+The plan, in slice 2 to 6's pattern: `event.projectile.in_flight` (each
+tick in flight) with modules for the flight model (`og.projectile.thrust`
+with the cap and power limit, `og.projectile.fly_by_wire`,
+`og.projectile.home`) and its presentation (`og.projectile.trail` with a
+smoke type, `og.projectile.woosh`), the bounce sound on the existing bounce
+event, the free's clean-up on `event.projectile.freed` (record-only since
+slice 1), and the character spawns at `projectileCreate`. The pickup family
+is its own slice with the object rules. The record clauses' decision (the
+two ways listed above, for Mike and MODS) stays open.
+
 ## Not in scope
 
 - Held weapons (the fire types in `bondgun.c`): the week note's Held weapons

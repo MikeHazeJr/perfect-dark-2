@@ -959,4 +959,33 @@ TEST_CASE("weapon editor keeps a function's program through compose and split",
 	CHECK(weaponGraphValidateJson(ASSET_WEAPON, slow.data(), static_cast<u32>(slow.size()),
 		err, sizeof(err)) != 0);
 	CHECK(std::string(err).find("og.weapon.burst needs gap from 0 to 255, got 300") != std::string::npos);
+
+	/* slice 5 (PR 31 review): only the charges the runtime runs validate. A
+	 * custom weapon's charge may start on a press (it then goes when full); a
+	 * base weapon's may not, nor may a pressed charge wait for a press. */
+	const auto charged = [&](const std::string &fields, const std::string &asset) {
+		std::string doc = joined;
+		const std::string burst = "\"og.weapon.burst\"";
+		const std::string gap = "\"gap\": 4";
+		REQUIRE(doc.find(burst) != std::string::npos);
+		doc.replace(doc.find(burst), burst.size(), "\"og.weapon.charge\"");
+		doc.replace(doc.find(gap), gap.size(), gap + fields);
+		const std::string mod = "mod:weapon_program";
+		for (size_t at = doc.find(mod); at != std::string::npos; at = doc.find(mod, at + asset.size())) {
+			doc.replace(at, mod.size(), asset);
+		}
+		return doc;
+	};
+	std::string doc = charged(", \"start\": \"on_press\"", "mod:weapon_program");
+	CHECK(weaponGraphValidateJson(ASSET_WEAPON, doc.data(), static_cast<u32>(doc.size()), err, sizeof(err)) == 0);
+	doc = charged(", \"start\": \"on_press\", \"release\": \"on_press\"", "mod:weapon_program");
+	CHECK(weaponGraphValidateJson(ASSET_WEAPON, doc.data(), static_cast<u32>(doc.size()), err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("og.weapon.charge: a charge that a press starts goes by itself when full")
+		!= std::string::npos);
+	doc = charged(", \"start\": \"on_press\"", "base:weapon_program");
+	CHECK(weaponGraphValidateJson(ASSET_WEAPON, doc.data(), static_cast<u32>(doc.size()), err, sizeof(err)) != 0);
+	CHECK(std::string(err).find("og.weapon.charge: start on_press is a custom weapon's committed launch")
+		!= std::string::npos);
+	doc = charged("", "base:weapon_program"); // builds while selected, fired by the trigger
+	CHECK(weaponGraphValidateJson(ASSET_WEAPON, doc.data(), static_cast<u32>(doc.size()), err, sizeof(err)) == 0);
 }

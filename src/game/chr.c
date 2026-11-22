@@ -60,6 +60,7 @@
 #include "video.h"
 #include "net/net.h"
 #include "net/netmsg.h"
+#include "weapon_events.h"
 #include "modasset_compiler.h"
 
 extern s32 bootDebugPlaceBotNearPlayerIsAuditProp(const struct prop *prop);
@@ -2612,8 +2613,11 @@ void chrUpdateCloak(struct chrdata *chr)
 		}
 
 		// If cloak is enabled via cloaking device or via RCP120
+		/* held-weapon-events.md slice 4 (PR 31 review): or via any weapon
+		 * whose function is og.weapon.mode_toggle's cloak (the RCP120's
+		 * secondary in the original), as its toggle and drain already are. */
 		if ((g_Vars.currentplayer->devicesactive & DEVICE_CLOAKDEVICE)
-				|| (g_Vars.currentplayer->gunctrl.weaponnum == WEAPON_RCP120
+				|| (weaponCloakToggle(g_Vars.currentplayer->gunctrl.weaponnum, NULL, NULL)
 					&& (g_Vars.currentplayer->devicesactive & DEVICE_CLOAKRCP120))) {
 			if ((chr->hidden & CHRHFLAG_CLOAKED) == 0 && chr->cloakpause < 1) {
 				chrCloak(chr, true);

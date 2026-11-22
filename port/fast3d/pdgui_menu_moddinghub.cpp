@@ -1405,12 +1405,26 @@ static bool weaponGraphBuilderSyncJson(void)
         return false;
     }
 
+    /* held-weapon-events.md: a graph with a program (event.weapon.*,
+     * gate.weapon.*, og.* nodes, or an execution edge) is
+     * pd.weapon_graph.v2; one without stays v1. */
+    bool program = false;
+    for (int i = 0; i < s_WeaponGraphNodeCount && !program; i++) {
+        const char *kind = s_WeaponGraphNodes[i].kind;
+        program = strncmp(kind, "event.weapon.", 13) == 0 || strncmp(kind, "gate.weapon.", 12) == 0
+            || strncmp(kind, "og.", 3) == 0;
+    }
+    for (int i = 0; i < s_WeaponGraphEdgeCount && !program; i++) {
+        program = s_WeaponGraphEdges[i].input[0] != '\0';
+    }
+
     s_WeaponEditGraph[0] = '\0';
     ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
         "{\n"
-        "  \"schema\": \"pd.weapon_graph.v1\",\n"
+        "  \"schema\": \"%s\",\n"
         "  \"asset_id\": \"%s\",\n"
         "  \"graph_id\": \"custom_modular\",\n",
+        program ? "pd.weapon_graph.v2" : "pd.weapon_graph.v1",
         escapedAsset);
 
     ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
@@ -1480,11 +1494,13 @@ static bool weaponGraphBuilderSyncJson(void)
                          escapedSubgraph, sizeof(escapedSubgraph));
         ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
             "    { \"id\": \"%s\", \"kind\": \"%s\", \"subgraph\": \"%s\", "
-            "\"params\": %s }%s\n",
+            "\"params\": %s%s%s }%s\n",
             escapedId,
             escapedKind,
             escapedSubgraph,
             s_WeaponGraphNodes[i].params[0] ? s_WeaponGraphNodes[i].params : "{}",
+            s_WeaponGraphNodes[i].extra[0] ? ", " : "",
+            s_WeaponGraphNodes[i].extra,
             (i + 1 < s_WeaponGraphNodeCount) ? "," : "");
     }
 
@@ -1505,9 +1521,18 @@ static bool weaponGraphBuilderSyncJson(void)
                          from, sizeof(from));
         weaponJsonEscape(s_WeaponGraphNodes[s_WeaponGraphEdges[i].to].id,
                          to, sizeof(to));
+        char ports[64] = "";
+        if (s_WeaponGraphEdges[i].input[0]) {
+            char output[32];
+            char input[32];
+            weaponJsonEscape(s_WeaponGraphEdges[i].output[0] ? s_WeaponGraphEdges[i].output : "out",
+                             output, sizeof(output));
+            weaponJsonEscape(s_WeaponGraphEdges[i].input, input, sizeof(input));
+            snprintf(ports, sizeof(ports), ", \"output\": \"%s\", \"input\": \"%s\"", output, input);
+        }
         ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,
-            "    { \"from\": \"%s\", \"to\": \"%s\" }%s\n",
-            from, to, (i + 1 < s_WeaponGraphEdgeCount) ? "," : "");
+            "    { \"from\": \"%s\", \"to\": \"%s\"%s }%s\n",
+            from, to, ports, (i + 1 < s_WeaponGraphEdgeCount) ? "," : "");
     }
 
     ok = ok && weaponAppendf(s_WeaponEditGraph, sizeof(s_WeaponEditGraph), &pos,

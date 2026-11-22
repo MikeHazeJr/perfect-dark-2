@@ -67,6 +67,8 @@
 #include "net/net.h"
 #include "net/netmsg.h"
 #include "projectile_events.h"
+#include "weapon_rules.h"
+#include "weapon_events.h"
 #include "swarm_test.h" /* S594h-Unit-A item 7: swarmTestGetVisMode */
 
 s32 g_RecentQuipsPlayed[5];
@@ -4668,9 +4670,31 @@ void chrDamage(struct chrdata *chr, f32 damage, struct coord *vector, struct gse
 
 	// damageshield is an argument to this function,
 	// but is forced on if using the Farsight.
-	if (gset && gset->weaponnum == WEAPON_FARSIGHT) {
-		damageshield = true;
-		damage *= 10;
+	// held-weapon-events.md slice 4: og.weapon.hitscan's shield_damage (the
+	// Farsight's 10) forces it, times the damage.
+	if (gset) {
+		weapon_rule_trigger_t shotplan;
+		const weapon_rule_trigger_t *handplan = NULL;
+
+		/* A player's shot carries the plan of the attack that fired it (its
+		 * states chose it); a simulant's or a guard's, its function's. */
+		if (g_Vars.currentplayer && aprop && aprop == g_Vars.currentplayer->prop) {
+			for (s32 h = 0; h < 2 && !handplan; h++) {
+				if (g_Vars.currentplayer->hands[h].gset.weaponnum == gset->weaponnum
+						&& g_Vars.currentplayer->hands[h].gset.weaponfunc == gset->weaponfunc) {
+					handplan = bgunHandPlan(h);
+				}
+			}
+		}
+		if (handplan) {
+			shotplan = *handplan;
+		} else {
+			weaponFunctionPlan(gset->weaponnum, gset->weaponfunc, &shotplan);
+		}
+		if (shotplan.shot == WEAPON_MODULE_HITSCAN && shotplan.shield_damage != 1.0f) {
+			damageshield = true;
+			damage *= shotplan.shield_damage;
+		}
 	}
 
 	// Handle shield damage
@@ -10150,6 +10174,7 @@ bool g_DebugBotsHoldFire = false;
 
 void chrTickShoot(struct chrdata *chr, s32 handnum)
 {
+	weapon_rule_trigger_t botshotplan;
 	struct prop *chrprop = chr->prop;
 	struct prop *gunprop;
 	u8 isaibot = false;
@@ -10306,7 +10331,10 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 
 				// Handle Farsight shots by aibots specially
 				// because they can shoot through walls.
-				if (chr->aibot && gset.weaponnum == WEAPON_FARSIGHT && !chr->aibot->targetinsight) {
+				// held-weapon-events.md slice 4: a simulant's shot passes walls
+				// when its function's og.weapon.hitscan does (the Farsight's).
+				weaponFunctionPlan(gset.weaponnum, gset.weaponfunc, &botshotplan);
+				if (chr->aibot && botshotplan.through_walls && !chr->aibot->targetinsight) {
 					makebeam = true;
 
 					// This function can never return 2 though...

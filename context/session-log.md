@@ -1,5 +1,23 @@
 # Session Log (Active)
 
+2026-11-21 CORE WEAPONS (claude-pd-core-weapons-20261121), 21:00 UTC onward (after the morning's
+slices 1 and 2). Mike's assignment: held weapons on behavior graphs, the eight slices of the gun-code
+audit (artifact `7fgSVVLGzHGRddzXoUJ1Xz`), in the order 1-5, projectile slice 7, 6, 7, 8; own branch
+`week-pd/core-weapons`, committed through a temporary index (canonical HEAD and index untouched). On
+dev: **slices 1 and 2** (PR 26, `1b875417`: the held v2 graph on the shared runner; the idle choice is
+each function's program, parity probe `WEAPON.RULE`), **slice 3** (PR 29, `32de66d6`: an attack's
+cadence is its program's trigger node, fire once, burst, automatic, with Use ammo; simulants' ticks per
+shot from the same programs). In review: **slice 4a** (PR 31: the shot is its program's shot node, one
+per family; the Shotgun, Farsight, Laser, launcher if-chain, Laptop gun, RCP120 cloak and Tranquilizer
+cases are node settings) and **slice 4b** (`cf76853c`: a reload's style); **slice 5** committed (`d2ac9937`: Charge then release
+and Hold to cook are trigger nodes; the Mauler, the crystal pistol and the grenade run from them). The rule table, the plan and
+the walk are header-only (`port/include/weapon_rules.h`), so pd-tests run the game's walk and a copy of
+the original cadence code tick by tick. Every slice's record, the design and the smokes for Integration's
+batch (`held_weapon_cadence_smoke` and `held_weapon_shot_smoke` are new fixtures) are in
+`context/designs/modding/held-weapon-events.md`. Open: `bot.c`'s single-shot burst still reads
+`FUNCFLAG_BURST2/3` (MP-RULES' file; `weaponProgramBurstRounds` is ready). Next: projectile slice 7 (flight,
+spawn and free as rule events), then weapon slices 6, 7 and 8.
+
 2026-11-21 MULTIPLAYER AND RULES (claude-pd-mp-rules-20261121), 04:30 to 05:15 and 21:27 UTC onward.
 Mike's order: six items, canonical checkout, own branch `week-pd/mp-rules` from dev (commits through a
 temporary index; HEAD and the shared index never switched), merge proven work to dev. Every commit was

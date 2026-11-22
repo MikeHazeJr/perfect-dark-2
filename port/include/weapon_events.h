@@ -46,6 +46,7 @@
 struct hand;
 struct weapon_rule_function;
 struct weapon_rule_trigger;
+struct weapon_rule_reload;
 
 /* bgunSetTriggerOn: the hand's trigger is `on` now and was `previous`. A
  * press waits for the idle seam; a release drops a waiting press and is the
@@ -69,6 +70,16 @@ u32 weaponIdleModules(s32 event_kind, s32 handnum, struct hand *hand, s32 ammo_s
  * original's for the record. Never NULL. */
 const struct weapon_rule_trigger *weaponHandTrigger(struct hand *hand, const struct weapon_rule_function *record);
 
+/* slice 4b: the reload the hand is in, for bgunTickIncReload: the one its
+ * idle seam chose while the hand holds that weapon and function, else the
+ * original's for the record. Never NULL. */
+const struct weapon_rule_reload *weaponHandReload(struct hand *hand, const struct weapon_rule_function *record);
+
+/* PR 31 review: whether a function's program regrows its clip
+ * (og.weapon.reload style regrow), so its reload needs no reserve. 0 with no
+ * program. */
+s32 weaponProgramRegrows(s32 weaponnum, s32 func);
+
 /* The attack a press starts for a simulant or a guard: the function's
  * program walked for a ready hand with a loaded clip, reserve to reload
  * from and every named state false (the hand a player takes the weapon
@@ -87,6 +98,24 @@ s32 weaponProgramTicksPerShot(s32 weaponnum, s32 func, s32 native);
  * starts, 0 for any other trigger; `native` for a function with no
  * program. */
 s32 weaponProgramBurstRounds(s32 weaponnum, s32 func, s32 native);
+
+/* slice 4: a weapon function's plan as simulants, guards and damage read
+ * it (the shot's settings: a Farsight's shield damage, a simulant's Farsight
+ * through walls): the press plan when the function has a program that
+ * starts one, else the original's for its record. */
+void weaponFunctionPlan(s32 weaponnum, s32 func, struct weapon_rule_trigger *out);
+
+/* slice 5: the weapon's charge that builds while its function is selected
+ * (og.weapon.charge, start while_selected; the Mauler's secondary): its
+ * function number plus one with its plan, 0 when it has none. The charge
+ * level is the weapon's (the hand's matmot1, in steps): every function's shot
+ * carries it, as the original's Mauler did. */
+s32 weaponWeaponCharge(s32 weaponnum, struct weapon_rule_trigger *out);
+
+/* slice 4: whether one of the weapon's functions toggles the cloak
+ * (og.weapon.mode_toggle, mode cloak): 1 with its drain in rounds a second
+ * and its clip's ammo slot. */
+s32 weaponCloakToggle(s32 weaponnum, f32 *drain, s32 *ammo_slot);
 
 /* bgunSetState: the hand left its reload for idle (event.weapon.reload_done,
  * a record). */
