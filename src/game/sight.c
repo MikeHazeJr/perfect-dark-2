@@ -19,6 +19,7 @@
 #include "lib/snd.h"
 #include "data.h"
 #include "game/player.h" /* playerCurrentInCutscene, for USINGDEVICE (slice 6a) */
+#include "game/playermgr.h"
 #include "target_filter.h"
 #include "types.h"
 #include <math.h>
@@ -148,6 +149,8 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 	out->alive = 1;
 	out->cloaked = 0;
 	out->owner_ir = USINGDEVICE(DEVICE_IRSCANNER) ? 1 : 0;
+	out->drugged = 0;
+	out->unexplodable = 0;
 
 	if (!prop) {
 		return;
@@ -159,6 +162,25 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 		out->kind = prop->type == PROPTYPE_PLAYER ? TARGET_KIND_PLAYER
 			: (chr && chr->aibot ? TARGET_KIND_SIMULANT : TARGET_KIND_GUARD);
 		out->cloaked = chr && (chr->hidden & CHRHFLAG_CLOAKED) ? 1 : 0;
+
+		if (chr) {
+			struct chrdata *self = g_Vars.currentplayer->prop ? g_Vars.currentplayer->prop->chr : NULL;
+
+			out->relation = prop == g_Vars.currentplayer->prop ? TARGET_RELATION_OWNER
+				: (self && chrCompareTeams(self, chr, COMPARE_FRIENDS) ? TARGET_RELATION_FRIEND : TARGET_RELATION_ENEMY);
+			out->alive = chr->actiontype != ACT_DIE && chr->actiontype != ACT_DEAD;
+
+			if (prop->type == PROPTYPE_PLAYER) {
+				const s32 playernum = playermgrGetPlayerNumByProp(prop);
+
+				if (playernum >= 0 && g_Vars.players[playernum]->isdead) {
+					out->alive = 0;
+				}
+			}
+
+			out->drugged = chr->actiontype == ACT_DRUGGEDDROP || chr->actiontype == ACT_DRUGGEDKO;
+			out->unexplodable = (chr->chrflags & CHRCFLAG_UNEXPLODABLE) ? 1 : 0;
+		}
 	} else if (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_WEAPON || prop->type == PROPTYPE_DOOR) {
 		struct defaultobj *obj = prop->obj;
 

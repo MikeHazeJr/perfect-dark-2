@@ -20,6 +20,8 @@
 #include "game/camera.h"
 #include "game/player.h"
 #include "game/playermgr.h"
+#include "game/sight.h"
+#include "target_filter.h"
 #include "game/explosions.h"
 #include "game/smoke.h"
 #include "game/sparks.h"
@@ -3194,9 +3196,16 @@ void farsightChooseTarget(void)
 	f32 bestthing = 1;
 	f32 bestdist = -1;
 	s32 weaponnum = bgunGetWeaponNum(HAND_RIGHT);
+	target_filter_t filter;
 	s32 i;
 
-	if (weaponnum == WEAPON_FARSIGHT) {
+	/* held-weapon-events.md slice 6a: the Farsight's auto-target filter (its
+	 * native one, the Farsight's alone: an enemy character or another
+	 * player, alive and awake, not cloaked even through the IR scanner, and
+	 * not one it cannot blow up). */
+	targetFilterNative(TARGET_PICKER_FARSIGHT, weaponnum, &filter);
+
+	if (filter.kinds) {
 		s32 numchrs = chrsGetNumSlots();
 
 		for (i = numchrs - 1; i >= 0; i--) {
@@ -3205,16 +3214,11 @@ void farsightChooseTarget(void)
 			if (prop && prop->chr) {
 				if ((prop->type == PROPTYPE_CHR && (prop->flags & PROPFLAG_ENABLED))
 						|| (prop->type == PROPTYPE_PLAYER && playermgrGetPlayerNumByProp(prop) != g_Vars.currentplayernum)) {
-					struct chrdata *chr = prop->chr;
+					target_facts_t facts;
 
-					if ((chr->chrflags & CHRCFLAG_UNEXPLODABLE) == 0
-							&& !chrCompareTeams(g_Vars.currentplayer->prop->chr, chr, COMPARE_FRIENDS)
-							&& chr->actiontype != ACT_DIE
-							&& chr->actiontype != ACT_DRUGGEDDROP
-							&& chr->actiontype != ACT_DRUGGEDKO
-							&& chr->actiontype != ACT_DEAD
-							&& (chr->hidden & CHRHFLAG_CLOAKED) == 0
-							&& (prop->type != PROPTYPE_PLAYER || !g_Vars.players[playermgrGetPlayerNumByProp(prop)]->isdead)) {
+					sightTargetFacts(prop, &facts);
+
+					if (targetFilterAccepts(&filter, &facts)) {
 						f32 xdist = g_Vars.currentplayer->bond2.unk10.x - prop->pos.x;
 						f32 ydist = g_Vars.currentplayer->bond2.unk10.y - prop->pos.y;
 						f32 zdist = g_Vars.currentplayer->bond2.unk10.z - prop->pos.z;

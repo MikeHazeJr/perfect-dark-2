@@ -56,6 +56,8 @@ typedef struct target_facts {
 	s32 alive;
 	s32 cloaked;
 	s32 owner_ir;          /* the owner sees through cloaks (the IR scanner) */
+	s32 drugged;           /* a character knocked out or falling from a sedative */
+	s32 unexplodable;      /* a character the Farsight cannot blow up (CHRCFLAG_UNEXPLODABLE) */
 } target_facts_t;
 
 /* A filter: what passes. */
@@ -66,12 +68,15 @@ typedef struct target_filter {
 	s32 vehicles_occupied;   /* a vehicle passes only with a rider (Mike: "occupied only") */
 	s32 relation;            /* TARGET_RELATION_ANYONE, _ENEMY, _FRIEND, _OWNER */
 	s32 alive_only;
+	s32 awake_only;          /* a drugged character does not pass */
+	s32 explodable_only;     /* an unexplodable character does not pass */
 	s32 sees_cloaked;        /* TARGET_SEES_CLOAKED_* */
 } target_filter_t;
 
 /* The pickers, for their native filters. */
 #define TARGET_PICKER_LOOK 1 /* what the player looks at (lvRender's lookingatprop) */
 #define TARGET_PICKER_LOCK 2 /* the lock that takes it (sightCanTargetProp) */
+#define TARGET_PICKER_FARSIGHT 3 /* the Farsight's auto-target (farsightChooseTarget) */
 
 /*
  * The candidate's relation passes the filter's. An empty vehicle and an
@@ -112,6 +117,12 @@ static inline s32 targetFilterAccepts(const target_filter_t *f, const target_fac
 	if (f->alive_only && !c->alive) {
 		return 0;
 	}
+	if (f->awake_only && c->drugged) {
+		return 0;
+	}
+	if (f->explodable_only && c->unexplodable) {
+		return 0;
+	}
 	if (c->cloaked) {
 		if (f->sees_cloaked == TARGET_SEES_CLOAKED_NEVER) return 0;
 		if (f->sees_cloaked == TARGET_SEES_CLOAKED_WITH_IR && !c->owner_ir) return 0;
@@ -129,6 +140,9 @@ static inline s32 targetFilterAccepts(const target_filter_t *f, const target_fac
  * - LOCK (sightCanTargetProp): a character, a player, or an object that
  *   reacts to sight (the training targets do not count here); but the
  *   rocket launcher locks whatever the player looks at.
+ * - FARSIGHT (farsightChooseTarget): the Farsight's alone; an enemy
+ *   character or another player, alive and awake, not cloaked even through
+ *   the IR scanner, and not one it cannot blow up. Every other gun has none.
  */
 static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t *out)
 {
@@ -138,6 +152,8 @@ static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t
 	out->vehicles_occupied = 0;
 	out->relation = TARGET_RELATION_ANYONE;
 	out->alive_only = 0;
+	out->awake_only = 0;
+	out->explodable_only = 0;
 	out->sees_cloaked = TARGET_SEES_CLOAKED_ALWAYS;
 	switch (picker) {
 	case TARGET_PICKER_LOOK:
@@ -149,6 +165,16 @@ static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t
 		out->kinds = TARGET_KINDS_ALL;
 		if (weaponnum == WEAPON_ROCKETLAUNCHER) {
 			out->things_must_react = 0;
+		}
+		break;
+	case TARGET_PICKER_FARSIGHT:
+		if (weaponnum == WEAPON_FARSIGHT) {
+			out->kinds = TARGET_KINDS_CHARACTERS;
+			out->relation = TARGET_RELATION_ENEMY;
+			out->alive_only = 1;
+			out->awake_only = 1;
+			out->explodable_only = 1;
+			out->sees_cloaked = TARGET_SEES_CLOAKED_NEVER;
 		}
 		break;
 	}

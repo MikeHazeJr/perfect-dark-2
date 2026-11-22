@@ -655,8 +655,14 @@ rocket launcher's "locks whatever is looked at" is the lock table's answer
 for its weapon number. pd-tests compare both with copies of the inline tests
 as they stood, over 160 combinations of facts (the comparison caught a
 sentry that does not react to sight, which the first draft let through).
-Next: homing, auto-aim, the Farsight, the bot Slayer, proximity and
-sentries.
+Then the Farsight (`farsightChooseTarget`): its auto-target asks the
+Farsight's native filter (an enemy character or another player, alive and
+awake, not cloaked even through the IR scanner, not unexplodable; every other
+gun has none, so the Farsight's number is the table's), with the facts
+gaining the relation (owner, friend through `chrCompareTeams`, else enemy),
+alive, drugged and unexplodable; compared over 576 combinations. Homing's
+native filter takes anything (it never re-checks), so it waits for 6b.
+Next: auto-aim, the bot Slayer, proximity and sentries.
 
 ## Smokes for Integration's finalization batch
 

@@ -3571,6 +3571,54 @@ TEST_CASE("the look and lock pickers are the target filter's native ones",
 	REQUIRE(sight.find("void sightTargetFacts(struct prop *prop, struct target_facts *out)") != std::string::npos);
 }
 
+TEST_CASE("the Farsight's auto-target is the target filter's native one",
+	"[mission-graph][weapon-graph][held-weapon][target-filter]")
+{
+	// farsightChooseTarget's test as it stood (prop.c at b66065f8), for a
+	// character or another player in the chr slots.
+	const auto original = [](bool friendly, s32 action, bool cloaked, bool unexplodable, bool playerdead) -> bool {
+		return !unexplodable && !friendly && action != ACT_DIE && action != ACT_DRUGGEDDROP
+			&& action != ACT_DRUGGEDKO && action != ACT_DEAD && !cloaked && !playerdead;
+	};
+	target_filter_t farsight, other;
+	targetFilterNative(TARGET_PICKER_FARSIGHT, WEAPON_FARSIGHT, &farsight);
+	targetFilterNative(TARGET_PICKER_FARSIGHT, WEAPON_FALCON2, &other);
+	CHECK(other.kinds == 0); // only the Farsight auto-targets
+	s32 compared = 0;
+	for (u32 kind : { TARGET_KIND_GUARD, TARGET_KIND_SIMULANT, TARGET_KIND_PLAYER }) {
+		for (s32 action : { ACT_STAND, ACT_DIE, ACT_DEAD, ACT_DRUGGEDDROP, ACT_DRUGGEDKO, ACT_ATTACK }) {
+			for (s32 bits = 0; bits < 32; bits++) {
+				const bool friendly = bits & 1, cloaked = bits & 2, unexplodable = bits & 4, ir = bits & 8;
+				const bool playerdead = (bits & 16) && kind == TARGET_KIND_PLAYER;
+				target_facts_t c{};
+				c.kind = kind;
+				c.relation = friendly ? TARGET_RELATION_FRIEND : TARGET_RELATION_ENEMY;
+				c.alive = action != ACT_DIE && action != ACT_DEAD && !playerdead;
+				c.drugged = action == ACT_DRUGGEDDROP || action == ACT_DRUGGEDKO;
+				c.cloaked = cloaked;
+				c.owner_ir = ir; // the Farsight ignores the IR scanner
+				c.unexplodable = unexplodable;
+				INFO("kind " << kind << " action " << action << " bits " << bits);
+				CHECK((targetFilterAccepts(&farsight, &c) != 0)
+					== original(friendly, action, cloaked, unexplodable, playerdead));
+				CHECK(targetFilterAccepts(&other, &c) == 0);
+				compared++;
+			}
+		}
+	}
+	CHECK(compared == 3 * 6 * 32);
+
+	// The seam: farsightChooseTarget asks the filter; the Farsight's number is the table's.
+	const std::string prop = readSource("src/game/prop.c");
+	const size_t at = prop.find("void farsightChooseTarget(void)\n{");
+	REQUIRE(at != std::string::npos);
+	const std::string body = prop.substr(at, prop.find("\n}\n", at) - at);
+	REQUIRE(body.find("targetFilterNative(TARGET_PICKER_FARSIGHT, weaponnum, &filter);") != std::string::npos);
+	REQUIRE(body.find("if (targetFilterAccepts(&filter, &facts)) {") != std::string::npos);
+	CHECK(body.find("WEAPON_FARSIGHT") == std::string::npos);
+	CHECK(body.find("CHRCFLAG_UNEXPLODABLE") == std::string::npos);
+}
+
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
 	"[mission][graph][runner]")
 {
