@@ -245,3 +245,43 @@ TEST_CASE("release.ps1 checks the release body against GitHub's limit before it 
 	      std::string::npos);
 	CHECK(release.find("if (-not $DryRun -and -not $SkipPush -and -not $keepUploads) {") != std::string::npos);
 }
+
+TEST_CASE("release.ps1 never makes a signing key and never commits the updater's public key",
+          "[release][static][b1315]")
+{
+	const std::string raw = readSourceFile("devtools/release.ps1");
+	REQUIRE(!raw.empty());
+	/* .gitattributes checks PowerShell scripts out with CRLF; the two-line pins below compare without CR. */
+	std::string release;
+	release.reserve(raw.size());
+	for (char c : raw) {
+		if (c != '\r') {
+			release += c;
+		}
+	}
+
+	/* A key made in step 2b rewrote port/include/updater_pubkey.h after the build, signed with a key no
+	 * installed client trusts, and step 4 committed the header (B-1315). */
+	CHECK(release.find("(Join-Path $PSScriptRoot \"keygen.ps1\")") == std::string::npos);
+	CHECK(release.find("[string]$SigningKey = \"\"") != std::string::npos);
+	const size_t keycheck = release.find("$SigningKeyPath = $(if ($SigningKey)");
+	const size_t version = release.find("# Resolve version / nightly date code");
+	REQUIRE(keycheck != std::string::npos);
+	REQUIRE(version != std::string::npos);
+	CHECK(keycheck < version);
+	CHECK(release.find("$signKey = $SigningKeyPath") != std::string::npos);
+
+	/* Every release commit is refused while the header differs from HEAD: the definition and three calls. */
+	size_t uses = 0;
+	for (size_t at = release.find("Assert-UpdaterKeyUnchanged"); at != std::string::npos;
+	     at = release.find("Assert-UpdaterKeyUnchanged", at + 1)) {
+		uses++;
+	}
+	CHECK(uses == 4);
+
+	/* B-1316: step 4's pulls run with Continue, or Windows PowerShell 5.1 stops on git's stderr. */
+	CHECK(release.find("    $ErrorActionPreference = \"Continue\"\n    $rebaseOut = git pull --rebase origin $currentBranch 2>&1") !=
+	      std::string::npos);
+	CHECK(release.find("            $ErrorActionPreference = \"Continue\"\n            $rebaseOut = git pull --rebase origin $currentBranch 2>&1") !=
+	      std::string::npos);
+}

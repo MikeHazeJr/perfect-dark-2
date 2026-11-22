@@ -1,5 +1,34 @@
 # Bug Tracker
 
+## 2026-11-22 B-1316 `release.ps1` step 4 stopped under Windows PowerShell 5.1 on git's normal stderr (T-RELEASE-006, fixed through the build queue)
+
+Found by claude-pd-integration-20261121 in step 9's real release run (Windows PowerShell 5.1, as the release dry run
+ran it). Step 4 ran `git add -A` and `git pull --rebase ... 2>&1` with `$ErrorActionPreference = "Stop"`; 5.1 turns a
+native command's stderr line into a terminating error there, and `git pull` always writes "From https://github.com/..."
+to stderr, so the run ended with NativeCommandError before its push. Under PowerShell 7 (the dev window) it does not.
+That stop is what kept B-1315's commit off dev. Fix: step 4's add and both pulls run with `Continue`, as its push
+already did, and the exit codes decide. Pinned in `[release][static][b1315]`. The dry run could not show it: it skips
+step 4.
+
+## 2026-11-22 B-1315 `release.ps1` made a new signing key when the checkout had none, signed the release with it, and committed the regenerated `updater_pubkey.h` (T-RELEASE-006, fixed through the build queue; caught before any push)
+
+Found by claude-pd-integration-20261121 in step 9's real release run, from the fresh clone `C:\PD2\release-clone`
+(dev 180cce91, v0.1.106). Step 2b signed with `<project root>\dev-keys\ed25519-private.pem`. A fresh clone has no
+`dev-keys/` (it is gitignored), so the step ran `devtools/keygen.ps1`: a new Ed25519 pair, whose public half it wrote
+into `port/include/updater_pubkey.h`, and `sign-release.ps1`'s match check passed against that rewritten header. But
+step 0 had already built PerfectDark.exe and Updater.exe with the real key (`3e26c3d0...`, the key dev and v0.1.105
+embed and every installed client trusts), so the zip was signed with a key nothing trusts (`37c4770b...`). Step 4 then
+ran `git add -A` and committed the header as "Tooling - c120: Sync live project state for release" (315c25417, local).
+B-1316 stopped the run before its push: no commit, tag or release left the machine. Under PowerShell 7 the push
+goes through: dev would carry the throwaway public key, so builds from dev would trust only it, and every installed
+updater would refuse v0.1.106. The dry run skips step 2b, so it could not show this. Fix: `-SigningKey <path>`
+(default the old path); a missing key stops a real run before anything is committed, built or pushed; the release
+never makes a key (a new key is a deliberate rotation: keygen.ps1, a rebuild and a commit); and
+`Assert-UpdaterKeyUnchanged` refuses every release commit while the header differs from HEAD. Pinned by
+`[release][static][b1315]`. The clone's local commit is kept on its branch `b1315-evidence`; the throwaway pair and
+the wrongly signed zip are in `C:\PD2\release-evidence-20261122`. v0.1.106 signs with `-SigningKey` set to the main
+checkout's `dev-keys` key, whose public half is the one the header embeds (checked from the public files).
+
 ## 2026-11-22 B-1314 `release.ps1` sent UNRELEASED.md as the GitHub release body, which GitHub refuses over 125,000 characters, after pushing the tag; step 7 then deleted the zip (T-RELEASE-006, fixed through the build queue)
 
 Found by claude-pd-integration-20261121 before step 9's real release. UNRELEASED.md is the running change list

@@ -9,6 +9,7 @@
 #   .\release.ps1 -DryRun            # Show what would happen without doing it
 #   .\release.ps1 -KeepOldReleases   # Step 6 prunes no older Dev release
 #   .\release.ps1 -NotesFile n.md    # Release body from n.md, not UNRELEASED.md (GitHub refuses one over 125,000 characters)
+#   .\release.ps1 -SigningKey k.pem  # Sign with k.pem, not dev-keys\ed25519-private.pem; a release never makes a key
 #
 # Package contents (game zip -- "PerfectDark-v{X.Y.Z}-win64.zip"):
 #   - PerfectDark.exe (game client, fully static -- no runtime DLLs required)
@@ -49,7 +50,8 @@ param(
     [switch]$SkipBuild,   # Skip cmake reconfigure+build (caller already built; artifacts must exist in Build/)
     [switch]$ForceCommitNoVerify,  # If commit hooks fail, retry commit with --no-verify
     [switch]$KeepOldReleases,  # Step 6 deletes no older Dev release (its rolling window is skipped)
-    [string]$NotesFile = ""  # The GitHub release body, instead of UNRELEASED.md (B-1314)
+    [string]$NotesFile = "",  # The GitHub release body, instead of UNRELEASED.md (B-1314)
+    [string]$SigningKey = ""  # The release signing key, instead of dev-keys\ed25519-private.pem (B-1315)
 )
 
 $ErrorActionPreference = "Stop"
@@ -63,8 +65,9 @@ $ProjectRoot = Split-Path $PSScriptRoot -Parent
 # prereleases. Initialized here so the Step 5 skip path leaves it falsy.
 $script:ReleasePublishOk = $false
 
-# -NotesFile is resolved where the script was started, before the move to the project root.
+# -NotesFile and -SigningKey are resolved where the script was started, before the move to the project root.
 if ($NotesFile) { $NotesFile = (Resolve-Path -LiteralPath $NotesFile).Path }
+if ($SigningKey) { $SigningKey = (Resolve-Path -LiteralPath $SigningKey).Path }
 
 # Ensure CWD is the project root -- all relative paths (build/, dist/, CMakeLists.txt)
 # assume this. The dev window sets it explicitly, but this covers direct invocation too.
@@ -87,6 +90,16 @@ if (Test-Path -LiteralPath $ReleaseNotes) {
             exit 1
         }
     }
+}
+
+# The release signing key. The zip's signature must verify against the public key the client embeds
+# (port/include/updater_pubkey.h), so a release never makes a key: making one rewrote that header after the build,
+# signed with a key no installed client trusts, and step 4 committed the header (B-1315). A missing key stops a
+# real run here, before anything is committed, built or pushed; sign-release.ps1 checks that the key matches.
+$SigningKeyPath = $(if ($SigningKey) { $SigningKey } else { Join-Path $ProjectRoot "dev-keys\ed25519-private.pem" })
+if (-not $DryRun -and -not (Test-Path -LiteralPath $SigningKeyPath)) {
+    Write-Host "  ERROR: no release signing key at $SigningKeyPath. Pass -SigningKey with the key whose public half port/include/updater_pubkey.h embeds (B-1315). A new key is a key rotation: run devtools/keygen.ps1 on purpose, then rebuild and commit the header." -ForegroundColor Red
+    exit 1
 }
 
 # ============================================================================
@@ -168,6 +181,18 @@ $vParts = $Version -split '\.'
 $vMaj = if ($vParts.Count -ge 1 -and $vParts[0] -match '^\d+$') { $vParts[0] } else { "0" }
 $vMin = if ($vParts.Count -ge 2 -and $vParts[1] -match '^\d+$') { $vParts[1] } else { "0" }
 $vPat = if ($vParts.Count -ge 3 -and $vParts[2] -match '^\d+$') { $vParts[2] } else { "0" }
+
+# The updater's public key changes only in a deliberate key rotation, never in a release commit (B-1315).
+function Assert-UpdaterKeyUnchanged {
+    $savedKeyEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+    git -C $ProjectRoot diff --quiet HEAD -- port/include/updater_pubkey.h 2>$null
+    $keyChanged = ($LASTEXITCODE -ne 0)
+    $ErrorActionPreference = $savedKeyEAP
+    if ($keyChanged) {
+        Write-Host "  ERROR: port/include/updater_pubkey.h differs from HEAD; a release does not commit the updater's public key (B-1315)." -ForegroundColor Red
+        exit 1
+    }
+}
 
 function Invoke-ReleaseCommit {
     param(
@@ -278,6 +303,7 @@ if ($SkipBuild) {
         $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
         $statusOut = git -C $ProjectRoot status --porcelain 2>&1
         if ($statusOut) {
+            Assert-UpdaterKeyUnchanged
             git -C $ProjectRoot add -A 2>&1 | Out-Null
             $commitBody = Get-ProjectStateCommitBody -ProjectRoot $ProjectRoot -ActionLabel "pre-release"
             if (Invoke-ReleaseCommit `
@@ -338,6 +364,7 @@ if ($SkipBuild) {
         $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
         $statusOut = git -C $ProjectRoot status --porcelain 2>&1
         if ($statusOut) {
+            Assert-UpdaterKeyUnchanged
             git -C $ProjectRoot add -A 2>&1 | Out-Null
             $commitBody = Get-ProjectStateCommitBody -ProjectRoot $ProjectRoot -ActionLabel "pre-build release"
             if (Invoke-ReleaseCommit `
@@ -1142,17 +1169,13 @@ if ($DryRun) {
     Write-Host "  ERROR: $signScript not found." -ForegroundColor Red
     exit 1
 } else {
-    # Always use dev-keys/ -- Mike is sole developer, one key is sufficient.
-    $devKey = Join-Path $ProjectRoot "dev-keys\ed25519-private.pem"
-    if (-not (Test-Path $devKey)) {
-        Write-Host "  No signing key found -- auto-generating..." -ForegroundColor Yellow
-        & (Join-Path $PSScriptRoot "keygen.ps1")
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "  ERROR: Keypair generation failed." -ForegroundColor Red
-            exit 1
-        }
+    # One release key (Mike is the sole developer): dev-keys\ed25519-private.pem or -SigningKey, checked before
+    # step 0. Never made here: a new key would not match the public key the client was just built with (B-1315).
+    $signKey = $SigningKeyPath
+    if (-not (Test-Path -LiteralPath $signKey)) {
+        Write-Host "  ERROR: no release signing key at $signKey (B-1315)." -ForegroundColor Red
+        exit 1
     }
-    $signKey = $devKey
     Write-Host "  Signing key: $signKey" -ForegroundColor Cyan
 
     & $signScript -ZipPath $zipPath -Tag $ReleaseTag -KeyPath $signKey
@@ -1195,7 +1218,13 @@ if ($SkipPush -or $DryRun) {
 
     # Index must be clean for `git pull --rebase` (staged-but-uncommitted breaks rebase).
     Sync-ProjectMindState -ProjectRoot $ProjectRoot | Out-Null
+    Assert-UpdaterKeyUnchanged
+    # Continue around git: Windows PowerShell 5.1 turns a native command's stderr into a terminating error
+    # under Stop (B-1316). The exit codes decide.
+    $step4EAP = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
     git add -A 2>&1 | Out-Null
+    $ErrorActionPreference = $step4EAP
     git diff --cached --quiet 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "  Committing staged changes before pull --rebase..." -ForegroundColor Gray
@@ -1240,8 +1269,10 @@ if ($SkipPush -or $DryRun) {
     # commit on top. If a conflict occurs, rebase aborts and the push below
     # will fail cleanly with a meaningful error.
     Write-Host "  Syncing with remote (pull --rebase) ..." -ForegroundColor Gray
+    $ErrorActionPreference = "Continue"
     $rebaseOut = git pull --rebase origin $currentBranch 2>&1
     $rebaseExit = $LASTEXITCODE
+    $ErrorActionPreference = $step4EAP
 
     # Recovery: if the rebase failed specifically with "unstaged changes"
     # (the autocrlf / .gitattributes drift class above) and the only
@@ -1264,8 +1295,10 @@ if ($SkipPush -or $DryRun) {
             } else {
                 Write-Host "  Working tree clean after recovery; retrying rebase..." -ForegroundColor Gray
             }
+            $ErrorActionPreference = "Continue"
             $rebaseOut = git pull --rebase origin $currentBranch 2>&1
             $rebaseExit = $LASTEXITCODE
+            $ErrorActionPreference = $step4EAP
         }
     }
 
