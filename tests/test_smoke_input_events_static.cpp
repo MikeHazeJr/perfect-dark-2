@@ -1783,8 +1783,11 @@ TEST_CASE("aim_at holds player 0's view on its target after the look input",
     requireContains(tick, "\tsmokeHarnessAimApply();\n\n\tif (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {");
     const std::string harness = readTextFile("port/src/smoke_harness.c");
     const std::string apply = requireSlice(harness, "void smokeHarnessAimApply(void)", "        case SMOKE_EVENT_AIM_AT:");
-    requireContains(apply, "if (!s_SmokeAim.active || g_Vars.currentplayernum != 0 || player == NULL || player->prop == NULL\n"
-        "            || player->bondmovemode == MOVEMODE_CUTSCENE) {");
+    requireContains(apply, "if (!s_SmokeAim.active || g_Vars.currentplayernum != 0 || player == NULL || player->prop == NULL) {");
+    // Integration on PR 56: on foot only (a bike turns through speedtheta in
+    // bbikeTick right after the hook).
+    requireContains(apply, "if (player->bondmovemode != MOVEMODE_WALK) {");
+    requireContains(apply, "\"SMOKE.AIM: paused movemode=%d at_ms=%d\"");
     requireContains(apply, "\"SMOKE.AIM: lost target=%s slot=%d chrnum=%d pad=%d at_ms=%d\"");
     requireContains(apply, "\"SMOKE.AIM: override input=%d speedtheta=%.3f speedverta=%.3f theta=%.2f verta=%.2f \"");
     // Codex on PR 56: bwalkUpdateTheta adds speedtheta after the hook, so the

@@ -1092,8 +1092,9 @@ on a moving target, which `mouse_move` cannot do. `{ "type": "aim_at", "target":
 `port/src/smoke_fixture_schema.c`) picks its target once (the live simulant or vehicle nearest player 0,
 or bot slot i) and holds player 0's view on its body centre, from the camera, for `duration_ms`. It is
 applied by `smokeHarnessAimApply` right after `bmoveProcessInput` in `bmoveTick`, only for player 0's own
-tick and never in a cutscene, so the look input of the frame cannot fight it and the movement tick
-refreshes the trig. Its logs say why a lock did not come: `SMOKE.AIM: begin` (los, the eye and the
+tick and on foot (a bike turns through `speedtheta` in `bbikeTick` right after the hook, so a bike, a grab
+or a cutscene pauses the aim, logged once), so the look input of the frame cannot fight it and the
+movement tick refreshes the trig. Its logs say why a lock did not come: `SMOKE.AIM: begin` (los, the eye and the
 point), `override` (look input it cleared, the turn and pitch speeds it zeroes while it holds because
 `bwalkUpdateTheta` adds the turn after the hook, or a view change the game made, such as Look Ahead
 re-centring the pitch while walking, which aim mode turns off; a smoke that forbids it keeps the player

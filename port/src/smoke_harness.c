@@ -139,7 +139,8 @@
  *        target for duration_ms ("simulant" the nearest live one,
  *        "simulant:<i>" bot slot i, "vehicle" the nearest vehicle), picked
  *        once at begin and aimed at its body centre from the camera after
- *        each frame's look input (bmoveTick). Logs SMOKE.AIM begin (los, the
+ *        each frame's look input (bmoveTick), on foot only (a bike, a grab or
+ *        a cutscene pauses it, logged once). Logs SMOKE.AIM begin (los, the
  *        eye and the point), override, lost and end (held_ms, on_target_ms:
  *        the time the look picker, which the lock takes from, chose it).
  *        An override is look input the aim cleared (the turn and pitch
@@ -466,6 +467,7 @@ typedef struct {
     s32 on_target_ms;
     s32 overrides;
     s32 frames;
+    s32 paused_logged;       /* a "paused" line was logged for this aim */
     f32 theta;
     f32 verta;
 } SmokeAim;
@@ -670,10 +672,20 @@ void smokeHarnessAimApply(void)
 
     /* MP-RULES' guard: bmoveTick runs for every player (remote ones on a
      * host too), so only player 0's own tick writes, and the movement tick
-     * after this call refreshes its trig (bmoveUpdateVerta). A cutscene keeps
-     * its scripted camera. */
-    if (!s_SmokeAim.active || g_Vars.currentplayernum != 0 || player == NULL || player->prop == NULL
-            || player->bondmovemode == MOVEMODE_CUTSCENE) {
+     * after this call refreshes its trig (bmoveUpdateVerta). */
+    if (!s_SmokeAim.active || g_Vars.currentplayernum != 0 || player == NULL || player->prop == NULL) {
+        return;
+    }
+    /* Integration on PR 56: on foot only. A bike turns through speedtheta in
+     * bbikeTick right after this call, so clearing it would stop the bike
+     * turning; a grab and a cutscene keep their own view. The aim waits
+     * (logged once) and holds again when player 0 walks. */
+    if (player->bondmovemode != MOVEMODE_WALK) {
+        if (!s_SmokeAim.paused_logged) {
+            sysLogPrintf(LOG_NOTE, "SMOKE.AIM: paused movemode=%d at_ms=%d", player->bondmovemode,
+                s_SmokeAimNowMs);
+            s_SmokeAim.paused_logged = 1;
+        }
         return;
     }
     if (!smokeAimTargetLive(&s_SmokeAim)) {
