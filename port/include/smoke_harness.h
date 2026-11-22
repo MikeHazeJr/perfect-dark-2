@@ -91,6 +91,12 @@ int  smokeHarnessBotPickupsHeld(const struct chrdata *chr);
  * ticked, in a cutscene, or with no aim running. */
 void smokeHarnessAimApply(void);
 
+/* --debug-place-bot-near-player-after-wait (main.c): whether the script's
+ * opening wait_until is still running (1), satisfied (0), or absent (-1, also
+ * with no smoke); and the script's time in ms (-1 with no smoke). */
+int  smokeHarnessOpeningWait(void);
+int  smokeHarnessScriptMs(void);
+
 #ifdef __cplusplus
 }
 #endif

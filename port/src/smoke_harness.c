@@ -3747,6 +3747,31 @@ int smokeHarnessBotPickupsHeld(const struct chrdata *chr)
         && chr->prop == ledge->actor_prop;
 }
 
+/* --debug-place-bot-near-player-after-wait: 1 while the script's opening
+ * wait_until (its first event) is not yet satisfied, 0 once it is, and -1
+ * when no smoke runs or the script does not open with a wait_until. */
+int smokeHarnessOpeningWait(void)
+{
+    if (!s_State.active || s_State.event_count == 0
+            || s_State.events[0].type != SMOKE_EVENT_WAIT_UNTIL) {
+        return -1;
+    }
+    return s_State.next_event_idx > 0 ? 0 : 1;
+}
+
+/* The script's time, the clock at_ms counts (real time less the waits'
+ * pauses, as smokeHarnessTick reckons it); -1 with no smoke running. */
+int smokeHarnessScriptMs(void)
+{
+    u32 real;
+
+    if (!s_State.active) {
+        return -1;
+    }
+    real = SDL_GetTicks() - s_State.start_ticks_ms;
+    return (int)(real >= s_State.timeline_pause_ms ? real - s_State.timeline_pause_ms : 0);
+}
+
 static s32 smokeLedgeFail(const char *reason)
 {
     const SmokeLedge *ledge = &s_State.ledge;
