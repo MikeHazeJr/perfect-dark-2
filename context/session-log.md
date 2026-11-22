@@ -37,7 +37,12 @@ from dev, committed through a temporary index (canonical HEAD and index untouche
 and 2** (PR 26), **slice 3** (PR 29), **slices 4a, 4b and 5** (PR 31, `10a5740b`, four Codex review
 rounds), **projectile slice 7a and 7b** (PR 40, `b66065f8`), and PR 46 (`7dd064d0`, 2026-11-22 08:56 UTC:
 G5b's `held_weapon_shot_smoke` now taps the RCP120's primary; the alt button is its cloak under extended
-controls). **Held until Integration posts the release cut** (their ask), a stack of pushed branches:
+controls). Also on dev, **B-1313** (PR 54, `eb3ba06d`, 2026-11-22 15:44 UTC), Integration's candidate-3b
+blocker, taken while the MODS lane is paused: the bundled Maian Hover, a `.pdvehicle` inside a `.pdmod`,
+was refused at admission because `s_compileVehicleGraph` looked for `behavior/variables.json` at the
+package's root; it now reads it from the behavior graph's own archive (`assetRuntimeVehicleVariablesPath`),
+and Integration builds candidate 3c from it. **Held until Integration posts the release cut** (their ask),
+a stack of pushed branches:
 **slice 6**, the target filter (PR 44 `week-pd/core-weapons-w6` plus `w6a2`; `w6b` `93cbd77a`: home filter,
 `og.weapon.lock_on` at `event.weapon.aiming`, the mine's arm filter, lockable vehicles, `embedded.v23`);
 **slice 7**, feel (`w7` `d774e4e1`: `og.weapon.recoil`, `og.weapon.casing`, `og.weapon.muzzle_flash`,
@@ -47,9 +52,13 @@ press plan; an animation a function does not have plays only on a held model wit
 and group, their own ports, named inputs for their settings from the rule tables, Replace With, and a
 Projectile Programs tab that saves a projectile's edited program over the mod's copy of it; Mike's
 machine-gun pistol is one swap in the Falcon 2 template, his vehicle rocket is the Enemy vehicles filter on
-the rocket launcher's lock and its homing rocket's home), plus `held_weapon_cloak_smoke`. The whole stack
+the rocket launcher's lock and its homing rocket's home), plus `held_weapon_cloak_smoke` and
+`held_weapon_charge_smoke` (the Mauler's charge). The whole stack
 is **PR 49** (`w8` into dev, opened 2026-11-22 09:55 UTC for CI and review only; merge PR 44 first, after the
-cut). **8c** (value nodes) waits on Mike's **D-058** (per shot for players and simulants, my pick; or per
+cut; Codex's five findings fixed on `w8`: the owner's IR scanner for homing and proximity filters, kinds-group
+checkboxes, a casing model per casing type, and authored locks that pick, refresh and pass the look; both
+PRs merged up to dev `eb3ba06d` at 15:45 UTC so their CI is fresh at the cut).
+**8c** (value nodes) waits on Mike's **D-058** (per shot for players and simulants, my pick; or per
 press; or players first). Open for Mike: D-057 (projectile 7c), D-058, PR 31's pellet thread. Asked of Authored Mods: Mike's "Enemy vehicles" sample launcher; of MP-RULES:
 `botactGetShootInterval60` through `weaponProgramRecoilFrames`. Records and smokes:
 `context/designs/modding/held-weapon-events.md`, `context/designs/modding/projectile-events.md`.
