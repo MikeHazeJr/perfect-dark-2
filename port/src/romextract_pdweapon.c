@@ -2737,6 +2737,8 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
 			record.recoil_distance = sh->recoildist;
 			record.recoil_angle = sh->recoilangle;
 			record.recoil_slide = sh->slidemax;
+			record.shoot_sound = sh->shootsound; /* slice 7b: its sound, written as its catalog id */
+			record.shot_duration = sh->duration60;
 			if (sh->recoilsettings) {
 				record.recoil_has_shake = 1;
 				record.recoil_shake[0] = sh->recoilsettings->xrange;
@@ -2827,6 +2829,22 @@ static void s_emitHeldFlashNode(jw_t *w, const char *id, const weapon_rule_trigg
 		weaponRulesModuleKind(WEAPON_MODULE_MUZZLE_FLASH), plan->flash ? "true" : "false", last ? "" : ",");
 }
 
+/* og.weapon.shot_sound with the function's own: its sound as the record's
+ * shoot_sound_catalog_id names it (none for no sound), and its duration60. */
+static void s_emitHeldSoundNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	char sound[128];
+
+	sound[0] = '\0';
+	if (plan->shot_sound > 0) {
+		s_sfxCatalogIdForWeapon(plan->shot_sound, sound, sizeof(sound));
+	}
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s\", \"kind\": \"%s\", \"" WEAPON_RULE_SOUND_PARAM "\": \"%s\", \""
+		WEAPON_RULE_DURATION_PARAM "\": %d }%s\n", id, weaponRulesModuleKind(WEAPON_MODULE_SHOT_SOUND),
+		sound[0] ? sound : "none", plan->shot_duration, last ? "" : ",");
+}
+
 /* slice 7b: the casing a function's ammo ejects, plus one (0 none). */
 static s32 s_functionCasing(const struct weapon *wpn, const struct weaponfunc *f)
 {
@@ -2837,21 +2855,21 @@ static s32 s_functionCasing(const struct weapon *wpn, const struct weaponfunc *f
 	return (s32)wpn->ammos[f->ammoindex]->casingeject + 1;
 }
 
-#define PDWEAPON_HELD_PROGRAM_NODES 13
+#define PDWEAPON_HELD_PROGRAM_NODES 14
 static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
                                    const weapon_rule_trigger_t *plan, const weapon_rule_reload_t *reload)
 {
 	char ids[PDWEAPON_HELD_PROGRAM_NODES][48];
 	static const char *const suffix[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"pressed", "held", "has_ammo", "has_reserve", "attack", "dry_fire", "clip_empty", "reload",
-		"use_ammo", "shot", "recoil", "casing", "flash",
+		"use_ammo", "shot", "recoil", "casing", "flash", "sound",
 	};
 	static const char *const kind[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"event.weapon.trigger_pressed", "event.weapon.ready_while_held",
 		WEAPON_GATE_HAS_AMMO_KIND, WEAPON_GATE_HAS_RESERVE_KIND,
 		NULL, "og.weapon.dry_fire",
 		"event.weapon.clip_empty", "og.weapon.reload",
-		"og.weapon.use_ammo", NULL, NULL, NULL, NULL,
+		"og.weapon.use_ammo", NULL, NULL, NULL, NULL, NULL,
 	};
 	s32 emit[PDWEAPON_HELD_PROGRAM_NODES];
 	s32 count = 0;
@@ -2879,6 +2897,8 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 			s_emitHeldCasingNode(w, ids[i], plan, last);
 		} else if (i == 12) {
 			s_emitHeldFlashNode(w, ids[i], plan, last);
+		} else if (i == 13) {
+			s_emitHeldSoundNode(w, ids[i], plan, last);
 		} else {
 			s_emitHeldProgramNode(w, ids[i], kind[i], i == 2 ? rounds : i == 8 ? plan->rounds : 0, last);
 		}
@@ -2906,15 +2926,18 @@ static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name, const weapon_
 
 		snprintf(recoil, sizeof(recoil), "%s_recoil", mode_name);
 		s_emitHeldProgramEdge(w, plan->shot ? shot : plan->rounds > 0 ? use_ammo : attack, "out", recoil, 0);
-		/* slice 7b: then its casing and its flash. */
+		/* slice 7b: then its casing, its flash and its sound. */
 		{
 			char casing[48];
 			char flash[48];
+			char sound[48];
 
 			snprintf(casing, sizeof(casing), "%s_casing", mode_name);
 			snprintf(flash, sizeof(flash), "%s_flash", mode_name);
+			snprintf(sound, sizeof(sound), "%s_sound", mode_name);
 			s_emitHeldProgramEdge(w, recoil, "out", casing, 0);
 			s_emitHeldProgramEdge(w, casing, "out", flash, 0);
+			s_emitHeldProgramEdge(w, flash, "out", sound, 0);
 		}
 	}
 	s_emitHeldProgramEdge(w, pressed, "out", has_ammo, 0);

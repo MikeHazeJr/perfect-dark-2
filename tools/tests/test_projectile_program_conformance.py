@@ -534,6 +534,32 @@ class CasingAndFlash(unittest.TestCase):
         self.assertIn("needs on true or false", messages[0])
 
 
+class ShotSound(unittest.TestCase):
+    """Held slice 7b: og.weapon.shot_sound, the attack's sound and the frames
+    its fire slot keeps it."""
+
+    def _with(self, sound: dict, function_type: str = "shoot_single") -> dict:
+        return Recoil._with_recoil(self, dict(sound, kind="og.weapon.shot_sound"), function_type)
+
+    def test_the_settings(self):
+        for sound in ({"sound": "base:sfx_fire_shotgun", "duration": 12}, {"sound": "none"}, {"duration": 0}, {}):
+            with self.subTest(sound=sound):
+                self.assertEqual(weapon_errors(self._with(sound)), [])
+
+    def test_malformed_and_misfit(self):
+        for sound, why in (({"sound": "Bang!"}, "needs sound none or an audio catalog id"),
+                           ({"sound": 7}, "needs sound none or an audio catalog id"),
+                           ({"sound": "base:" + "a" * 60}, "needs sound none or an audio catalog id"),
+                           ({"duration": 256}, "needs duration from 0 to 255"),
+                           ({"duration": True}, "needs duration from 0 to 255")):
+            with self.subTest(sound=sound):
+                messages = weapon_errors(self._with(sound))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+        messages = weapon_errors(self._with({}, "melee"))
+        self.assertTrue(any("fits only a shooting function" in m for m in messages), messages)
+
+
 class Archives(unittest.TestCase):
     def rebuilt(self, relative: str, graph_edit) -> bytes:
         """The example archive with its behavior.graph.json edited."""

@@ -2434,7 +2434,7 @@ WEAPON_GRAPH_SHOT_FAMILIES = {
 }
 WEAPON_GRAPH_SHOTS = tuple(WEAPON_GRAPH_SHOT_FAMILIES)
 # Slice 7: how each shot of the attack feels; a shooting function's.
-WEAPON_GRAPH_FEEL = ("og.weapon.recoil", "og.weapon.casing", "og.weapon.muzzle_flash")
+WEAPON_GRAPH_FEEL = ("og.weapon.recoil", "og.weapon.casing", "og.weapon.muzzle_flash", "og.weapon.shot_sound")
 WEAPON_GRAPH_FEEL_FAMILIES = ("shoot_single", "shoot_automatic", "shoot_projectile")
 WEAPON_GRAPH_IDLE_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state", "og.weapon.use_ammo") \
     + WEAPON_GRAPH_SHOTS + WEAPON_GRAPH_FEEL
@@ -2496,6 +2496,7 @@ WEAPON_GRAPH_SETTINGS = {
     # Slice 7b: a shot's casing and muzzle flash.
     "og.weapon.casing": {"type": ("choice", ("none", "standard", "reaper", "rifle", "shotgun"))},
     "og.weapon.muzzle_flash": {"on": ("bool",)},
+    "og.weapon.shot_sound": {"sound": ("sound",), "duration": ("whole", 0, 255)},
 }
 WEAPON_GRAPH_ITEM_RE = re.compile(r"[a-z0-9_]+:[a-z0-9_]+")
 
@@ -2519,6 +2520,10 @@ def _weapon_setting_error(kind: str, key: str, spec: tuple, value: object) -> st
         if not isinstance(value, str) or (value != "own" and (len(value) >= 64
                                                              or WEAPON_GRAPH_ITEM_RE.fullmatch(value) is None)):
             return f"needs {key} own or an item's catalog id such as base:rocket"
+    elif spec[0] == "sound":
+        if not isinstance(value, str) or (value != "none" and (len(value) >= 64
+                                                              or WEAPON_GRAPH_ITEM_RE.fullmatch(value) is None)):
+            return f"needs {key} none or an audio catalog id such as base:sfx_fire_shotgun"
     elif spec[0] == "item_function":
         if value != "gun" and (isinstance(value, bool) or not isinstance(value, int) or not 0 <= value <= 2):
             return f"needs {key} gun, 0, 1 or 2"

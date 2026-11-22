@@ -26,6 +26,7 @@ extern "C" {
 #include "weapon_rules.h"
 #include "target_filter.h"
 #include "projectile_rules.h"
+void testStubEffectAudio(const char *id, s32 category, s32 sound_id);
 }
 
 namespace {
@@ -4656,7 +4657,8 @@ TEST_CASE("a shot's casing and flash are its function's own unless its program n
 	walk.param_text = weaponGraphRuntimeHeldParamText;
 	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon", &instance,
 		&walk) == 1);
-	CHECK((walk.modules & WEAPON_MODULE_FEEL) == WEAPON_MODULE_FEEL);
+	CHECK((walk.modules & (WEAPON_MODULE_RECOIL | WEAPON_MODULE_CASING | WEAPON_MODULE_MUZZLE_FLASH))
+		== (WEAPON_MODULE_RECOIL | WEAPON_MODULE_CASING | WEAPON_MODULE_MUZZLE_FLASH));
 	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 1);
 	missionGraphProgramFree(program);
 
@@ -4702,6 +4704,233 @@ TEST_CASE("a shot's casing and flash are its function's own unless its program n
 		"\t\t\ts_emitHeldProgramEdge(w, casing, \"out\", flash, 0);") != std::string::npos);
 	const std::string events = readSource("port/src/weapon_events.c");
 	REQUIRE(events.find("weaponRuleCasingOf(weaponnum, out);") != std::string::npos);
+}
+
+namespace {
+
+// One audio catalog id for the walks below (weapon_events.c resolves them
+// through catalogResolveAudio).
+s32 shotSoundNumber(const char *catalog_id)
+{
+	return catalog_id && std::string(catalog_id) == "base:sfx_fire_shotgun" ? 0x8051 : -1;
+}
+
+} // namespace
+
+// held-weapon-events.md slice 7b: a shot's sound and the frames its fire
+// slot keeps it are its program's, else its function's own.
+TEST_CASE("a shot's sound is its function's own unless its program's sound node names it",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	weapon_rule_function_t record = recoilRecord();
+	record.casing = CASING_STANDARD + 1;
+	record.shoot_sound = 0x8051;
+	record.shot_duration = 6;
+	weapon_rule_trigger_t native;
+	weaponRulesNativeTrigger(&record, &native);
+	CHECK(native.shot_sound == 0x8051);
+	CHECK(native.shot_duration == 6);
+	// The original's accessors read the held graph's sound for any function,
+	// so the record's is the plan's whatever the function's type.
+	weapon_rule_function_t thrown = record;
+	thrown.functype = 0x0002;
+	weapon_rule_trigger_t plan;
+	weaponRulesNativeTrigger(&thrown, &plan);
+	CHECK(plan.shot_sound == 0x8051);
+	CHECK(plan.shot_duration == 6);
+	weapon_rule_trigger_t zero{};
+	CHECK(zero.shot_sound == 0);
+	// Both are part of the attack's plan.
+	plan = native;
+	plan.shot_sound = 1;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+	plan = native;
+	plan.shot_duration = 7;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts none;
+	REQUIRE(weaponRulesApplySoundSettings(Texts::get, &none, shotSoundNumber, &record, &plan) == 1);
+	CHECK(plan.shot_sound == 0x8051);
+	CHECK(plan.shot_duration == 6);
+	Texts quiet;
+	quiet.values = { { "sound", "none" }, { "duration", "0" } };
+	REQUIRE(weaponRulesApplySoundSettings(Texts::get, &quiet, shotSoundNumber, &record, &plan) == 1);
+	CHECK(plan.shot_sound == 0);
+	CHECK(plan.shot_duration == 0);
+	weapon_rule_function_t silent = record;
+	silent.shoot_sound = 0;
+	silent.shot_duration = 0;
+	Texts named;
+	named.values = { { "sound", "base:sfx_fire_shotgun" }, { "duration", "255" } };
+	REQUIRE(weaponRulesApplySoundSettings(Texts::get, &named, shotSoundNumber, &silent, &plan) == 1);
+	CHECK(plan.shot_sound == 0x8051);
+	CHECK(plan.shot_duration == 255);
+	// A sound the catalog does not have, or no catalog, keeps the function's.
+	Texts unknown;
+	unknown.values = { { "sound", "base:sfx_nothing" } };
+	CHECK(weaponRulesApplySoundSettings(Texts::get, &unknown, shotSoundNumber, &silent, &plan) == 0);
+	CHECK(plan.shot_sound == 0);
+	CHECK(weaponRulesApplySoundSettings(Texts::get, &named, nullptr, &silent, &plan) == 0);
+	CHECK(plan.shot_sound == 0);
+	CHECK(plan.shot_duration == 255);
+	Texts wrong;
+	wrong.values = { { "sound", "Bang!" }, { "duration", "256" } };
+	CHECK(weaponRulesApplySoundSettings(Texts::get, &wrong, shotSoundNumber, &record, &plan) == 0);
+	CHECK(plan.shot_sound == 0x8051);
+	CHECK(plan.shot_duration == 6);
+	const weapon_rule_setting_t *sound = nullptr;
+	const weapon_rule_setting_t *duration = nullptr;
+	for (s32 i = 0; weaponRulesSettingAt(i); i++) {
+		const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
+		if (setting->module == WEAPON_MODULE_SHOT_SOUND && std::string(setting->key) == "sound") sound = setting;
+		if (setting->module == WEAPON_MODULE_SHOT_SOUND && std::string(setting->key) == "duration") duration = setting;
+	}
+	REQUIRE(sound != nullptr);
+	REQUIRE(duration != nullptr);
+	CHECK(weaponRulesSettingValid(sound, "none") == 1);
+	CHECK(weaponRulesSettingValid(sound, "base:sfx_fire_shotgun") == 1);
+	CHECK(weaponRulesSettingValid(sound, "Bang!") == 0);
+	CHECK(weaponRulesSettingValid(duration, "255") == 1);
+	CHECK(weaponRulesSettingValid(duration, "256") == 0);
+	CHECK(std::string(weaponRulesModuleKind(WEAPON_MODULE_SHOT_SOUND)) == "og.weapon.shot_sound");
+	CHECK((WEAPON_MODULE_FEEL & WEAPON_MODULE_SHOT_SOUND) != 0);
+
+	// The base wiring's chain (shot, recoil, casing, flash, sound), as the
+	// extractor writes it, plans the original's.
+	int instance = 0;
+	std::string json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1,
+		"\"kind\": \"og.weapon.hitscan\"");
+	json.insert(json.find("], \"edges\""), ",{ \"id\": \"primary_recoil\", \"kind\": \"og.weapon.recoil\"" +
+		recoilNodeSettings(native) + " },{ \"id\": \"primary_casing\", \"kind\": \"og.weapon.casing\", \"type\": \"" +
+		weaponRulesCasingName(native.casing) + "\" },{ \"id\": \"primary_flash\", \"kind\": \"og.weapon.muzzle_flash\", "
+		"\"on\": true },{ \"id\": \"primary_sound\", \"kind\": \"og.weapon.shot_sound\", \"sound\": "
+		"\"base:sfx_fire_shotgun\", \"duration\": 6 }");
+	json.insert(json.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_shot\", \"output\": \"out\", "
+		"\"to\": \"primary_recoil\", \"input\": \"exec\" },{ \"from\": \"primary_recoil\", \"output\": \"out\", "
+		"\"to\": \"primary_casing\", \"input\": \"exec\" },{ \"from\": \"primary_casing\", \"output\": \"out\", "
+		"\"to\": \"primary_flash\", \"input\": \"exec\" },{ \"from\": \"primary_flash\", \"output\": \"out\", "
+		"\"to\": \"primary_sound\", \"input\": \"exec\" },");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err,
+		sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	weapon_rule_states_t states{};
+	const auto walked = [&](weapon_rule_item_fn sounds) {
+		weapon_rule_walk_t walk{};
+		walk.weaponnum = -1;
+		walk.hand = weapon_rule_hand_t{ 1, 8, 8, 1, 1 };
+		walk.states = &states;
+		walk.function = &record;
+		walk.param_text = weaponGraphRuntimeHeldParamText;
+		walk.sound_number = sounds;
+		REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon",
+			&instance, &walk) == 1);
+		return walk;
+	};
+	weapon_rule_walk_t walk = walked(shotSoundNumber);
+	CHECK((walk.modules & WEAPON_MODULE_FEEL) == WEAPON_MODULE_FEEL);
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 1);
+	// With no catalog the node keeps the function's own.
+	walk = walked(nullptr);
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 1);
+	missionGraphProgramFree(program);
+	// A program that names no sound plans silence.
+	std::string hushed = json;
+	hushed.replace(hushed.find("\"sound\": \"base:sfx_fire_shotgun\""), std::strlen("\"sound\": \"base:sfx_fire_shotgun\""),
+		"\"sound\": \"none\"");
+	program = missionGraphProgramCompileWeapon(hushed.data(), hushed.size(), heldKnown, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	walk = walked(shotSoundNumber);
+	CHECK(walk.plan.shot_sound == 0);
+	CHECK(walk.plan.shot_duration == 6);
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 0);
+	missionGraphProgramFree(program);
+
+	// Registration names what a sound takes, and a sound resolves in the
+	// audio catalog when its weapon registers.
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	const auto withSound = [&](const std::string &settings) {
+		std::string text = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1);
+		text.insert(text.find("], \"edges\""), ",{ \"id\": \"primary_sound\", \"kind\": \"og.weapon.shot_sound\"" +
+			settings + " }");
+		text.insert(text.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_use_ammo\", \"output\": "
+			"\"out\", \"to\": \"primary_sound\", \"input\": \"exec\" },");
+		return text;
+	};
+	const auto registers = [&](const std::string &primary) {
+		err[0] = 0;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(5, "base:test__weapon", primary.data(), (u32)primary.size(),
+			secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, err,
+			sizeof(err)) == 0;
+	};
+	weaponGraphRuntimeClearAll();
+	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{
+			{ ", \"sound\": \"Bang!\"",
+				"og.weapon.shot_sound needs sound none or an audio catalog id such as base:sfx_fire_shotgun, got Bang!" },
+			{ ", \"duration\": 256", "og.weapon.shot_sound needs duration from 0 to 255, got 256" },
+			{ ", \"sound\": \"base:sfx_fire_shotgun\"",
+				"og.weapon.shot_sound cannot resolve sound base:sfx_fire_shotgun in the audio catalog" } }) {
+		INFO(bad.first);
+		CHECK_FALSE(registers(withSound(bad.first)));
+		INFO(err);
+		CHECK(std::string(err).find(bad.second) != std::string::npos);
+	}
+	testStubEffectAudio("base:sfx_fire_shotgun", 0, 0x8051);
+	CHECK(registers(withSound(", \"sound\": \"base:sfx_fire_shotgun\", \"duration\": 6")));
+	INFO(err);
+	CHECK(registers(withSound(", \"sound\": \"none\"")));
+	testStubEffectAudio(nullptr, 0, 0);
+	weaponGraphRuntimeClearAll();
+
+	// The seams: a player's shot plays its hand's plan's sound; a simulant's
+	// and a guard's read their function's press plan through the original's
+	// accessors; every walk resolves sounds; the extractor writes the node.
+	const auto count = [](const std::string &text, const std::string &needle) {
+		size_t n = 0;
+		for (size_t at = text.find(needle); at != std::string::npos; at = text.find(needle, at + 1)) n++;
+		return n;
+	};
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("bgunPlanShotSound(hand, plan, &shotsound, &slotframes);") != std::string::npos);
+	REQUIRE(bondgun.find("hand->allowshootframe = g_Vars.lvframe60 + slotframes;") != std::string::npos);
+	REQUIRE(bondgun.find("*slotframes = gsetFireslotTicks(plan->shot_duration);") != std::string::npos);
+	REQUIRE(bondgun.find("handle = sndStart(var80095200, shotsound, &hand->audiohandle2,") != std::string::npos);
+	CHECK(bondgun.find("gsetGetSingleShootSound(&hand->gset), &hand->audiohandle") == std::string::npos);
+	const std::string gset = readSource("src/game/game_0b0fd0.c");
+	REQUIRE(gset.find("duration = weaponProgramShotDuration(gset->weaponnum, gset->weaponfunc, duration);")
+		!= std::string::npos);
+	REQUIRE(gset.find("sound = weaponProgramShotSound(gset->weaponnum, gset->weaponfunc, sound);") != std::string::npos);
+	REQUIRE(gset.find("return gsetFireslotTicks(duration);") != std::string::npos);
+	const std::string events = readSource("port/src/weapon_events.c");
+	CHECK(count(events, "walk.sound_number = weaponSoundNumber;") == count(events, "walk.item_number = weaponItemNumber;"));
+	CHECK(count(events, "walk.sound_number = weaponSoundNumber;") == 4);
+	REQUIRE(events.find("weaponRuleSoundOf(weaponnum, func, held, out);") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("\"casing\", \"flash\", \"sound\",") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldSoundNode(w, ids[i], plan, last);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldProgramEdge(w, flash, \"out\", sound, 0);") != std::string::npos);
+	REQUIRE(extractor.find("record.shoot_sound = sh->shootsound;") != std::string::npos);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

@@ -105,6 +105,13 @@ s32 weaponProgramRecoilFrames(s32 weaponnum, s32 func, s32 native);
  * model when it is equipped. */
 s32 weaponFunctionCasing(s32 weaponnum, s32 func);
 
+/* slice 7b: a simulant's or a guard's shot sound and the frames its fire
+ * slot keeps it (gsetGetSingleShootSound, gsetGetFireslotDuration): the
+ * og.weapon.shot_sound a press plans, `native` for a function with no
+ * program or a press that starts no attack. */
+s32 weaponProgramShotSound(s32 weaponnum, s32 func, s32 native);
+s32 weaponProgramShotDuration(s32 weaponnum, s32 func, s32 native);
+
 /* A simulant's burst (bot.c): the rounds of the og.weapon.burst a press
  * starts, 0 for any other trigger; `native` for a function with no
  * program. */

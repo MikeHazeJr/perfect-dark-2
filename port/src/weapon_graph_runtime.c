@@ -1114,6 +1114,10 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 				} else if (setting->type == WEAPON_RULE_SETTING_CASING) {
 					snprintf(check->why, sizeof(check->why), "%s needs %s none, standard, reaper, rifle or shotgun, got %s",
 						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_SOUND) {
+					snprintf(check->why, sizeof(check->why),
+						"%s needs %s none or an audio catalog id such as base:sfx_fire_shotgun, got %s",
+						kind, setting->key, raw);
 				} else if (setting->type == WEAPON_RULE_SETTING_NONNEG) {
 					snprintf(check->why, sizeof(check->why), "%s needs %s from 0 up to %d, got %s",
 						kind, setting->key, setting->hi, raw);
@@ -1121,6 +1125,21 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 					snprintf(check->why, sizeof(check->why), "%s needs %s from %d to %d, got %s",
 						kind, setting->key, setting->lo, setting->hi, raw);
 				}
+				return 0;
+			}
+		}
+		if (bit == WEAPON_MODULE_SHOT_SOUND && !s_held_validate_only) {
+			/* slice 7b: a shot's sound resolves in the audio catalog when its
+			 * weapon registers, as the record's audio references must. */
+			const char *raw = missionGraphParamText(params, WEAPON_RULE_SOUND_PARAM);
+			const char *text = raw ? heldParamTextIn(s_held_register_variables, params, WEAPON_RULE_SOUND_PARAM,
+				vbuf, sizeof(vbuf)) : NULL;
+			catalog_audio_result_t audio;
+
+			if (text && strcmp(text, "none") != 0
+					&& (!catalogResolveAudio(text, &audio) || audio.sound_id <= 0)) {
+				snprintf(check->why, sizeof(check->why), "%s cannot resolve sound %s in the audio catalog",
+					kind, text);
 				return 0;
 			}
 		}

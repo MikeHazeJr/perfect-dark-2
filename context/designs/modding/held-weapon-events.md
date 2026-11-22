@@ -890,6 +890,28 @@ keep their own casing path. Base programs write both after the recoil
 (still `embedded.v24`: nothing was extracted at v24 before this). So a mod
 gun gets casings from its program.
 
+**7b part 2 as written (2026-11-22, `week-pd/core-weapons-w7`):**
+`og.weapon.shot_sound` (bit 20, a feel module: `sound`, none or an audio
+catalog id such as `base:sfx_fire_shotgun`; `duration`, the frames a fire
+slot keeps it, 0 to 255). The attack's plan carries both; the original's are
+the record's, which reads them as `gsetGetSingleShootSound` and
+`gsetGetFireslotDuration` do (the held graph's `shoot_sound_catalog_id` and
+`duration_ticks60` first, else the shooting function's `shootsound` and
+`duration60`). A walk resolves the id through the audio catalog
+(`walk.sound_number`, `weaponSoundNumber` at every walk site); an id that
+does not resolve keeps the function's own, and registration refuses one that
+does not resolve when its weapon registers (compile-time validation checks
+only its form, as for the record's audio references). A player's shot plays
+the attack's plan's sound and keeps its fire slot for its frames
+(`bgunPlanShotSound`, with the plan the shot reads for its flash and its
+rounds; PAL still converts 4 frames and up, now in `gsetFireslotTicks`); a simulant's and a guard's shots read their function's
+press plan through the original's two accessors
+(`weaponProgramShotSound`, `weaponProgramShotDuration`), so a program's
+sound reaches every shooter. The profile executor's weapons keep their
+accessors. Base programs write the node after the flash with the same
+catalog id as the record (still `embedded.v24`, cache `_heldfeel`), and the
+first `WEAPON.RULE` line ends with ` sound=N slot=N`.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
@@ -925,6 +947,7 @@ Listed as each slice lands; none is run by Core Weapons.
 | 7a | `boot_smoke` on a freshly extracted install | `embedded.v24`: every base weapon re-extracts once; no `program refused` line (every shooting function's program carries `og.weapon.recoil`) |
 | 7a | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their first `WEAPON.RULE` lines end with ` recoil=...`; `rules.differ=0`; the guns kick, slide and jitter as before (the Falcon 2's slide, the Reaper's shake rising with its spin) |
 | 7b | `held_weapon_cadence_smoke` (or any smoke that fires a Falcon 2, a CMP150 and a Shotgun) | casings fly as before (standard, rifle, shotgun) and the flash shows; no `WEAPON.RULE differs` line |
+| 7b (sound) | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | the guns sound as before (the Falcon 2, the CMP150's stream, the Shotgun); their first `WEAPON.RULE` lines end with ` sound=N slot=N`, N above 0; no `WEAPON.RULE differs` line; simulants' shots sound as before (any simulant smoke) |
 | 6c | a vehicle lock smoke with the sample above (none written yet: the Blank Room with a hoverbike, `--debug-forge-level-vehicle`, as `hoverbike_room_flow_smoke`) | aiming the secondary at the empty bike logs `SIGHT.LOCK: ... kind=vehicle occupied=0 relation=none`; the primary takes no lock on it; with a second player riding (split screen or a second client) the primary logs `occupied=1 relation=enemy`, and its rocket flies straight once the rider bails; `rules.differ=0` |
 | 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 

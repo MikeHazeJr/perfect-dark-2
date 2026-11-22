@@ -2086,6 +2086,18 @@ static void bgunRuleFunctionOf(struct hand *hand, struct weaponfunc *func, weapo
 			}
 		}
 	}
+
+	/* slice 7b: its shot sound and the frames a fire slot keeps it, as
+	 * gsetGetSingleShootSound and gsetGetFireslotDuration read them (the held
+	 * graph's first, else the shooting function's). */
+	{
+		const struct weaponfunc_shoot *shot = func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT
+			? (const struct weaponfunc_shoot *) func : NULL;
+
+		out->shoot_sound = graph && graph->has_shootsound ? graph->shootsound : (shot ? shot->shootsound : 0);
+		out->shot_duration = graph && graph->has_duration_ticks60 ? graph->duration_ticks60
+			: (shot ? shot->duration60 : 0);
+	}
 }
 
 static const weapon_graph_projectile_runtime_t *bgunGetProjectileGraph(
@@ -2372,6 +2384,20 @@ const struct weapon_rule_trigger *bgunHandPlan(s32 handnum)
 	return weaponHandTrigger(hand, &record);
 }
 
+/* held-weapon-events.md slice 7b: the sound a hand's attack plays and the
+ * frames its fire slot keeps it: its plan's og.weapon.shot_sound (the
+ * function's own with no program). A profile weapon keeps its accessors. */
+static void bgunPlanShotSound(struct hand *hand, const weapon_rule_trigger_t *plan, u16 *sound, u8 *slotframes)
+{
+	if (wgV2RuntimeIsWeapon(hand->gset.weaponnum)) {
+		*sound = gsetGetSingleShootSound(&hand->gset);
+		*slotframes = gsetGetFireslotDuration(&hand->gset);
+		return;
+	}
+	*sound = plan->shot_sound <= 0 ? 0 : plan->shot_sound > 0xffff ? 0xffff : (u16) plan->shot_sound;
+	*slotframes = gsetFireslotTicks(plan->shot_duration);
+}
+
 /*
  * held-weapon-events.md slice 3: one tick of the attack's trigger. The
  * attack's plan (weaponHandTrigger: the trigger its program chose with its
@@ -2513,11 +2539,15 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 	if (hand->firing) {
 		bool playsound = false;
+		u16 shotsound;
+		u8 slotframes;
 
-		if (gsetGetFireslotDuration(&hand->gset) > 0) {
+		bgunPlanShotSound(hand, plan, &shotsound, &slotframes);
+
+		if (slotframes > 0) {
 			if (g_Vars.lvframe60 != g_Vars.currentplayer->hands[1 - handnum].lastshootframe60
 					&& g_Vars.lvframe60 > hand->allowshootframe) {
-				hand->allowshootframe = g_Vars.lvframe60 + gsetGetFireslotDuration(&hand->gset);
+				hand->allowshootframe = g_Vars.lvframe60 + slotframes;
 				playsound = true;
 			}
 		} else {
@@ -2540,13 +2570,13 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 				audioStop(hand->audiohandle3);
 			}
 
-			if (gsetGetSingleShootSound(&hand->gset)) {
+			if (shotsound) {
 				struct sndstate *handle = NULL;
 
 				if (hand->audiohandle2 == NULL) {
-					handle = sndStart(var80095200, gsetGetSingleShootSound(&hand->gset), &hand->audiohandle2, -1, -1, -1, -1, -1);
+					handle = sndStart(var80095200, shotsound, &hand->audiohandle2, -1, -1, -1, -1, -1);
 				} else if (hand->audiohandle3 == NULL) {
-					handle = sndStart(var80095200, gsetGetSingleShootSound(&hand->gset), &hand->audiohandle3, -1, -1, -1, -1, -1);
+					handle = sndStart(var80095200, shotsound, &hand->audiohandle3, -1, -1, -1, -1, -1);
 				}
 
 				hand->lastshootframe60 = g_Vars.lvframe60;

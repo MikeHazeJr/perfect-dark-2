@@ -20,6 +20,7 @@
 #include "weapon_rules.h"
 #include "weapon_events.h"
 #include "game/sight.h"
+#include "assetcatalog.h"
 
 /* Each player hand: a press waiting for the idle seam, the named states of
  * the function it holds (every state is false when the hand takes a weapon
@@ -111,6 +112,18 @@ static s32 weaponItemNumber(const char *catalog_id)
 		}
 	}
 	return -1;
+}
+
+/* slice 7b: a shot's sound by its audio catalog id ("base:sfx_fire_shotgun"),
+ * -1 for none. */
+static s32 weaponSoundNumber(const char *catalog_id)
+{
+	catalog_audio_result_t audio;
+
+	if (!catalog_id || !catalogResolveAudio(catalog_id, &audio) || audio.sound_id <= 0) {
+		return -1;
+	}
+	return audio.sound_id;
 }
 
 /* The current player's record of this hand, its states and plan reset when
@@ -302,6 +315,7 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 	walk.function = function;
 	walk.param_text = weaponGraphRuntimeHeldParamText;
 	walk.item_number = weaponItemNumber;
+	walk.sound_number = weaponSoundNumber;
 	handled = weaponRulesWalk(program, kind, g_Vars.currentplayernum, weaponEventWeaponId(weaponnum), hand, &walk);
 	if (plan && (walk.modules & WEAPON_MODULE_TRIGGERS)) {
 		*plan = walk.plan;
@@ -348,7 +362,7 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 		if (weaponEventFirst(weaponnum, func, weaponRulesEventIndex(kind))) {
 			char reload_text[64] = "";
 
-			char recoil_text[160] = "";
+			char recoil_text[192] = "";
 
 			if (style || native_style) {
 				snprintf(reload_text, sizeof(reload_text), " reload=%s native_reload=%s",
@@ -357,12 +371,13 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 			if ((chosen & WEAPON_MODULE_TRIGGERS) && walk.plan.recoil) {
 				/* slice 7a: the attack's recoil. */
 				snprintf(recoil_text, sizeof(recoil_text),
-					" recoil=%d/%d/%d refire=%s cut=%d/%d distance=%.9g angle=%.9g slide=%.9g shake=%s spin=%s",
+					" recoil=%d/%d/%d refire=%s cut=%d/%d distance=%.9g angle=%.9g slide=%.9g shake=%s spin=%s"
+					" sound=%d slot=%d",
 					walk.plan.recoil_kick, walk.plan.recoil_return, walk.plan.recoil_recovery,
 					walk.plan.recoil_refire ? "yes" : "no", walk.plan.recoil_cut_after, walk.plan.recoil_cut_return,
 					(double)walk.plan.recoil_distance, (double)walk.plan.recoil_angle,
 					(double)walk.plan.recoil_slide, walk.plan.recoil_has_shake ? "yes" : "no",
-					walk.plan.recoil_has_spin_shake ? "yes" : "no");
+					walk.plan.recoil_has_spin_shake ? "yes" : "no", walk.plan.shot_sound, walk.plan.shot_duration);
 			}
 			sysLogPrintf(LOG_NOTE,
 				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s plan=%s native_plan=%s%s%s",
@@ -511,6 +526,20 @@ static void weaponRuleCasingOf(s32 weaponnum, weapon_rule_function_t *out)
 	}
 }
 
+/* slice 7b: its shot sound and the frames a fire slot keeps it, as
+ * gsetGetSingleShootSound and gsetGetFireslotDuration read them (the held
+ * graph's first, else the shooting function's). */
+static void weaponRuleSoundOf(s32 weaponnum, s32 func, const weapon_graph_held_function_t *held,
+	weapon_rule_function_t *out)
+{
+	struct weaponfunc *f = func >= 0 && func <= 1 ? weaponGetFunctionById(weaponnum, func) : NULL;
+	const struct weaponfunc_shoot *s = f && (f->type & 0xff) == INVENTORYFUNCTYPE_SHOOT
+		? (const struct weaponfunc_shoot *)f : NULL;
+
+	out->shoot_sound = held && held->has_shootsound ? held->shootsound : (s ? s->shootsound : 0);
+	out->shot_duration = held && held->has_duration_ticks60 ? held->duration_ticks60 : (s ? s->duration60 : 0);
+}
+
 /* A function's record as the cadence code reads it: its held graph record
  * (a function with a program always has one), else the function itself. */
 static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_function_t *out)
@@ -605,6 +634,7 @@ static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_functi
 	if ((out->functype & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
 		weaponRuleCasingOf(weaponnum, out);
 	}
+	weaponRuleSoundOf(weaponnum, func, held, out);
 }
 
 /* The reload a function's program plans for an empty clip: its
@@ -631,6 +661,7 @@ static s32 weaponProgramReloadWalk(s32 weaponnum, s32 func, const weapon_rule_fu
 	walk.function = record;
 	walk.param_text = weaponGraphRuntimeHeldParamText;
 	walk.item_number = weaponItemNumber;
+	walk.sound_number = weaponSoundNumber;
 	weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY, -1, weaponEventWeaponId(weaponnum), &walk, &walk);
 	if (!(walk.modules & WEAPON_MODULE_RELOAD)) {
 		return 0;
@@ -716,6 +747,7 @@ s32 weaponProgramPressPlan(s32 weaponnum, s32 func, struct weapon_rule_trigger *
 		walk.function = &record;
 		walk.param_text = weaponGraphRuntimeHeldParamText;
 		walk.item_number = weaponItemNumber;
+		walk.sound_number = weaponSoundNumber;
 		weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, -1, weaponEventWeaponId(weaponnum),
 			&walk, &walk);
 		cache->program = program;
@@ -817,6 +849,26 @@ s32 weaponProgramRecoilFrames(s32 weaponnum, s32 func, s32 native)
 	return plan.recoil_kick + plan.recoil_return;
 }
 
+s32 weaponProgramShotSound(s32 weaponnum, s32 func, s32 native)
+{
+	weapon_rule_trigger_t plan;
+
+	if (!weaponGraphRuntimeHeldProgram(weaponnum, func) || !weaponProgramPressPlan(weaponnum, func, &plan)) {
+		return native;
+	}
+	return plan.shot_sound;
+}
+
+s32 weaponProgramShotDuration(s32 weaponnum, s32 func, s32 native)
+{
+	weapon_rule_trigger_t plan;
+
+	if (!weaponGraphRuntimeHeldProgram(weaponnum, func) || !weaponProgramPressPlan(weaponnum, func, &plan)) {
+		return native;
+	}
+	return plan.shot_duration;
+}
+
 s32 weaponProgramBurstRounds(s32 weaponnum, s32 func, s32 native)
 {
 	weapon_rule_trigger_t plan;
@@ -871,6 +923,7 @@ static s32 weaponRuleLockDecide(struct hand *hand, s32 tracktype, const weapon_r
 	walk.function = &function;
 	walk.param_text = weaponGraphRuntimeHeldParamText;
 	walk.item_number = weaponItemNumber;
+	walk.sound_number = weaponSoundNumber;
 	if (!weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_AIMING, g_Vars.currentplayernum,
 			weaponEventWeaponId(weaponnum), hand, &walk)) {
 		return 0;
