@@ -70,7 +70,7 @@ Mike is the architect / designer. Claude is the intermediary / interpreter. Sess
 
 ## Build verification
 
-- Use `.\devtools\build-session.ps1 -Session <short-id> -Target <client|tests|all>` for affected targets; use `all` when both client and tests need rebuilding.
+- Use `.\devtools\build-session.ps1 -Session <short-id> -Target <client|tests|all|full>` for affected targets; use `full` (client, updater and tests in one ninja call) when both client and tests need rebuilding. `all` is client plus updater only.
 - The session build wrapper is isolated and queued by default. Do not use shared `Build/` for verification when parallel sessions may build.
 - Do not pass `-NoQueue` unless Mike explicitly asks for it.
 - Reuse the same session id for reruns in one session, watch queue status/ETA while waiting, and clean up with `.\devtools\build-session.ps1 -Remove -Session <short-id>`.
