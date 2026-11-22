@@ -1,5 +1,39 @@
 # Bug Tracker
 
+## 2026-11-21 B-1283 Bare `cmd` in PowerShell opened a 3D-printing slicer about 260 times: it resolves to an extensionless msys script, which Windows opens by file type (T-TOOLING-017, fixed and guarded)
+
+Severity high: it crashed Claude on Shadowbane on 2026-11-21. Found by claude-pd-integration-20261121.
+
+The cause has two parts:
+- PowerShell started from the Bash tool resolves the bare name `cmd` to the extensionless bash script
+  `C:\devkitPro\msys2\usr\bin\cmd`, ahead of `C:\Windows\System32\cmd.exe`. Every script that loads
+  `devtools/_build-env-prelude.ps1` resolves it to `C:\msys64\usr\bin\cmd`, because the prelude puts msys
+  `usr\bin` ahead of System32.
+- PowerShell cannot execute such a file. A statement, or the only command of an assignment, hands the file to
+  the Windows shell, which opens it by file type. Only a call in the middle of a pipeline is refused, with
+  "Cannot run a document in the middle of a pipeline". On Shadowbane, extensionless files (`HKCR\.` =
+  `PhotonWorkShop`) open with `C:\Program Files\AnycubicPhotonWorkshop\AnycubicPhotonWorkshop.exe`, which is
+  built on Chitubox.
+
+What happened: Session A's scratch deleter ran on 2026-11-21 from 05:12 to 05:15 UTC. It ran
+`$links = cmd /c "dir /s /b /al ..."` once per folder: 130 folders in its dry run and 130 in the real run, so the
+slicer was started about 260 times. Each open returned nothing, which is why the dry run "passed". Its
+`cmd /c "rmdir ..." | Out-Null` was refused, so no folder was deleted, only 38 loose files. Session A stopped
+answering at 05:17 UTC.
+
+Fix:
+- `devtools/_build-env-prelude.ps1` aliases `cmd` to `$env:SystemRoot\System32\cmd.exe`. Aliases win over PATH,
+  so every prelude script runs the real one.
+- `tools/tests/test_powershell_open_by_type.py`, which runs in CI, refuses bare `cmd`, `Invoke-Item` and `ii` in
+  tracked PowerShell.
+- The deletion was finished by a Python deleter that starts no shell.
+
+Mike's standing rule (2026-11-21): launch programs only by their full `.exe` path, and never open a file or
+folder by its type.
+
+A machine setting for Mike, not changed by any session: `HKCR\.` = `PhotonWorkShop` makes every extensionless
+file open in the slicer. Removing that default makes Windows ask instead.
+
 ## 2026-11-21 B-1295 The Room's preset names carry the language file's line feed into its logs and the preset's setup name (T-MENUS-009, fixed on week-pd/mp-rules, found in review, not seen in a game)
 
 Found while writing the finalization smoke for the Room's Load Preset (claude-pd-mp-rules-20261121).
@@ -70,7 +104,14 @@ already counts smoke-owned actions; see `SMOKE.ACTION.INJECT` in `port/src/actio
 give the game window focus. Then re-run
 `network_coop_mission_end_smoke` and the other endscreen and Room smokes.
 
-## 2026-11-20 B-1280 The build wrapper never uses its compiler cache: the ccache probe always reads as failed (T-TOOLING-006, open, cause found)
+## 2026-11-20 B-1280 The build wrapper never uses its compiler cache: the ccache probe always reads as failed (T-TOOLING-006, fixed 2026-11-21 on dev in 7828e6d6 and efeb7007)
+
+Fixed by claude-pd-integration-tooling-20261120. The probe now reads the process handle, so Windows
+PowerShell 5.1 keeps the exit code. `CCACHE_COMPILERTYPE=gcc` stops every PCH user missing in a fresh build
+folder. `CCACHE_NOHASHDIR=1` shares results across session folders, and `CCACHE_DEPEND=1` drops the second
+preprocessor run. Measured on C:: a new session folder with a warm cache hits 1,465 of 1,467 units. The
+original finding follows.
+
 
 Severity medium (every AI build compiles cold; a clean client plus test binary took 3:01 on 2026-11-20).
 `devtools/build-headless.ps1` (the probe at lines 328 to 347) starts `ccache.exe cc.exe --version` with

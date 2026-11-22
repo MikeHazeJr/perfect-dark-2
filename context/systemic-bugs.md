@@ -4722,6 +4722,40 @@ git status --porcelain | grep -E '\.(c|cpp|h)$'
 from commits alone in `D:\PD2-wt\multiplayer`, client and test binary, and
 passed pd-tests in full.
 
+## SP-100: A bare command name in PowerShell can open a file by its type
+
+**Found:** 2026-11-21, B-1283. Session A's scratch deleter called `cmd /c ...`
+once per folder. PowerShell resolved `cmd` to an extensionless msys bash script,
+`C:\devkitPro\msys2\usr\bin\cmd` from the Bash tool, or `C:\msys64\usr\bin\cmd`
+after the build prelude. It handed the file to the Windows shell about 260
+times, and the shell opened it in the program registered for extensionless
+files: on Shadowbane, a Chitubox-based slicer. Claude crashed.
+
+**The pattern:** on this PC, PATH puts msys directories ahead of System32.
+They hold extensionless scripts named like Windows programs (`cmd`, `start`,
+`find` and more). PowerShell runs a non-executable match as a document: a
+statement or a lone assignment goes to the shell, which opens it by type. Only
+a mid-pipeline call fails loudly. The same open by type happens with
+`Start-Process` or `Invoke-Item` on a path that is not an `.exe`.
+
+**Rule:** launch programs by their full `.exe` path (`$env:ComSpec`,
+`"$env:SystemRoot\System32\cmd.exe"`, `C:\Python312\python.exe`), or from
+Python's `subprocess` with an argument list, which only ever runs a real
+executable. Never call `start`, `Invoke-Item`, `ii`, or `Start-Process` on a
+file or folder (Mike, 2026-11-21). The build prelude aliases `cmd` to the System32 one.
+`tools/tests/test_powershell_open_by_type.py` refuses bare `cmd`, `Invoke-Item`
+and `ii` in tracked PowerShell, and runs in CI.
+
+**Audit:**
+```
+# what a name resolves to in the shell that runs the script
+powershell -NoProfile -Command "Get-Command cmd -All | ForEach-Object Source"
+# bare cmd or open-by-type calls in PowerShell
+git grep -nE "(^|[^A-Za-z0-9_.$\\/-])cmd[[:space:]]+/[cCkK]|Invoke-Item|(^|[[:space:]])ii[[:space:]]" -- "*.ps1" "*.psm1"
+# the program Windows uses for extensionless files
+reg query "HKCR\." /ve
+```
+
 ## Scripted pickup can clear the object-to-prop link
 
 A scripted grant must hold the incoming prop through

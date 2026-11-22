@@ -58,6 +58,17 @@ if ($filtered.Count -gt 0) {
     $env:PATH = "$env:PATH;" + ($filtered -join ';')
 }
 
+# B-1283: msys usr/bin above now precedes System32 and holds an extensionless
+# bash script named `cmd`. PowerShell cannot execute it, so it hands it to the
+# Windows shell, which opens it by file type (on Shadowbane, in a 3D-printing
+# slicer, about 260 times on 2026-11-21). An alias beats PATH lookup, so every
+# script that loads this prelude runs the real cmd.exe. Still launch programs by
+# their full .exe path (Mike, 2026-11-21).
+$systemCmd = Join-Path $env:SystemRoot 'System32\cmd.exe'
+if ($env:SystemRoot -and (Test-Path -LiteralPath $systemCmd -PathType Leaf)) {
+    Set-Alias -Name cmd -Value $systemCmd -Scope Script -Force
+}
+
 $env:MSYSTEM           = "MINGW64"
 $env:MINGW_PREFIX      = "/mingw64"
 $env:CCACHE_SLOPPINESS = "pch_defines,time_macros,include_file_mtime,include_file_ctime"
