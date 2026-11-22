@@ -134,6 +134,24 @@
  *        and draws it (projectile-events.md slice 1), so one smoke can fire
  *        every projectile weapon in turn. Logs SMOKE.GIVE_WEAPON.
  *
+ *   { "at_ms": N, "type": "aim_at", "target": "simulant", "duration_ms": 3000 }
+ *     -- held-weapon-events.md lock smokes: player 0's view holds on one
+ *        target for duration_ms ("simulant" the nearest live one,
+ *        "simulant:<i>" bot slot i, "vehicle" the nearest vehicle), picked
+ *        once at begin and aimed at its body centre from the camera after
+ *        each frame's look input (bmoveTick), on foot only (a bike, a grab or
+ *        a cutscene pauses it; paused and resumed are logged, and the view a
+ *        pause left is not an override). Logs SMOKE.AIM begin (los, the
+ *        eye and the point), override, lost and end (held_ms, on_target_ms:
+ *        the time the look picker, which the lock takes from, chose it).
+ *        An override is look input the aim cleared (the turn and pitch
+ *        speeds, which it zeroes while it holds) or any other change of the
+ *        view between two aim frames (the game's own, such as Look Ahead
+ *        re-centring the pitch while walking, which aim mode turns off). A
+ *        smoke that forbids overrides keeps player 0 still or aiming. An
+ *        aim is bound to the stage it began in: a stage swap ends it (lost,
+ *        reason=stage) before its target's pointers are read again.
+ *
  *   { "at_ms": N, "type": "catalog_weapon_acquire", "path": "mod:id" }
  *   { "at_ms": N, "type": "catalog_weapon_release", "path": "mod:id" }
  *     -- acquire or release one explicit owner through the production typed
@@ -189,7 +207,9 @@
 #include "forge_level_io.h"
 #include "game/setuputils.h"
 #include "lib/meshcollision.h"
-#include "lib/collision.h" /* cdFindGroundAtCyl (B-1310 table approach) */
+#include "lib/collision.h" /* cdFindGroundAtCyl (B-1310 table approach); cdTestLos05 (aim_at) */
+#include "game/sight.h"    /* sightTargetFactsFor (aim_at's vehicle) */
+#include "target_filter.h"
 #include "lib/mtx.h"       /* mtx4TransformVec (B-1310 table bounds) */
 #include "scenario_source_runtime.h"
 #include "projectile_events.h"
@@ -285,6 +305,7 @@ typedef enum {
     SMOKE_EVENT_DAMAGE_GLASS,       /* T-MODDING-011: player 0's shot breaks the nearest glass (objDamage) */
     SMOKE_EVENT_GIVE_WEAPON,        /* T-MODDING-011: player 0 gets and draws the weapon at path */
     SMOKE_EVENT_TOUCH_PICKUP,       /* T-MODDING-011: player 0 touches the nearest pickup (objPickupTouchForSmoke) */
+    SMOKE_EVENT_AIM_AT,             /* held-weapon-events.md lock smokes: player 0's view holds on a target */
     SMOKE_EVENT_SCREENSHOT,         /* in-game glReadPixels grab -> path */
     SMOKE_EVENT_EXIT,
     SMOKE_EVENT_UNCLEAN_EXIT
@@ -368,6 +389,9 @@ typedef struct {
     s32            hand;              /* held-weapon event: HAND_RIGHT/LEFT */
     SmokeLedgeCommand ledge_command;
     SmokeSupportFixtureId ledge_fixture;
+    s32            aim_kind;          /* aim_at: SMOKE_FIXTURE_AIM_* */
+    s32            aim_slot;          /* aim_at: the bot slot of simulant:<i>, -1 otherwise */
+    u32            aim_duration_ms;   /* aim_at */
     s32            release_at_ms;     /* for tap: scheduled release time */
     s32            released;          /* tap: 0 = press pending, 1 = release pending, 2 = done */
     smoke_readiness_condition_t readiness_condition;
@@ -426,6 +450,351 @@ typedef struct {
 } SmokeState;
 
 static SmokeState s_State;
+
+/* ---- aim_at (held-weapon-events.md lock smokes, with Integration) ----
+ * One aim's run: its target picked once at begin and held until end_ms
+ * (script time); what the view was set to the frame before; the time its
+ * target was the look picker's choice (sight.c's lock takes from it). */
+typedef struct {
+    s32 active;
+    s32 kind;                /* SMOKE_FIXTURE_AIM_* */
+    s32 slot;                /* a simulant's bot slot, -1 for a vehicle */
+    s32 chrnum;              /* a simulant's chrnum, -1 for a vehicle */
+    s32 pad;                 /* a vehicle's pad, -1 for a simulant */
+    struct prop *prop;
+    struct chrdata *chr;     /* a simulant's, NULL for a vehicle */
+    struct defaultobj *obj;  /* a vehicle's, NULL for a simulant */
+    s32 begin_ms;
+    s32 end_ms;
+    s32 last_ms;
+    s32 on_target_ms;
+    s32 overrides;
+    s32 frames;
+    s32 paused;              /* player 0 is not walking: the aim waits */
+    s32 paused_movemode;     /* the mode it waits in */
+    s32 stage_loading;       /* the scene's stage counts when it began */
+    s32 stage_ready;
+    s32 stage_teardown;
+    f32 theta;
+    f32 verta;
+} SmokeAim;
+
+static SmokeAim s_SmokeAim;
+static s32 s_SmokeAimNowMs;
+
+static const char *smokeAimKindName(s32 kind)
+{
+    return kind == SMOKE_FIXTURE_AIM_VEHICLE ? "vehicle" : "simulant";
+}
+
+static void smokeAimEnd(const char *why)
+{
+    sysLogPrintf(LOG_NOTE,
+        "SMOKE.AIM: end target=%s slot=%d chrnum=%d pad=%d held_ms=%d on_target_ms=%d overrides=%d frames=%d why=%s",
+        smokeAimKindName(s_SmokeAim.kind), s_SmokeAim.slot, s_SmokeAim.chrnum, s_SmokeAim.pad,
+        s_SmokeAim.last_ms - s_SmokeAim.begin_ms, s_SmokeAim.on_target_ms, s_SmokeAim.overrides,
+        s_SmokeAim.frames, why);
+    s_SmokeAim.active = 0;
+}
+
+/* Integration's point 3: the eye is the camera of the last frame (the
+ * player's prop, at eye height, before the first). */
+static void smokeAimEye(const struct player *player, struct coord *out)
+{
+    if (player->cam_pos.x != 0.0f || player->cam_pos.y != 0.0f || player->cam_pos.z != 0.0f) {
+        *out = player->cam_pos;
+    } else {
+        *out = player->prop->pos;
+    }
+}
+
+/* ...and the point is the target's body centre: its position at the middle
+ * of its bounding heights (a chr's ground plus 20 to its height, an object's
+ * geometry). */
+static void smokeAimPoint(struct prop *prop, struct coord *out)
+{
+    f32 radius = 0.0f;
+    f32 ymax = 0.0f;
+    f32 ymin = 0.0f;
+
+    propGetBbox(prop, &radius, &ymax, &ymin);
+    out->x = prop->pos.x;
+    out->y = ymax > ymin ? (ymin + ymax) * 0.5f : prop->pos.y;
+    out->z = prop->pos.z;
+}
+
+/* The game's atan2f (src/game/atan2f.c, game/atan2f.h): the angle of (x, z)
+ * from +z toward +x, in [0, 2pi). The client's <math.h> is the game's, which
+ * does not declare it (as port/src/main.c does). */
+extern f32 atan2f(f32 x, f32 z);
+
+/* B-1291's convention (bootDebugSpawnAtLookAtTick): a player faces
+ * (360 - vv_theta) degrees measured like atan2f(dx, dz); vv_verta is the
+ * pitch, up positive, kept in (-90, 90) as bmoveUpdateVerta would wrap it, so
+ * the next frame's override check compares like with like. 0 when the point
+ * is straight above or below the eye. */
+static s32 smokeAimAngles(const struct coord *eye, const struct coord *point, f32 *theta, f32 *verta)
+{
+    const f32 dx = point->x - eye->x;
+    const f32 dy = point->y - eye->y;
+    const f32 dz = point->z - eye->z;
+    const f32 flat = sqrtf(dx * dx + dz * dz);
+    f32 t;
+
+    if (flat < 1.0f) {
+        return 0;
+    }
+    t = 360.0f - atan2f(dx, dz) * (180.0f / 3.14159265f);
+    while (t >= 360.0f) {
+        t -= 360.0f;
+    }
+    while (t < 0.0f) {
+        t += 360.0f;
+    }
+    *theta = t;
+    *verta = atan2f(dy, flat) * (180.0f / 3.14159265f);
+    if (*verta > 180.0f) {
+        *verta -= 360.0f; /* a point below the eye: [0, 2pi) reads it as 270 to 360 */
+    }
+    return 1;
+}
+
+/* Integration's point 1: picked once, the live simulant (or vehicle) nearest
+ * player 0, or the named bot slot's simulant. */
+static s32 smokeAimPick(const SmokeEvent *ev, SmokeAim *aim)
+{
+    const struct player *player = g_Vars.players[0];
+    f32 best = -1.0f;
+
+    memset(aim, 0, sizeof(*aim));
+    aim->kind = ev->aim_kind;
+    aim->slot = -1;
+    aim->chrnum = -1;
+    aim->pad = -1;
+    if (player == NULL || player->prop == NULL) {
+        return 0;
+    }
+    if (ev->aim_kind == SMOKE_FIXTURE_AIM_VEHICLE) {
+        struct prop *prop;
+
+        /* The active props run on into the paused ones (activepropstail's
+         * next is pausedprops, prop.c), so a vehicle in a paused room is a
+         * candidate too. */
+        for (prop = g_Vars.activeprops; prop != NULL; prop = prop->next) {
+            struct target_facts facts;
+            f32 dx;
+            f32 dy;
+            f32 dz;
+            f32 d;
+
+            if (prop->type != PROPTYPE_OBJ || prop->obj == NULL) {
+                continue;
+            }
+            sightTargetFactsFor(prop, player->prop, 0, &facts);
+            if (facts.kind != TARGET_KIND_VEHICLE) {
+                continue;
+            }
+            dx = prop->pos.x - player->prop->pos.x;
+            dy = prop->pos.y - player->prop->pos.y;
+            dz = prop->pos.z - player->prop->pos.z;
+            d = dx * dx + dy * dy + dz * dz;
+            if (best < 0.0f || d < best) {
+                best = d;
+                aim->prop = prop;
+                aim->obj = prop->obj;
+                aim->pad = prop->obj->pad;
+            }
+        }
+    } else {
+        s32 slot;
+
+        for (slot = 0; slot < g_BotCount && slot < MAX_BOTS; slot++) {
+            struct chrdata *chr = g_MpBotChrPtrs[slot];
+            f32 dx;
+            f32 dy;
+            f32 dz;
+            f32 d;
+
+            if (ev->aim_kind == SMOKE_FIXTURE_AIM_SIMULANT_SLOT && slot != ev->aim_slot) {
+                continue;
+            }
+            if (chr == NULL || chr->prop == NULL || chr->aibot == NULL || chrIsDead(chr)) {
+                continue;
+            }
+            dx = chr->prop->pos.x - player->prop->pos.x;
+            dy = chr->prop->pos.y - player->prop->pos.y;
+            dz = chr->prop->pos.z - player->prop->pos.z;
+            d = dx * dx + dy * dy + dz * dz;
+            if (best < 0.0f || d < best) {
+                best = d;
+                aim->prop = chr->prop;
+                aim->chr = chr;
+                aim->slot = slot;
+                aim->chrnum = chr->chrnum;
+            }
+        }
+    }
+    return aim->prop != NULL;
+}
+
+/* Whether the picked target is still there and alive: a simulant that died
+ * (or whose prop went) is lost, and so is a vehicle whose prop is gone. */
+static s32 smokeAimTargetLive(const SmokeAim *aim)
+{
+    if (aim->prop == NULL) {
+        return 0;
+    }
+    if (aim->chr != NULL) {
+        return aim->chr->prop == aim->prop && !chrIsDead(aim->chr);
+    }
+    return aim->obj != NULL && aim->prop->obj == aim->obj && aim->obj->prop == aim->prop;
+}
+
+/* Codex on PR 56: the target's pointers (its prop, chr or object) live in
+ * the stage pool of the stage it was picked in. Every stage swap fires
+ * SCENE_EVENT_STAGE_LOADING, and pdmain.c's load (mempResetPool(MEMPOOL_STAGE)
+ * onward) ends with STAGE_READY, or STAGE_TEARDOWN for a system stage, before
+ * the next lvTick; so the aim is bound to those counts at begin and ends,
+ * unread, when any of them moves. */
+static s32 smokeAimStageCount(s32 event)
+{
+    const SceneFireCounts *counts = sceneInstrumentGet();
+
+    return counts ? counts->fire_count[event] : 0;
+}
+
+static void smokeAimStageMark(SmokeAim *aim)
+{
+    aim->stage_loading = smokeAimStageCount(SCENE_EVENT_STAGE_LOADING);
+    aim->stage_ready = smokeAimStageCount(SCENE_EVENT_STAGE_READY);
+    aim->stage_teardown = smokeAimStageCount(SCENE_EVENT_STAGE_TEARDOWN);
+}
+
+static s32 smokeAimStageChanged(const SmokeAim *aim)
+{
+    return smokeAimStageCount(SCENE_EVENT_STAGE_LOADING) != aim->stage_loading
+        || smokeAimStageCount(SCENE_EVENT_STAGE_READY) != aim->stage_ready
+        || smokeAimStageCount(SCENE_EVENT_STAGE_TEARDOWN) != aim->stage_teardown;
+}
+
+/* The aim lost its target: "gone" (it died, or its prop went) or "stage"
+ * (its stage was swapped out). Logs only the aim's own numbers. */
+static void smokeAimLost(const char *reason)
+{
+    sysLogPrintf(LOG_NOTE, "SMOKE.AIM: lost target=%s slot=%d chrnum=%d pad=%d reason=%s at_ms=%d",
+        smokeAimKindName(s_SmokeAim.kind), s_SmokeAim.slot, s_SmokeAim.chrnum, s_SmokeAim.pad, reason,
+        s_SmokeAimNowMs);
+    smokeAimEnd("lost");
+}
+
+/* Each harness tick: count the time the target was the look picker's choice
+ * of the frame before (Integration's point 5), and end the aim at end_ms. */
+static void smokeAimTick(s32 now_ms)
+{
+    const struct player *player = g_Vars.players[0];
+
+    s_SmokeAimNowMs = now_ms;
+    if (!s_SmokeAim.active) {
+        return;
+    }
+    if (smokeAimStageChanged(&s_SmokeAim)) {
+        smokeAimLost("stage");
+        return;
+    }
+    if (player != NULL && player->lookingatprop.prop == s_SmokeAim.prop && now_ms > s_SmokeAim.last_ms) {
+        s_SmokeAim.on_target_ms += now_ms - s_SmokeAim.last_ms;
+    }
+    s_SmokeAim.last_ms = now_ms;
+    if (now_ms >= s_SmokeAim.end_ms) {
+        smokeAimEnd("done");
+    }
+}
+
+void smokeHarnessAimApply(void)
+{
+    struct player *player = g_Vars.currentplayer;
+    struct coord eye;
+    struct coord point;
+    f32 theta;
+    f32 verta;
+    s32 resumed = 0;
+
+    /* MP-RULES' guard: bmoveTick runs for every player (remote ones on a
+     * host too), so only player 0's own tick writes, and the movement tick
+     * after this call refreshes its trig (bmoveUpdateVerta). */
+    if (!s_SmokeAim.active || g_Vars.currentplayernum != 0 || player == NULL || player->prop == NULL) {
+        return;
+    }
+    if (smokeAimStageChanged(&s_SmokeAim)) {
+        smokeAimLost("stage");
+        return;
+    }
+    /* Integration on PR 56: on foot only. A bike turns through speedtheta in
+     * bbikeTick right after this call, so clearing it would stop the bike
+     * turning; a grab and a cutscene keep their own view. The aim waits and
+     * holds again when player 0 walks; both are logged, and the view the
+     * pause left is not an override (the resume frame skips the moved check,
+     * not the input one). */
+    if (player->bondmovemode != MOVEMODE_WALK) {
+        if (!s_SmokeAim.paused) {
+            sysLogPrintf(LOG_NOTE, "SMOKE.AIM: paused movemode=%d at_ms=%d", player->bondmovemode,
+                s_SmokeAimNowMs);
+            s_SmokeAim.paused = 1;
+            s_SmokeAim.paused_movemode = player->bondmovemode;
+        }
+        return;
+    }
+    if (s_SmokeAim.paused) {
+        sysLogPrintf(LOG_NOTE, "SMOKE.AIM: resumed from_movemode=%d at_ms=%d", s_SmokeAim.paused_movemode,
+            s_SmokeAimNowMs);
+        s_SmokeAim.paused = 0;
+        resumed = 1;
+    }
+    if (!smokeAimTargetLive(&s_SmokeAim)) {
+        smokeAimLost("gone");
+        return;
+    }
+    /* Integration's point 4 (and Codex on PR 56): the aim wins over the
+     * frame's look input. bmoveProcessInput has added the pitch it read
+     * (speedverta) and leaves the turn in speedtheta, which bwalkUpdateTheta
+     * adds after this call, so both speeds are cleared below while the aim
+     * holds; a nonzero one is look input. A view that moved between two aim
+     * frames is an override too, whatever moved it (the game's own view
+     * changes, such as Look Ahead re-centring the pitch while walking, off in
+     * aim mode). The first override is logged. */
+    {
+        const s32 input = player->speedtheta != 0.0f || player->speedverta != 0.0f;
+        s32 moved = 0;
+
+        if (s_SmokeAim.frames > 0 && !resumed) {
+            const f32 dtheta = player->vv_theta - s_SmokeAim.theta;
+            const f32 dverta = player->vv_verta - s_SmokeAim.verta;
+
+            moved = dtheta > 0.01f || dtheta < -0.01f || dverta > 0.01f || dverta < -0.01f;
+        }
+        if (input || moved) {
+            if (s_SmokeAim.overrides == 0) {
+                sysLogPrintf(LOG_NOTE,
+                    "SMOKE.AIM: override input=%d speedtheta=%.3f speedverta=%.3f theta=%.2f verta=%.2f "
+                    "aim_theta=%.2f aim_verta=%.2f at_ms=%d",
+                    input, player->speedtheta, player->speedverta, player->vv_theta, player->vv_verta,
+                    s_SmokeAim.theta, s_SmokeAim.verta, s_SmokeAimNowMs);
+            }
+            s_SmokeAim.overrides++;
+        }
+        player->speedtheta = 0.0f;
+        player->speedverta = 0.0f;
+    }
+    smokeAimEye(player, &eye);
+    smokeAimPoint(s_SmokeAim.prop, &point);
+    if (smokeAimAngles(&eye, &point, &theta, &verta)) {
+        player->vv_theta = theta;
+        player->vv_verta = verta;
+    }
+    s_SmokeAim.theta = player->vv_theta;
+    s_SmokeAim.verta = player->vv_verta;
+    s_SmokeAim.frames++;
+}
 
 static s32 smokeGridPortalFail(const char *reason)
 {
@@ -931,6 +1300,9 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
     ev->assist_action_id = -1;
     ev->assist_condition = SMOKE_READINESS_INVALID;
     ev->assist_hold_ms = 0;
+    ev->aim_kind = 0;
+    ev->aim_slot = -1;
+    ev->aim_duration_ms = 0;
 
     char type_str[SMOKE_FIXTURE_EVENT_TYPE_CAPACITY] = {0};
     char key_str[32]    = {0};
@@ -1085,6 +1457,27 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 				return 0;
 			}
             j_tok_copy_str(&t, ev->path, sizeof(ev->path));
+        } else if (!strcmp(field, "target")) {
+			char target_str[32] = {0};
+
+			if (t.type != JT_STRING || (size_t)t.len >= sizeof(target_str)) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event target must be a short string");
+				return 0;
+			}
+			j_tok_copy_str(&t, target_str, sizeof(target_str));
+			if (!smokeFixtureAimTargetParse(target_str, &ev->aim_kind, &ev->aim_slot)) {
+				sysLogPrintf(LOG_ERROR,
+					"SMOKE: event target must be simulant, simulant:<slot> or vehicle, got '%s'",
+					target_str);
+				return 0;
+			}
+        } else if (!strcmp(field, "duration_ms")) {
+			if (!j_tok_is_integer(&t) || !smokeFixtureAimDurationValid(j_tok_int(&t))) {
+				sysLogPrintf(LOG_ERROR, "SMOKE: event duration_ms must be an integer from 1 to %d",
+					SMOKE_FIXTURE_AIM_MAX_DURATION_MS);
+				return 0;
+			}
+			ev->aim_duration_ms = (u32)j_tok_int(&t);
         } else if (!strcmp(field, "x")) {
 			if (!j_tok_is_integer(&t)) {
 				sysLogPrintf(LOG_ERROR, "SMOKE: event x must be an integer");
@@ -1346,6 +1739,15 @@ static s32 smokeParseEvent(JParse *p, SmokeEvent *ev)
 	}
 	if (!strcmp(type_str, "damage_glass")) {
 		ev->type = SMOKE_EVENT_DAMAGE_GLASS;
+		return 1;
+	}
+	if (!strcmp(type_str, "aim_at")) {
+		if (!ev->aim_kind || !ev->aim_duration_ms) {
+			sysLogPrintf(LOG_ERROR,
+				"SMOKE: aim_at event needs 'target' and 'duration_ms' (at_ms=%d)", ev->at_ms);
+			return 0;
+		}
+		ev->type = SMOKE_EVENT_AIM_AT;
 		return 1;
 	}
 	if (!strcmp(type_str, "give_weapon")) {
@@ -1968,6 +2370,10 @@ static s32 smokeParseJson(const char *src)
         const SmokeEvent *ev = &s_State.events[i];
         if ((u64)ev->at_ms > latest_event_ms) {
             latest_event_ms = (u64)ev->at_ms;
+        }
+        /* aim_at holds its target until at_ms + duration_ms (B-1135). */
+        if (ev->type == SMOKE_EVENT_AIM_AT && (u64)ev->at_ms + ev->aim_duration_ms > latest_event_ms) {
+            latest_event_ms = (u64)ev->at_ms + ev->aim_duration_ms;
         }
         if (ev->type == SMOKE_EVENT_WAIT_UNTIL) {
             wait_budget_ms += (u64)ev->wait_timeout_ms;
@@ -3764,6 +4170,8 @@ void smokeHarnessTick(void)
         }
     }
 
+    smokeAimTick(elapsed);
+
     /* A controller state timestamp is atomic. Yield before its successor even
      * when both became overdue during one slow frame. */
     s32 controller_group_at = -1;
@@ -3814,6 +4222,48 @@ void smokeHarnessTick(void)
                 return;
             }
             break;
+        case SMOKE_EVENT_AIM_AT:
+        {
+            /* held-weapon-events.md lock smokes: the target is picked once
+             * here and held for duration_ms by smokeHarnessAimApply. */
+            const struct player *player = g_Vars.players[0];
+            struct coord eye;
+            struct coord point;
+            s32 los;
+
+            if (s_SmokeAim.active) {
+                smokeAimEnd("replaced");
+            }
+            if (player == NULL || player->prop == NULL || !smokeAimPick(ev, &s_SmokeAim)) {
+                sysLogPrintf(LOG_WARNING, "SMOKE.AIM: no target target=%s slot=%d at_ms=%d",
+                    smokeAimKindName(ev->aim_kind), ev->aim_slot, ev->at_ms);
+                break;
+            }
+            smokeAimStageMark(&s_SmokeAim);
+            smokeAimEye(player, &eye);
+            smokeAimPoint(s_SmokeAim.prop, &point);
+            {
+                /* Integration's point 2: a lock that never comes behind a
+                 * wall reads as that. */
+                struct coord from = eye;
+                struct coord to = point;
+
+                los = cdTestLos05(&from, player->prop->rooms, &to, s_SmokeAim.prop->rooms,
+                    CDTYPE_BG, GEOFLAG_BLOCK_SIGHT) ? 1 : 0;
+            }
+            s_SmokeAim.active = 1;
+            s_SmokeAim.begin_ms = elapsed;
+            s_SmokeAim.last_ms = elapsed;
+            s_SmokeAim.end_ms = elapsed + (s32)ev->aim_duration_ms;
+            sysLogPrintf(LOG_NOTE,
+                "SMOKE.AIM: begin target=%s slot=%d chrnum=%d pad=%d dist=%.0f los=%d "
+                "eye=(%.0f,%.0f,%.0f) point=(%.0f,%.0f,%.0f) duration_ms=%u at_ms=%d",
+                smokeAimKindName(s_SmokeAim.kind), s_SmokeAim.slot, s_SmokeAim.chrnum, s_SmokeAim.pad,
+                sqrtf((point.x - eye.x) * (point.x - eye.x) + (point.y - eye.y) * (point.y - eye.y)
+                    + (point.z - eye.z) * (point.z - eye.z)),
+                los, eye.x, eye.y, eye.z, point.x, point.y, point.z, ev->aim_duration_ms, ev->at_ms);
+            break;
+        }
         case SMOKE_EVENT_MOVEMENT_LEDGE:
             if (!smokeLedgeApply(ev->ledge_fixture, ev->ledge_command)) return;
             break;
@@ -4373,6 +4823,9 @@ void smokeHarnessTick(void)
 
 void smokeHarnessExit(int code, const char *reason)
 {
+    if (s_SmokeAim.active) {
+        smokeAimEnd("exit");
+    }
     if (nativeWritePolicyRefused()) {
         code = 2;
         reason = "native_write_policy_refused";

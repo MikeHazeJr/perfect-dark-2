@@ -285,6 +285,10 @@ ScheduleBound scheduleBound(const JsonValue &doc)
 				bound.latest_event_ms = at;
 			}
 			const std::string type = memberText(event, "type");
+			// aim_at holds its target until at_ms + duration_ms.
+			if (type == "aim_at" && at + memberMs(event, "duration_ms") > bound.latest_event_ms) {
+				bound.latest_event_ms = at + memberMs(event, "duration_ms");
+			}
 			if (type == "wait_until") {
 				bound.wait_budget_ms += memberMs(event, "timeout_ms");
 			} else if (type == "controller_attach" || type == "controller_detach") {
@@ -322,6 +326,8 @@ TEST_CASE("the smoke harness bounds a schedule by its latest event plus every wa
 	CHECK(source.find("#define SMOKE_PAD_TRANSITION_MS 1000u") != std::string::npos);
 	CHECK(source.find("if (secs > 3600) secs = 3600;") != std::string::npos);
 	CHECK(source.find("wait_budget_ms += (u64)ev->wait_timeout_ms;") != std::string::npos);
+	CHECK(source.find("if (ev->type == SMOKE_EVENT_AIM_AT && (u64)ev->at_ms + ev->aim_duration_ms > latest_event_ms) {")
+		!= std::string::npos);
 	CHECK(source.find("wait_budget_ms += SMOKE_PAD_TRANSITION_MS;") != std::string::npos);
 	CHECK(source.find("latest_event_ms + wait_budget_ms >= (u64)s_State.timeout_ms") != std::string::npos);
 	CHECK(source.find("!strcmp(field, \"timeout_seconds\")") != std::string::npos);

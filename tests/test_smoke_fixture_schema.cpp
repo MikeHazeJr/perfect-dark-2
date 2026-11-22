@@ -210,3 +210,48 @@ TEST_CASE("File transfer socket probe cannot name an arbitrary local path",
     REQUIRE_FALSE(smokeFixtureEventFieldsValid(type, common | SMOKE_FIXTURE_FIELD_PATH, &unsupported));
     REQUIRE(unsupported == SMOKE_FIXTURE_FIELD_PATH);
 }
+
+TEST_CASE("aim_at takes a target and a duration, each checked by its form",
+    "[smoke][schema][held-weapon]")
+{
+    const smoke_fixture_field_mask_t common = SMOKE_FIXTURE_FIELD_AT_MS
+        | SMOKE_FIXTURE_FIELD_TYPE | SMOKE_FIXTURE_FIELD_COMMENT;
+    const smoke_fixture_field_mask_t aim = common | SMOKE_FIXTURE_FIELD_TARGET
+        | SMOKE_FIXTURE_FIELD_DURATION_MS;
+    smoke_fixture_field_mask_t unsupported = 0;
+
+    REQUIRE(smokeFixtureEventTypeKnown("aim_at"));
+    REQUIRE(smokeFixtureEventFieldsValid("aim_at", aim, &unsupported));
+    REQUIRE_FALSE(smokeFixtureEventFieldsValid("aim_at", aim | SMOKE_FIXTURE_FIELD_PATH, &unsupported));
+    REQUIRE(unsupported == SMOKE_FIXTURE_FIELD_PATH);
+    REQUIRE_FALSE(smokeFixtureEventFieldsValid("kill_simulant", common | SMOKE_FIXTURE_FIELD_TARGET,
+        &unsupported));
+    REQUIRE(smokeFixtureEventFieldFromName("target") == SMOKE_FIXTURE_FIELD_TARGET);
+    REQUIRE(smokeFixtureEventFieldFromName("duration_ms") == SMOKE_FIXTURE_FIELD_DURATION_MS);
+    REQUIRE(std::string(smokeFixtureEventFieldName(SMOKE_FIXTURE_FIELD_DURATION_MS)) == "duration_ms");
+
+    int kind = 0;
+    int slot = 0;
+    REQUIRE(smokeFixtureAimTargetParse("simulant", &kind, &slot));
+    CHECK(kind == SMOKE_FIXTURE_AIM_SIMULANT);
+    CHECK(slot == -1);
+    REQUIRE(smokeFixtureAimTargetParse("simulant:3", &kind, &slot));
+    CHECK(kind == SMOKE_FIXTURE_AIM_SIMULANT_SLOT);
+    CHECK(slot == 3);
+    REQUIRE(smokeFixtureAimTargetParse("simulant:31", &kind, &slot));
+    CHECK(slot == 31);
+    REQUIRE(smokeFixtureAimTargetParse("vehicle", &kind, &slot));
+    CHECK(kind == SMOKE_FIXTURE_AIM_VEHICLE);
+    CHECK(slot == -1);
+    for (const char *bad : { "", "simulants", "simulant:", "simulant:x", "simulant:32", "simulant:-1",
+            "simulant:123", "simulant: 1", "Vehicle", "player" }) {
+        INFO(bad);
+        CHECK_FALSE(smokeFixtureAimTargetParse(bad, &kind, &slot));
+    }
+    CHECK_FALSE(smokeFixtureAimTargetParse(nullptr, &kind, &slot));
+    CHECK(smokeFixtureAimDurationValid(1));
+    CHECK(smokeFixtureAimDurationValid(SMOKE_FIXTURE_AIM_MAX_DURATION_MS));
+    CHECK_FALSE(smokeFixtureAimDurationValid(0));
+    CHECK_FALSE(smokeFixtureAimDurationValid(-5));
+    CHECK_FALSE(smokeFixtureAimDurationValid(SMOKE_FIXTURE_AIM_MAX_DURATION_MS + 1));
+}

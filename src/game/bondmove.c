@@ -52,6 +52,7 @@
 #include "net/net_player_move_wire.h"
 #include "net/netmsg.h"
 #include "weapon_graph_runtime.h"
+#include "smoke_harness.h"
 
 #define BUTTON_JUMP CONT_4000
 
@@ -3322,6 +3323,9 @@ void bmoveTick(bool allowc1x, bool allowc1y, bool allowc1buttons, bool ignorec2)
 	f32 distance;
 
 	bmoveProcessInput(allowc1x, allowc1y, allowc1buttons, ignorec2);
+	/* held-weapon-events.md lock smokes: a smoke's aim_at holds player 0's
+	 * view on its target after this frame's look input (smoke_harness.c). */
+	smokeHarnessAimApply();
 
 	if (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {
 		bbikeTick();

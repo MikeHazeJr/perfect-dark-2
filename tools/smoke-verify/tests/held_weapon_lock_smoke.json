@@ -1,0 +1,199 @@
+{
+  "scenario_name": "held_weapon_lock_smoke",
+  "description": "Held weapon locks (context/designs/modding/held-weapon-events.md, slices 6a and 6b). On Felicity with two simulants that hold their fire, the first is placed in sight of player 0. Player 0 holds aim (R) while aim_at keeps the view on that simulant: the CMP150's primary and then its secondary (follow lock-on) each take it as a lock, and the rocket launcher's targeted rocket takes it and is fired at it. Each function's first aiming event logs its program's lock beside the original's (locks=4 for the CMP150, aim_follows=true on its secondary; locks=1 for the targeted rocket); they must be equal, every lock the sight takes is logged as SIGHT.LOCK with what it took, and no rule may differ in the totals at the scripted exit. The second simulant is aimed at once for the record (its los is logged), not required. aim_at's end lines must show time on target with no look-input override; if one trips around the rocket's shot, look first for a kick the game feeds through the look speeds (the override line's input=1).",
+  "tags": [
+    "graph",
+    "weapons",
+    "lock",
+    "combatsim",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "src/game/sight.c",
+    "src/game/lv.c",
+    "port/src/weapon_events.c",
+    "port/include/weapon_rules.h",
+    "port/include/target_filter.h",
+    "port/src/smoke_harness.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-force-first-person",
+    "--debug-bots-hold-fire",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "2",
+    "--debug-place-bot-near-player",
+    "--debug-place-bot-near-player-visible",
+    "--debug-place-bot-near-player-hold-sec",
+    "40",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay."
+    },
+    {
+      "at_ms": 500,
+      "type": "action",
+      "name": "ACTION_DEBUG_INVINCIBILITY",
+      "action": "tap",
+      "comment": "Dev invincibility; the simulants also hold their fire. From every give to its first input there are 3 s (equip time)."
+    },
+    {
+      "at_ms": 1000,
+      "type": "give_weapon",
+      "path": "base:cmp150"
+    },
+    {
+      "at_ms": 4000,
+      "type": "aim_at",
+      "target": "simulant",
+      "duration_ms": 3000,
+      "comment": "The placed simulant (the nearest), held for 3 s."
+    },
+    {
+      "at_ms": 4200,
+      "type": "action",
+      "name": "ACTION_FIRE_SECONDARY",
+      "action": "press",
+      "comment": "Hold aim (R): the CMP150's primary takes the simulant as a lock."
+    },
+    {
+      "at_ms": 6800,
+      "type": "action",
+      "name": "ACTION_FIRE_SECONDARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 7300,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the CMP150's follow lock-on."
+    },
+    {
+      "at_ms": 8300,
+      "type": "aim_at",
+      "target": "simulant",
+      "duration_ms": 3000
+    },
+    {
+      "at_ms": 8500,
+      "type": "action",
+      "name": "ACTION_FIRE_SECONDARY",
+      "action": "press",
+      "comment": "Hold aim: the secondary takes the simulant, and its crosshair follows the lock."
+    },
+    {
+      "at_ms": 11000,
+      "type": "action",
+      "name": "ACTION_FIRE_SECONDARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 11500,
+      "type": "aim_at",
+      "target": "simulant:1",
+      "duration_ms": 1500,
+      "comment": "For the record only: the second simulant's los is logged; its lock is not required."
+    },
+    {
+      "at_ms": 13500,
+      "type": "give_weapon",
+      "path": "base:rocketlauncher"
+    },
+    {
+      "at_ms": 16500,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the targeted rocket."
+    },
+    {
+      "at_ms": 17500,
+      "type": "aim_at",
+      "target": "simulant",
+      "duration_ms": 4000
+    },
+    {
+      "at_ms": 17700,
+      "type": "action",
+      "name": "ACTION_FIRE_SECONDARY",
+      "action": "press",
+      "comment": "Hold aim: the targeted rocket takes the simulant as its one lock."
+    },
+    {
+      "at_ms": 20500,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Fire the targeted rocket at the locked simulant."
+    },
+    {
+      "at_ms": 21000,
+      "type": "action",
+      "name": "ACTION_FIRE_SECONDARY",
+      "action": "release"
+    },
+    {
+      "at_ms": 24000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=held_weapon_lock_smoke",
+      "PLAYER: invincibility ON",
+      "SMOKE\\.GIVE_WEAPON: weapon=base:cmp150 weaponnum=[0-9]+ result=1",
+      "SMOKE\\.GIVE_WEAPON: weapon=base:rocketlauncher weaponnum=[0-9]+ result=1",
+      "SMOKE\\.AIM: begin target=simulant slot=[0-9]+ chrnum=[0-9]+ pad=-1 dist=[0-9]+ los=1 ",
+      "WEAPON\\.RULE: aiming weapon=base:cmp150 func=primary program=yes lock=locks=4 ",
+      "WEAPON\\.RULE: aiming weapon=base:cmp150 func=secondary program=yes lock=locks=4 aim_follows=true",
+      "WEAPON\\.RULE: aiming weapon=base:rocketlauncher func=secondary program=yes lock=locks=1 ",
+      "SIGHT\\.LOCK: player=0 weapon=base:cmp150 func=primary slot=1 of 4 kind=simulant ",
+      "SIGHT\\.LOCK: player=0 weapon=base:cmp150 func=secondary slot=1 of 4 kind=simulant ",
+      "SIGHT\\.LOCK: player=0 weapon=base:rocketlauncher func=secondary slot=1 of 1 kind=simulant ",
+      "PROJECTILE\\.EVENT: spawned weapon=base:rocketlauncher func=secondary object=base:[a-z]*rocket ",
+      "WEAPON\\.EVENTS: smoke_exit trigger_pressed=[0-9]+ ready_while_held=[0-9]+ clip_empty=[0-9]+ trigger_released=[0-9]+ reload_done=[0-9]+ rules\\.compared=[1-9][0-9]* rules\\.differ=0 aiming=[1-9][0-9]* locks=([3-9]|[1-9][0-9]+)",
+      "SMOKE: result=scripted_exit"
+    ],
+    "required_counts": [
+      {
+        "pattern": "SMOKE\\.AIM: end target=simulant [^\\n]*on_target_ms=[1-9][0-9]* overrides=0 ",
+        "min": 3
+      }
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "KILLFEED: suicide",
+      "PLAYER: invincibility OFF",
+      "SMOKE\\.GIVE_WEAPON: [^\\n]*result=0",
+      "SMOKE\\.AIM: no target",
+      "SMOKE\\.AIM: override",
+      "WEAPON\\.RULE differs",
+      "program refused",
+      "ASSET\\.FALLBACK",
+      "LOUDFAIL\\.FALLBACK"
+    ]
+  }
+}
