@@ -1788,6 +1788,10 @@ TEST_CASE("aim_at holds player 0's view on its target after the look input",
     // bbikeTick right after the hook).
     requireContains(apply, "if (player->bondmovemode != MOVEMODE_WALK) {");
     requireContains(apply, "\"SMOKE.AIM: paused movemode=%d at_ms=%d\"");
+    // ...and the view a pause left is not an override: the resume frame skips
+    // the moved check (Integration on 4cd9ff6f), not the input one.
+    requireContains(apply, "\"SMOKE.AIM: resumed from_movemode=%d at_ms=%d\"");
+    requireContains(apply, "if (s_SmokeAim.frames > 0 && !resumed) {");
     requireContains(apply, "\"SMOKE.AIM: lost target=%s slot=%d chrnum=%d pad=%d at_ms=%d\"");
     requireContains(apply, "\"SMOKE.AIM: override input=%d speedtheta=%.3f speedverta=%.3f theta=%.2f verta=%.2f \"");
     // Codex on PR 56: bwalkUpdateTheta adds speedtheta after the hook, so the

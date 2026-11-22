@@ -140,7 +140,8 @@
  *        "simulant:<i>" bot slot i, "vehicle" the nearest vehicle), picked
  *        once at begin and aimed at its body centre from the camera after
  *        each frame's look input (bmoveTick), on foot only (a bike, a grab or
- *        a cutscene pauses it, logged once). Logs SMOKE.AIM begin (los, the
+ *        a cutscene pauses it; paused and resumed are logged, and the view a
+ *        pause left is not an override). Logs SMOKE.AIM begin (los, the
  *        eye and the point), override, lost and end (held_ms, on_target_ms:
  *        the time the look picker, which the lock takes from, chose it).
  *        An override is look input the aim cleared (the turn and pitch
@@ -467,7 +468,8 @@ typedef struct {
     s32 on_target_ms;
     s32 overrides;
     s32 frames;
-    s32 paused_logged;       /* a "paused" line was logged for this aim */
+    s32 paused;              /* player 0 is not walking: the aim waits */
+    s32 paused_movemode;     /* the mode it waits in */
     f32 theta;
     f32 verta;
 } SmokeAim;
@@ -669,6 +671,7 @@ void smokeHarnessAimApply(void)
     struct coord point;
     f32 theta;
     f32 verta;
+    s32 resumed = 0;
 
     /* MP-RULES' guard: bmoveTick runs for every player (remote ones on a
      * host too), so only player 0's own tick writes, and the movement tick
@@ -678,15 +681,24 @@ void smokeHarnessAimApply(void)
     }
     /* Integration on PR 56: on foot only. A bike turns through speedtheta in
      * bbikeTick right after this call, so clearing it would stop the bike
-     * turning; a grab and a cutscene keep their own view. The aim waits
-     * (logged once) and holds again when player 0 walks. */
+     * turning; a grab and a cutscene keep their own view. The aim waits and
+     * holds again when player 0 walks; both are logged, and the view the
+     * pause left is not an override (the resume frame skips the moved check,
+     * not the input one). */
     if (player->bondmovemode != MOVEMODE_WALK) {
-        if (!s_SmokeAim.paused_logged) {
+        if (!s_SmokeAim.paused) {
             sysLogPrintf(LOG_NOTE, "SMOKE.AIM: paused movemode=%d at_ms=%d", player->bondmovemode,
                 s_SmokeAimNowMs);
-            s_SmokeAim.paused_logged = 1;
+            s_SmokeAim.paused = 1;
+            s_SmokeAim.paused_movemode = player->bondmovemode;
         }
         return;
+    }
+    if (s_SmokeAim.paused) {
+        sysLogPrintf(LOG_NOTE, "SMOKE.AIM: resumed from_movemode=%d at_ms=%d", s_SmokeAim.paused_movemode,
+            s_SmokeAimNowMs);
+        s_SmokeAim.paused = 0;
+        resumed = 1;
     }
     if (!smokeAimTargetLive(&s_SmokeAim)) {
         sysLogPrintf(LOG_NOTE, "SMOKE.AIM: lost target=%s slot=%d chrnum=%d pad=%d at_ms=%d",
@@ -707,7 +719,7 @@ void smokeHarnessAimApply(void)
         const s32 input = player->speedtheta != 0.0f || player->speedverta != 0.0f;
         s32 moved = 0;
 
-        if (s_SmokeAim.frames > 0) {
+        if (s_SmokeAim.frames > 0 && !resumed) {
             const f32 dtheta = player->vv_theta - s_SmokeAim.theta;
             const f32 dverta = player->vv_verta - s_SmokeAim.verta;
 
