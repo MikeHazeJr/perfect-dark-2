@@ -3361,6 +3361,54 @@ TEST_CASE("a manual reload and an empty reserve follow the program's reload",
 		!= std::string::npos);
 }
 
+TEST_CASE("a charge fits the shot's byte, and a graph's cloak cloaks the player",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	// PR 31 review: the shot carries the charge as tenths of a step in a
+	// byte, so a charge has at most 25 steps.
+	CHECK(WEAPON_RULE_MAX_CHARGE_STEPS * 10 <= 255);
+	CHECK((WEAPON_RULE_MAX_CHARGE_STEPS + 1) * 10 > 255);
+	bool found = false;
+	for (s32 i = 0; weaponRulesSettingAt(i); i++) {
+		const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
+		if (setting->module == WEAPON_MODULE_CHARGE && std::string(setting->key) == "steps") {
+			found = true;
+			CHECK(setting->hi == WEAPON_RULE_MAX_CHARGE_STEPS);
+		}
+	}
+	CHECK(found);
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	const weapon_rule_function_t falcon = ruleRecord(WEAPON_FALCON2, 0, 0x0001, 0, 0);
+	weapon_rule_trigger_t p{};
+	Texts most;
+	most.values["steps"] = "25";
+	CHECK(weaponRulesApplySettings(WEAPON_MODULE_CHARGE, Texts::get, &most, &falcon, &p) == 1);
+	CHECK(p.charge_steps == 25);
+	Texts over;
+	over.values["steps"] = "26";
+	CHECK(weaponRulesApplySettings(WEAPON_MODULE_CHARGE, Texts::get, &over, &falcon, &p) == 0);
+	CHECK(p.charge_steps == 5); // the Mauler's, kept
+
+	// A graph-authored cloak (og.weapon.mode_toggle's cloak) cloaks the
+	// player and goes off with a dropped gun, as the RCP120's does.
+	const std::string chr = readSource("src/game/chr.c");
+	REQUIRE(chr.find("|| (weaponCloakToggle(g_Vars.currentplayer->gunctrl.weaponnum, NULL, NULL)\n"
+		"\t\t\t\t\t&& (g_Vars.currentplayer->devicesactive & DEVICE_CLOAKRCP120))) {") != std::string::npos);
+	CHECK(chr.find("g_Vars.currentplayer->gunctrl.weaponnum == WEAPON_RCP120") == std::string::npos);
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("// RC-P120 and cloaking device: turn off cloak if active\n"
+		"\t\t/* (PR 31 review: any weapon with og.weapon.mode_toggle's cloak) */\n"
+		"\t\tif (weaponCloakToggle(weaponnum, NULL, NULL)) {") != std::string::npos);
+}
+
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
 	"[mission][graph][runner]")
 {

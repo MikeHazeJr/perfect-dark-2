@@ -2397,7 +2397,7 @@ WEAPON_GRAPH_SETTINGS = {
     "og.weapon.mode_toggle": {"mode": ("choice", ("cloak",)), "drain": ("number", WEAPON_GRAPH_MAX_RATE)},
     # Slice 5: charge then release, hold to cook.
     "og.weapon.charge": {"start": ("choice", ("while_selected", "on_press")), "time": ("whole", 1, 10000),
-                         "steps": ("whole", 1, 50), "ammo_per_step": ("whole", 0, 255),
+                         "steps": ("whole", 1, 25), "ammo_per_step": ("whole", 0, 255),
                          "min_clip": ("whole", 0, 255), "fall_time": ("whole", 0, 10000),
                          "release": ("choice", ("on_press", "on_full")), "damage_per_step": ("nonneg", 100)},
     "og.weapon.cook": {"fuse": ("whole", 1, 10000)},

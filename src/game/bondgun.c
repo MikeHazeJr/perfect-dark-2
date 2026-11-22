@@ -8051,7 +8051,8 @@ void bgunDisarm(struct prop *attackerprop)
 		drop = true;
 
 		// RC-P120 and cloaking device: turn off cloak if active
-		if (weaponnum == WEAPON_RCP120) {
+		/* (PR 31 review: any weapon with og.weapon.mode_toggle's cloak) */
+		if (weaponCloakToggle(weaponnum, NULL, NULL)) {
 			g_Vars.currentplayer->devicesactive &= ~DEVICE_CLOAKRCP120;
 		}
 

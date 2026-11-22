@@ -551,6 +551,17 @@ Round 2:
   the same way.
 - **The beam's reach is its range.** `shotCalculateHitsSource`'s hit and aim
   checks use the plan's `range` where they used 300.
+- **Round 4.** A charge has at most 25 steps (`WEAPON_RULE_MAX_CHARGE_STEPS`):
+  the shot carries the level as tenths of a step in a byte
+  (`gset->unk063a`), and 26 steps would not fit. A graph-authored cloak
+  (`og.weapon.mode_toggle`'s cloak on any weapon) now cloaks the player
+  (`chrTickCloak` asks `weaponCloakToggle` where it tested the RCP120) and goes
+  off with a dropped gun; netplay's drop handler (`netmsg.c`, another lane's
+  file) still tests the RCP120 and is noted for its owner. Not changed: a
+  pellet shot delivers one shot's pellets a frame however many rounds the
+  frame paid, because the original delivers one shot a frame for every
+  automatic (`shotCreate`'s count only gates the shot): a decision for Mike if
+  fire should not depend on the frame rate.
 - **Reloads follow the program.** A manual reload (no reload planned by the
   idle seam: Reload pressed with rounds in the clip) is the reload the
   function's program plans for an empty clip (`weaponProgramReloadWalk`), so

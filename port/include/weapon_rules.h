@@ -535,6 +535,9 @@ static inline s32 weaponRulesShotFits(u32 shot, s32 functype)
 #define WEAPON_RULE_RELEASE_ON_PRESS 1      /* the trigger fires the charged shot */
 #define WEAPON_RULE_RELEASE_ON_FULL 2       /* it goes by itself when full */
 #define WEAPON_RULE_MAULER_CHARGE_DAMAGE (10.0f / 3.0f)
+/* PR 31 review: the shot carries the charge as tenths of a step in a byte
+ * (gset->unk063a), so a charge has at most 25 steps (the Mauler's 5). */
+#define WEAPON_RULE_MAX_CHARGE_STEPS 25
 
 /* A charge node's start: the one it names, else its function's (a custom
  * weapon's committed launch starts on a press; any other charge builds while
@@ -787,7 +790,7 @@ static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 		{ WEAPON_MODULE_RELOAD, WEAPON_RULE_REGROW_TIME_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_SPIN },
 		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_START_PARAM, WEAPON_RULE_SETTING_CHARGE_START, 0, 0 },
 		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_TIME_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_SPIN },
-		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_STEPS_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, 50 },
+		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_STEPS_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_CHARGE_STEPS },
 		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_AMMO_PER_STEP_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_ROUNDS },
 		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_MIN_CLIP_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_ROUNDS },
 		{ WEAPON_MODULE_CHARGE, WEAPON_RULE_FALL_TIME_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_SPIN },
@@ -1036,7 +1039,8 @@ static inline s32 weaponRulesApplySettings(u32 module, weapon_rule_text_fn get, 
 		}
 		v = weaponRulesWholeFromText(get(WEAPON_RULE_TIME_PARAM, user), 1, WEAPON_RULE_MAX_SPIN, plan->charge_time);
 		if (v < 0) ok = 0; else plan->charge_time = v;
-		v = weaponRulesWholeFromText(get(WEAPON_RULE_STEPS_PARAM, user), 1, 50, plan->charge_steps);
+		v = weaponRulesWholeFromText(get(WEAPON_RULE_STEPS_PARAM, user), 1, WEAPON_RULE_MAX_CHARGE_STEPS,
+			plan->charge_steps);
 		if (v < 0) ok = 0; else plan->charge_steps = v;
 		v = weaponRulesWholeFromText(get(WEAPON_RULE_AMMO_PER_STEP_PARAM, user), 0, WEAPON_RULE_MAX_ROUNDS,
 			plan->charge_ammo);

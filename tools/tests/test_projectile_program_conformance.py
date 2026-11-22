@@ -739,7 +739,8 @@ class HeldWeaponPrograms(unittest.TestCase):
                 self.assertIn(why, messages[0])
         for node, why in (({"kind": "og.weapon.charge", "start": "held"}, "needs start while_selected, on_press"),
                           ({"kind": "og.weapon.charge", "release": "late"}, "needs release on_press, on_full"),
-                          ({"kind": "og.weapon.charge", "steps": 0}, "needs steps from 1 to 50"),
+                          ({"kind": "og.weapon.charge", "steps": 0}, "needs steps from 1 to 25"),
+                          ({"kind": "og.weapon.charge", "steps": 26}, "needs steps from 1 to 25"),
                           ({"kind": "og.weapon.charge", "damage_per_step": -1}, "needs damage_per_step from 0 up to 100"),
                           ({"kind": "og.weapon.cook", "fuse": 0}, "needs fuse from 1 to 10000")):
             with self.subTest(node=node):
