@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_king_of_the_hill_local_smoke",
-  "description": "Offline King of the Hill on Complex: one human plus three simulants, started through the direct debug match path and ended by a 150 second time limit. Proves the match-start contract for an objective scenario: the launch seed derives the runtime mode from the scenario catalog id, the team-only mode turns Teams on and seats the bots on two teams, mpStartMatch initializes the scenario, the stage loads, the player spawns, the time limit ends the match, and the result witness lists every participant and both teams. It does not yet assert an objective scoring event; that needs the per-scenario objective witness. B-1126: on an arena with fewer than two usable intro HILL pads (every extracted arena today), the match gets up to six hills from walkable pads, one per room and spaced apart; the smoke asserts that the starting hill is a real room chosen from at least two hills, which also holds once the arenas carry their own hills. Local scoring (T-NETWORKING-011): a 150 second match lets the simulants score, as the networked runs did, and the result must show at least one nonzero score.",
+  "description": "Offline King of the Hill on Complex: one human plus three simulants, started through the direct debug match path and ended by a 150 second time limit. Proves the match-start contract for an objective scenario: the launch seed derives the runtime mode from the scenario catalog id, the team-only mode turns Teams on and seats the bots on two teams, mpStartMatch initializes the scenario, the stage loads, the player spawns, the time limit ends the match, and the result witness lists every participant and both teams. It does not yet assert an objective scoring event; that needs the per-scenario objective witness. B-1126: on an arena with fewer than two usable intro HILL pads (every extracted arena today), the match gets up to six hills from walkable pads, one per room and spaced apart; the smoke asserts that the starting hill is a real room chosen from at least two hills, which also holds once the arenas carry their own hills. Local scoring (T-NETWORKING-011): a 150 second match lets the simulants score, as the networked runs did, and the result must show at least one nonzero score. B-1305: score limits of 100 and 400 keep the 150 second time limit the end now that simulants climb and score (a Hacker Central simulant reached the default 10 at 124 s).",
   "tags": [
     "combatsim",
     "match-start",
@@ -31,7 +31,11 @@
     "3",
     "--debug-auto-start-match",
     "--match-timelimit-sec",
-    "150"
+    "150",
+    "--match-scorelimit",
+    "100",
+    "--match-teamscorelimit",
+    "400"
   ],
   "input_sequence": [
     {
@@ -106,6 +110,8 @@
       "KOH: hill [0-8] of [2-9] at pad=[0-9]+ room=[1-9][0-9]*",
       "MATCH: player spawned slot=",
       "MATCH: timelimit override applied seconds=150",
+      "BOOT: --match-scorelimit applied: score=100",
+      "BOOT: --match-teamscorelimit applied: score=400",
       "MATCH: stage end reason=timelimit",
       "MATCH\\.RESULT: scenario=4 teams=1 chrs=4 netmode=0",
       "MODE\\.EVENT: chosen mode=base:king_of_the_hill scenario=4",

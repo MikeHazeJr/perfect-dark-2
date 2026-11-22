@@ -33,6 +33,24 @@ the flight's own support, so neither is affected (SP-101). Tests: `[jump]` stati
 smokes), G2 (the four ledge and tabletop smokes), G3 (co-op AI) and G4 (net simulants) on the fixed candidate.
 Severity high: every mode with simulants on any arena with stairs or ramps, since 11-21.
 
+## 2026-11-22 B-1305 Once simulants worked, two smoke assumptions failed: objective smokes expected a time-limit end, and the Combat score-limit smokes waited on a chance kill (T-MODDING-026, T-NETWORKING-011, fixed on week-pd/mp-rules, found by Integration's finalization rerun R1)
+
+Integration's R1 on dev fbf2822d (base 15, B-1302 fixed: no STUCK line in any run) showed two more fixture
+assumptions. (1) `mp_hacker_central_local_smoke` ended by the score limit: a simulant downloaded five times
+(43 s to 124 s, 2 points each) and reached Hacker Central's default 10 inside the 150 s match, so its required
+`MATCH: stage end reason=timelimit` was missing. All five objective smokes were written to end at 150 s when
+simulants rarely scored. (2) `mp_combat_local_scorelimit_smoke` ran its full 240 s with no kill. The simulants
+fought each other (21 hits: Falcon 2 for 1, MagSec 4 for 1.1, DY357 for 2, at the original cadence; no
+`WEAPON.RULE differs` line; `botact.c` unchanged since 11-20), but about 33 points of damage spread over three
+simulants that refill 8-point shields from Felicity's two shield pickups. A kill takes 16 points on one. Kills are
+rare in every local run on both candidates (0 to 2 a match), and August's Combat smokes injected kills for the same
+reason, so a first kill in 240 s is chance; it is not a team bug. Fix: the five objective smokes pass
+`--match-scorelimit 100 --match-teamscorelimit 400` (out of reach in 150 s) and require both boot lines; the local
+and networked Combat score-limit smokes seed `--debug-mp-options 0x10200001` (the default Bot Jumping and Spawn With
+Weapon plus One-Hit Kills, as `combat_sim_release_cycle` does), so the first hit is the first kill, and require
+`MATCH: options=0x10200001 onehitkills=1`. Tests: `[smokes]` in `tests/test_mode_graph_program.cpp`. Severity low
+(test only). If simulants still seem too passive in play, that is a tuning question for Mike, not this fixture.
+
 ## 2026-11-22 B-1303 The six local mode smokes required a respawn, so a match where nobody died failed (T-MODDING-026, fixed on week-pd/mp-rules, found by Integration's finalization smokes)
 
 My gamemode-graphs slice 1 fixtures (`mp_*_local*_smoke.json`, six of them) required

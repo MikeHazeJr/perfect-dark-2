@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_combat_net_scorelimit_smoke",
-  "description": "T-NETWORKING-011: networked Combat ended by the score limit. Listen host plus one client on loopback, Felicity, three simulants, port 27266, --match-scorelimit 1 on the host (a real setup value that travels in the start message) and a 240 second time limit as a backstop. The first kill ends the match on the host by the score limit (the stage end line names it, no time-limit end is logged), the client follows on SVC_STAGE_END, and both sides log a result with all five characters and a leader with a nonzero score. Same start path as mp_combat_net_bots_smoke.",
+  "description": "T-NETWORKING-011: networked Combat ended by the score limit. Listen host plus one client on loopback, Felicity, three simulants, port 27266, --match-scorelimit 1 on the host (a real setup value that travels in the start message) and a 240 second time limit as a backstop. The first kill ends the match on the host by the score limit (the stage end line names it, no time-limit end is logged), the client follows on SVC_STAGE_END, and both sides log a result with all five characters and a leader with a nonzero score. Same start path as mp_combat_net_bots_smoke. B-1305: --debug-mp-options 0x10200001 (the default Bot Jumping and Spawn With Weapon plus One-Hit Kills) makes the first hit the first kill, so the score-limit end does not wait on a kill by chance: a full 240 s match with every simulant shielded had none.",
   "tags": [
     "network",
     "combatsim",
@@ -39,7 +39,9 @@
         "--match-timelimit-sec",
         "240",
         "--match-scorelimit",
-        "1"
+        "1",
+        "--debug-mp-options",
+        "0x10200001"
       ],
       "wait_for": "NET: created server on port 27266",
       "wait_timeout_seconds": 120
@@ -75,6 +77,8 @@
       "BOOT: --listen-bind armed: port=27266",
       "BOOT: --connect-host armed: addr='127.0.0.1:27266'",
       "BOOT: --host-autostart armed",
+      "BOOT: --debug-mp-options applied -- user=0x10200001",
+      "MATCH: options=0x10200001 onehitkills=1 slowmo=0 scenario=0 ",
       "BOOT: --match-timelimit-sec armed: seconds=240",
       "BOOT: --launch-mp-room arena='base:arena_mp_felicity' scenario='base:combat' bots=3",
       "BOOT: --listen-bind consumed: port=27266 .*result=OK rc=0",

@@ -605,6 +605,51 @@ TEST_CASE("the local mode smokes require the plan and no parity difference",
 	}
 }
 
+TEST_CASE("the mode smokes do not wait on chance once simulants can climb and fight (B-1305)",
+	"[gamemode-graphs][smokes][static]")
+{
+	// The objective smokes are ended by their 150 s time limit: score limits of
+	// 100 and 400 keep it that way now that simulants score (a Hacker Central
+	// simulant reached the default 10 at 124 s once B-1302 let it climb).
+	const std::vector<std::string> objective = {
+		"mp_hold_the_briefcase_local_smoke",
+		"mp_hacker_central_local_smoke",
+		"mp_pop_a_cap_local_smoke",
+		"mp_king_of_the_hill_local_smoke",
+		"mp_capture_the_case_local_smoke",
+	};
+	for (const auto &name : objective) {
+		INFO(name);
+		const std::string fixture = readRepoFile(("tools/smoke-verify/tests/" + name + ".json").c_str());
+		REQUIRE(!fixture.empty());
+		REQUIRE(fixture.find("\"--match-timelimit-sec\",\n    \"150\",") != std::string::npos);
+		REQUIRE(fixture.find("\"--match-scorelimit\",\n    \"100\",") != std::string::npos);
+		REQUIRE(fixture.find("\"--match-teamscorelimit\",\n    \"400\"") != std::string::npos);
+		REQUIRE(fixture.find("\"BOOT: --match-scorelimit applied: score=100\"") != std::string::npos);
+		REQUIRE(fixture.find("\"BOOT: --match-teamscorelimit applied: score=400\"") != std::string::npos);
+		REQUIRE(fixture.find("\"MATCH: stage end reason=timelimit\"") != std::string::npos);
+	}
+
+	// The Combat score-limit smokes end on the first kill: One-Hit Kills on top
+	// of the default Bot Jumping and Spawn With Weapon makes the first hit that
+	// kill, and the match's own options line proves the seed reached it.
+	const std::vector<std::string> combat = {
+		"mp_combat_local_scorelimit_smoke",
+		"mp_combat_net_scorelimit_smoke",
+	};
+	for (const auto &name : combat) {
+		INFO(name);
+		const std::string fixture = readRepoFile(("tools/smoke-verify/tests/" + name + ".json").c_str());
+		REQUIRE(!fixture.empty());
+		REQUIRE(fixture.find("\"--debug-mp-options\",") != std::string::npos);
+		REQUIRE(fixture.find("\"0x10200001\"") != std::string::npos);
+		REQUIRE(fixture.find("\"BOOT: --debug-mp-options applied -- user=0x10200001\"") != std::string::npos);
+		REQUIRE(fixture.find("\"MATCH: options=0x10200001 onehitkills=1 slowmo=0 scenario=0 \"") !=
+			std::string::npos);
+		REQUIRE(fixture.find("\"--match-scorelimit\",") != std::string::npos);
+	}
+}
+
 TEST_CASE("the code outside the mode table runs through the plan",
 	"[gamemode-graphs][slice4][static]")
 {

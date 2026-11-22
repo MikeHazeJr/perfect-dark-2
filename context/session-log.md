@@ -108,7 +108,9 @@ relocations), the Hacker Central carrier stalled 360 units from the terminal, an
 the Hill had 21 and 22 relocations. Fix: the original walking search again, the new support only raising it
 (tables and props, as the player's), and the under-the-feet support kept for a jump's flight
 (`botJumpInFlight`). PR 45's Codex review added two points: falls keep D-052's clamped step, and a mesh
-surface supplies its room, flags and lift. **B-1303**: my six local mode fixtures required a respawn; they now accept `spawn=0`.
+surface supplies its room, flags and lift. PR 45 landed as dev fbf2822d; Integration's rerun R1 showed no
+STUCK line, and **B-1305** fixed the two fixture assumptions it exposed (objective smokes now pass score limits
+100/400 to keep their time-limit end; the Combat score-limit smokes seed One-Hit Kills). **B-1303**: my six local mode fixtures required a respawn; they now accept `spawn=0`.
 Pattern SP-101. Integration holds G1 to G4 (everything with simulant movement) for the rerun; base 15 stays
 (no data change). Lesson: D-052 went on by default with only its own feature smokes listed; an option that
 changes every simulant's movement needs the ordinary mode smokes before it is the default.

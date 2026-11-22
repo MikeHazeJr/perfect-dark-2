@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_combat_local_scorelimit_smoke",
-  "description": "T-NETWORKING-011: offline Combat on Felicity, one human plus three simulants, started through the direct debug match path with a score limit of 1 (--match-scorelimit 1, a real setup value that shows in the Room) and a 240 second time limit as a backstop. The first kill must end the match by the score limit: the stage end line names the score limit, no time-limit end is logged, the result witness lists all four participants and the leader has a nonzero score. The human stands still; the simulants fight with their spawn weapons. Exits once the end screen is up.",
+  "description": "T-NETWORKING-011: offline Combat on Felicity, one human plus three simulants, started through the direct debug match path with a score limit of 1 (--match-scorelimit 1, a real setup value that shows in the Room) and a 240 second time limit as a backstop. The first kill must end the match by the score limit: the stage end line names the score limit, no time-limit end is logged, the result witness lists all four participants and the leader has a nonzero score. The human stands still; the simulants fight with their spawn weapons. Exits once the end screen is up. B-1305: --debug-mp-options 0x10200001 (the default Bot Jumping and Spawn With Weapon plus One-Hit Kills) makes the first hit the first kill, so the score-limit end does not wait on a kill by chance: a full 240 s match with every simulant shielded had none.",
   "tags": [
     "combatsim",
     "match-start",
@@ -30,7 +30,9 @@
     "--match-scorelimit",
     "1",
     "--match-timelimit-sec",
-    "240"
+    "240",
+    "--debug-mp-options",
+    "0x10200001"
   ],
   "input_sequence": [
     {
@@ -94,6 +96,8 @@
       "BOOT: --launch-mp-room arena='base:arena_mp_felicity' scenario='base:combat' bots=3",
       "BOOT: --match-scorelimit applied: score=1",
       "BOOT: --debug-auto-start-match consumed",
+      "BOOT: --debug-mp-options applied -- user=0x10200001",
+      "MATCH: options=0x10200001 onehitkills=1 slowmo=0 scenario=0 ",
       "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
       "MATCH: player spawned slot=",
       "MATCH: timelimit override applied seconds=240",
