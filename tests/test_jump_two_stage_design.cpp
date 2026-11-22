@@ -362,3 +362,66 @@ TEST_CASE("simulant jump cooldown follows the actor through landing and resets o
     requireContains(botmgr, "aibot->jumplastevalms = 0;");
     requireContains(botmgr, "aibot->jumpcooldownuntil60 = 0;");
 }
+
+TEST_CASE("walking simulants keep the original ground search; only a jump's flight takes support under the feet (B-1302)",
+          "[physics][jump][bot][static]")
+{
+    const std::string bot = readTextFile("src/game/bot.c");
+    const std::string botHeader = readTextFile("src/include/game/bot.h");
+    const std::string chr = readTextFile("src/game/chr.c");
+
+    REQUIRE_FALSE(bot.empty());
+    REQUIRE_FALSE(botHeader.empty());
+    REQUIRE_FALSE(chr.empty());
+
+    // The flight is the jump's own, from its impulse to its landing.
+    requireContains(botHeader, "bool botJumpInFlight(const struct chrdata *chr);");
+    requireContains(bot, "return chr && chr->aibot && chr->aibot->jumpcooldownuntil60 == BOT_JUMP_AWAITING_LANDING;");
+    requireContains(chr, "return chrUsesSimulantSupport(chr) && botJumpInFlight(chr)");
+
+    // The ground: a flight's support under the feet, else the original walking
+    // search (from 69 over the feet), which the support may only raise.
+    const size_t fn = chr.find("static f32 chrFindMovementGround(");
+    REQUIRE(fn != std::string::npos);
+    const size_t fnEnd = chr.find("\treturn ground;\n}", fn);
+    REQUIRE(fnEnd != std::string::npos);
+    const std::string body = chr.substr(fn, fnEnd - fn);
+    const size_t flight = body.find("if (chrSimulantInFlight(chr)) {");
+    const size_t underFeet = body.find("chr->radius, rooms, chr->manground + 0.5f);");
+    const size_t walking = body.find("f32 ground = cdFindGroundInfoAtCyl(pos, chr->radius, rooms,");
+    const size_t raise = body.find(
+        "if (chrUsesSimulantSupport(chr) && (chr->manground > ground + 2.0f || chr->floorroom < 0)) {");
+    const size_t onlyRaises = body.find(
+        "if (support.y > -30000.0f && support.y <= support_top && support.y > ground + 1.0f) {");
+    REQUIRE(flight != std::string::npos);
+    REQUIRE(underFeet != std::string::npos);
+    REQUIRE(walking != std::string::npos);
+    REQUIRE(raise != std::string::npos);
+    REQUIRE(onlyRaises != std::string::npos);
+    REQUIRE(flight < underFeet);
+    REQUIRE(underFeet < walking);
+    REQUIRE(walking < raise);
+    REQUIRE(raise < onlyRaises);
+
+    // A walking simulant's search from 20 over its feet lost stairs and ramps:
+    // climbing, manground trails the floor by up to 30. No path picks the support
+    // on the jumping option alone any more.
+    requireNotContains(chr, "airborne ? 0.5f : 20.0f");
+    requireNotContains(chr, "if (chrUsesSimulantSupport(chr)) {");
+
+    // Only a flight steps with chrStepSimulantAirborne; a walking fall keeps chr0f01f264.
+    const size_t step = chr.find("landed = chrStepSimulantAirborne(chr, arg2, spfc, yincrement, sp68);");
+    REQUIRE(step != std::string::npos);
+    const size_t stepGate = chr.rfind("if (chrSimulantInFlight(chr)) {", step);
+    REQUIRE(stepGate != std::string::npos);
+    REQUIRE(step - stepGate < 80);
+
+    // On the ground a flight is over even when no landing ended it.
+    const size_t climb = chr.find("} else if (chr->manground <= chr->ground) {");
+    REQUIRE(climb != std::string::npos);
+    const size_t climbLand = chr.find("botJumpOnLand(chr);", climb);
+    const size_t climbLoop = chr.find("for (i = 0; i < g_Vars.lvupdate60; i++) {", climb);
+    REQUIRE(climbLand != std::string::npos);
+    REQUIRE(climbLoop != std::string::npos);
+    REQUIRE(climbLand < climbLoop);
+}

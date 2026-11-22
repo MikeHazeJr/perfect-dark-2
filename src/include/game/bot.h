@@ -53,6 +53,7 @@ struct prop *botFindPickup(struct chrdata *chr, s32 criteria);
 s32 botGetNumOpponentsInHill(struct chrdata *chr);
 void botTickUnpaused(struct chrdata *chr);
 void botJumpOnLand(struct chrdata *chr);
+bool botJumpInFlight(const struct chrdata *chr);
 s32 botIsObjCollectable(struct defaultobj *obj);
 s32 botGetWeaponNum(struct chrdata *chr);
 u8 botGetTargetsWeaponNum(struct chrdata *chr);

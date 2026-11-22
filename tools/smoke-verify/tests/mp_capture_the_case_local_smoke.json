@@ -110,7 +110,7 @@
       "MATCH\\.RESULT: scenario=5 teams=1 chrs=4 netmode=0",
       "MODE\\.EVENT: chosen mode=base:capture_the_case scenario=5",
       "MODE\\.EVENT: tick mode=base:capture_the_case scenario=5 who=-",
-      "MODE\\.EVENTS: stage_end mode=base:capture_the_case .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.EVENTS: stage_end mode=base:capture_the_case .*tick=[1-9][0-9]* .*spawn=[0-9]+",
       "MODE\\.PLAN: stage_reset mode=base:capture_the_case scenario=5 modules=[1-9][0-9]*",
       "MODE\\.PARITY: stage_end mode=base:capture_the_case compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",

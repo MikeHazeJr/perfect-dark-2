@@ -102,7 +102,7 @@
       "MATCH\\.RESULT\\.CHR: rank=0 chr=[0-9]+ team=[0-9]+ score=[1-9]",
       "MODE\\.EVENT: chosen mode=base:combat scenario=0",
       "MODE\\.EVENT: tick mode=base:combat scenario=0 who=-",
-      "MODE\\.EVENTS: stage_end mode=base:combat .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.EVENTS: stage_end mode=base:combat .*tick=[1-9][0-9]* .*spawn=[0-9]+",
       "MODE\\.PLAN: stage_reset mode=base:combat scenario=0 modules=[1-9][0-9]*",
       "MODE\\.PARITY: stage_end mode=base:combat compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",

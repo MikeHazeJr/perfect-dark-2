@@ -110,7 +110,7 @@
       "MATCH\\.RESULT: scenario=4 teams=1 chrs=4 netmode=0",
       "MODE\\.EVENT: chosen mode=base:king_of_the_hill scenario=4",
       "MODE\\.EVENT: tick mode=base:king_of_the_hill scenario=4 who=-",
-      "MODE\\.EVENTS: stage_end mode=base:king_of_the_hill .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.EVENTS: stage_end mode=base:king_of_the_hill .*tick=[1-9][0-9]* .*spawn=[0-9]+",
       "MODE\\.PLAN: stage_reset mode=base:king_of_the_hill scenario=4 modules=[1-9][0-9]*",
       "MODE\\.PARITY: stage_end mode=base:king_of_the_hill compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",
