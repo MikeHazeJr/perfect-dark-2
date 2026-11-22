@@ -1,0 +1,10 @@
+# Long-lived agent host processes. pd2q claim walks up from its own shell to the
+# first process named here and records its PID and start time on the lease, so
+# the lease frees as soon as that session ends. Milestone 2 (2026-11-22) found
+# the host of a Claude Code session in the Claude desktop app: the session's own
+# claude.exe, above bash.exe and the tool shell. The walk stops at the first match
+# going up, so the desktop app's Claude.exe (its parent, which outlives sessions)
+# is never chosen.
+claude.exe
+codex.exe
+node.exe

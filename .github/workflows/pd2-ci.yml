@@ -105,6 +105,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./tools/smoke-verify/test-prepare-execute.ps1
 
+      - name: Check the build queue's leases and CLI (T-TOOLING-020)
+        shell: pwsh
+        run: ./tools/pd2-queue/tests/Test-Pd2qLeases.ps1
+
       - name: Configure (CMake + Ninja)
         run: cmake -G Ninja -B Build .
 
