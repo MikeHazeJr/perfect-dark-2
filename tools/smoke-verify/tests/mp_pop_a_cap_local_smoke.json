@@ -108,6 +108,8 @@
       "MODE\\.EVENT: chosen mode=base:pop_a_cap scenario=3",
       "MODE\\.EVENT: tick mode=base:pop_a_cap scenario=3 who=-",
       "MODE\\.EVENTS: stage_end mode=base:pop_a_cap .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.PLAN: stage_reset mode=base:pop_a_cap scenario=3 modules=[1-9][0-9]*",
+      "MODE\\.PARITY: stage_end mode=base:pop_a_cap compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",
       "SMOKE: result=scripted_exit",
       "MATCH\\.RESULT\\.(CHR|TEAM): .*score=[1-9]"
@@ -119,7 +121,9 @@
       "SMOKE: result=timeout",
       "PLAYER\\.INIT\\.ROLLBACK",
       "PLAYER\\.INIT\\.PREFLIGHT match=reject",
-      "SCENARIO\\.MISS:"
+      "SCENARIO\\.MISS:",
+      "MODE\\.PARITY: differ",
+      "LOUDFAIL\\.MODE\\.PLAN"
     ],
     "required_counts": [
       {

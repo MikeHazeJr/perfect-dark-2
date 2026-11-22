@@ -46,6 +46,7 @@
 #include "net/netmsg.h"             /* B-1209: announcing a scenario prop made in the match */
 #include "net/net_scenario_state_wire.h"
 #include "mode_events.h"           /* gamemode-graphs.md slice 1: record-only mode events */
+#include "mode_rules.h"            /* gamemode-graphs.md slice 3: the dispatchers run the program's plan */
 
 _Static_assert(MPSCENARIO_HOLDTHEBRIEFCASE == NET_SCENARIO_STATE_HOLDTHEBRIEFCASE
 		&& MPSCENARIO_HACKERCENTRAL == NET_SCENARIO_STATE_HACKERCENTRAL
@@ -732,6 +733,127 @@ static s32 scenarioGetSafeIndex(const char *caller)
 	return g_MpSetup.scenario;
 }
 
+/*
+ * gamemode-graphs.md slice 3: the table is the program's. A mode's plan
+ * (mode_rules.h) is what its mode archive's program chose for each seam; the
+ * dispatchers below run the g_MpScenarios[] callback of each owner the plan
+ * names, in its order, and their own default code where it names the default
+ * module. A mode program's choice reads no game state, so the plan is made
+ * when the mode is chosen (scenarioInit) and at each stage reset, and kept in
+ * between. A mode whose program is not registered runs nothing: its stage
+ * reset fails loudly (LOUDFAIL.MODE.PLAN) and every seam call differs.
+ *
+ * The parity probe: every dispatcher call compares the plan's seam with what
+ * the original table runs, read from g_MpScenarios[] itself (the mode's
+ * callback when it has one, the default score without one, the general spawn
+ * chooser after the mode's own), and counts it in MODE.PARITY; the first
+ * difference of each seam logs both answers.
+ */
+static mode_rules_plan_t s_ScenarioPlans[MODE_RULES_MODE_COUNT];
+static u8 s_ScenarioPlanMade[MODE_RULES_MODE_COUNT];
+static u16 s_ScenarioParityLogged[MODE_RULES_MODE_COUNT];
+
+static void scenarioPlanMake(s32 scenario, const char *why)
+{
+	const char *id;
+	const mission_graph_program_t *program;
+
+	if (!scenarioIndexIsValid(scenario) || scenario >= MODE_RULES_MODE_COUNT) {
+		return;
+	}
+	id = catalogGameModeIdByScenarioIndex(scenario);
+	program = id ? assetRuntimeModeProgram(id) : NULL;
+	s_ScenarioPlanMade[scenario] = 1;
+	s_ScenarioParityLogged[scenario] = 0;
+	if (program && modeRulesPlanFromProgram(program, &s_ScenarioPlans[scenario])) {
+		sysLogPrintf(LOG_NOTE, "MODE.PLAN: %s mode=%s scenario=%d modules=%d",
+			why, id, scenario, s_ScenarioPlans[scenario].modules);
+		return;
+	}
+	modeRulesPlanClear(&s_ScenarioPlans[scenario]);
+	if (strcmp(why, "stage_reset") == 0) {
+		sysLoudFailf("MODE.PLAN", "mode %d ('%s') has no registered program; its seams run nothing",
+			scenario, id ? id : "-");
+	} else {
+		sysLogPrintf(LOG_WARNING, "MODE.PLAN: %s mode %d ('%s') has no registered program yet",
+			why, scenario, id ? id : "-");
+	}
+}
+
+static const mode_rules_plan_t *scenarioPlan(s32 scenario)
+{
+	if (!scenarioIndexIsValid(scenario) || scenario >= MODE_RULES_MODE_COUNT) {
+		return NULL;
+	}
+	if (!s_ScenarioPlanMade[scenario]) {
+		scenarioPlanMake(scenario, "first_use");
+	}
+	return &s_ScenarioPlans[scenario];
+}
+
+/* The k-th owner the plan runs at the seam, or MODE_PLAN_NONE. */
+static s32 scenarioPlanOwner(const mode_rules_plan_t *plan, s32 seam, s32 k)
+{
+	if (!plan || seam < 0 || seam >= MODE_SEAM_COUNT || k < 0 || k >= MODE_PLAN_MAX_PER_SEAM) {
+		return MODE_PLAN_NONE;
+	}
+	return plan->owner[seam][k];
+}
+
+/* What g_MpScenarios[] runs at the seam for the mode, as a plan's seam. */
+static void scenarioNativeSeam(s32 scenario, s32 seam, s8 out[MODE_PLAN_MAX_PER_SEAM])
+{
+	const struct mpscenario *row = &g_MpScenarios[scenario];
+	bool has = false;
+	s32 n = 0;
+
+	switch (seam) {
+	case MODE_SEAM_INIT: has = row->initfunc != NULL; break;
+	case MODE_SEAM_NUM_PROPS: has = row->numpropsfunc != NULL; break;
+	case MODE_SEAM_INIT_PROPS: has = row->initpropsfunc != NULL; break;
+	case MODE_SEAM_TICK: has = row->tickfunc != NULL; break;
+	case MODE_SEAM_TICK_CHR: has = row->tickchrfunc != NULL; break;
+	case MODE_SEAM_HUD: has = row->hudfunc != NULL; break;
+	case MODE_SEAM_SCORE: has = row->calcscorefunc != NULL; break;
+	case MODE_SEAM_RADAR_EXTRA: has = row->radarextrafunc != NULL; break;
+	case MODE_SEAM_RADAR_CHR: has = row->radarchrfunc != NULL; break;
+	case MODE_SEAM_HIGHLIGHT_PROP: has = row->highlightpropfunc != NULL; break;
+	case MODE_SEAM_SPAWN: has = row->spawnfunc != NULL; break;
+	case MODE_SEAM_MAX_TEAMS: has = row->maxteamsfunc != NULL; break;
+	case MODE_SEAM_ROOM_LIGHTS:
+		has = row->isroomhighlightedfunc != NULL || row->highlightroomfunc != NULL;
+		break;
+	case MODE_SEAM_SAVE: has = row->readsavefunc != NULL || row->writesavefunc != NULL; break;
+	}
+	out[0] = MODE_PLAN_NONE;
+	out[1] = MODE_PLAN_NONE;
+	if (has) {
+		out[n++] = (s8)scenario;
+	}
+	if ((seam == MODE_SEAM_SCORE && !has) || seam == MODE_SEAM_SPAWN) {
+		out[n++] = MODE_RULES_DEFAULT;
+	}
+}
+
+static void scenarioPlanCompare(s32 scenario, const mode_rules_plan_t *plan, s32 seam)
+{
+	s8 native[MODE_PLAN_MAX_PER_SEAM];
+	s32 differ;
+
+	if (!plan || seam < 0 || seam >= MODE_SEAM_COUNT) {
+		return;
+	}
+	scenarioNativeSeam(scenario, seam, native);
+	differ = plan->owner[seam][0] != native[0] || plan->owner[seam][1] != native[1];
+	modeParityRecord(differ);
+	if (differ && !(s_ScenarioParityLogged[scenario] & (1u << seam))) {
+		s_ScenarioParityLogged[scenario] |= (u16)(1u << seam);
+		sysLogPrintf(LOG_WARNING, "MODE.PARITY: differ scenario=%d seam=%s native=%d,%d program=%d,%d",
+			scenario, modeRulesSeamName(seam), native[0], native[1],
+			plan->owner[seam][0], plan->owner[seam][1]);
+	}
+}
+
 /**
  * While the options dialog is open, check if another player has changed the
  * scenario to a different one. If so, replace this dialog with the new one.
@@ -1012,9 +1134,19 @@ MenuItemHandlerResult menuhandlerMpOpenOptions(s32 operation, struct menuitem *i
 void scenarioReadSave(struct savebuffer *buffer, u8 version)
 {
 	s32 scenario = scenarioGetSafeIndex("scenarioReadSave");
-	if (g_MpScenarios[scenario].readsavefunc) {
-		g_MpScenarios[scenario].readsavefunc(buffer, version);
-	} else {
+	const mode_rules_plan_t *plan = scenarioPlan(scenario);
+	s32 k;
+
+	scenarioPlanCompare(scenario, plan, MODE_SEAM_SAVE);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_SAVE, k);
+		if (owner >= 0 && g_MpScenarios[owner].readsavefunc) {
+			g_MpScenarios[owner].readsavefunc(buffer, version);
+			return;
+		}
+	}
+
+	{
 		u8 sz = version > 0 ? 32 : 8;
 		savebufferReadBits(buffer, sz);
 	}
@@ -1031,11 +1163,19 @@ void scenarioReadSave(struct savebuffer *buffer, u8 version)
 void scenarioWriteSave(struct savebuffer *buffer)
 {
 	s32 scenario = scenarioGetSafeIndex("scenarioWriteSave");
-	if (g_MpScenarios[scenario].writesavefunc) {
-		g_MpScenarios[scenario].writesavefunc(buffer);
-	} else {
-		savebufferOr(buffer, 0, 32);
+	const mode_rules_plan_t *plan = scenarioPlan(scenario);
+	s32 k;
+
+	scenarioPlanCompare(scenario, plan, MODE_SEAM_SAVE);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_SAVE, k);
+		if (owner >= 0 && g_MpScenarios[owner].writesavefunc) {
+			g_MpScenarios[owner].writesavefunc(buffer);
+			return;
+		}
 	}
+
+	savebufferOr(buffer, 0, 32);
 }
 
 /**
@@ -1046,8 +1186,18 @@ void scenarioWriteSave(struct savebuffer *buffer)
 void scenarioInit(void)
 {
 	s32 scenario = scenarioGetSafeIndex("scenarioInit");
-	if (g_MpScenarios[scenario].initfunc) {
-		g_MpScenarios[scenario].initfunc();
+	const mode_rules_plan_t *plan;
+	s32 k;
+
+	/* gamemode-graphs.md slice 3: the mode is chosen; its program's plan. */
+	scenarioPlanMake(scenario, "chosen");
+	plan = scenarioPlan(scenario);
+	scenarioPlanCompare(scenario, plan, MODE_SEAM_INIT);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_INIT, k);
+		if (owner >= 0 && g_MpScenarios[owner].initfunc) {
+			g_MpScenarios[owner].initfunc();
+		}
 	}
 	modeEventRecord(MODE_EVENT_CHOSEN, -1);
 }
@@ -1060,9 +1210,15 @@ s32 scenarioNumProps(void)
 {
 	s32 result = 0;
 	s32 scenario = scenarioGetSafeIndex("scenarioNumProps");
+	const mode_rules_plan_t *plan = scenarioPlan(scenario);
+	s32 k;
 
-	if (g_MpScenarios[scenario].numpropsfunc) {
-		result = g_MpScenarios[scenario].numpropsfunc();
+	scenarioPlanCompare(scenario, plan, MODE_SEAM_NUM_PROPS);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_NUM_PROPS, k);
+		if (owner >= 0 && g_MpScenarios[owner].numpropsfunc) {
+			result += g_MpScenarios[owner].numpropsfunc();
+		}
 	}
 
 	return result;
@@ -1074,8 +1230,15 @@ s32 scenarioNumProps(void)
 void scenarioInitProps(void)
 {
 	s32 scenario = scenarioGetSafeIndex("scenarioInitProps");
-	if (g_MpScenarios[scenario].initpropsfunc) {
-		g_MpScenarios[scenario].initpropsfunc();
+	const mode_rules_plan_t *plan = scenarioPlan(scenario);
+	s32 k;
+
+	scenarioPlanCompare(scenario, plan, MODE_SEAM_INIT_PROPS);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_INIT_PROPS, k);
+		if (owner >= 0 && g_MpScenarios[owner].initpropsfunc) {
+			g_MpScenarios[owner].initpropsfunc();
+		}
 	}
 	modeEventRecord(MODE_EVENT_PROPS_INIT, -1);
 }
@@ -1171,8 +1334,17 @@ void scenarioTick(void)
 			scenarioCreateMatchStartHudmsgs();
 		}
 
-		if (g_MpScenarios[scenario].tickfunc) {
-			g_MpScenarios[scenario].tickfunc();
+		{
+			const mode_rules_plan_t *plan = scenarioPlan(scenario);
+			s32 k;
+
+			scenarioPlanCompare(scenario, plan, MODE_SEAM_TICK);
+			for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+				const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_TICK, k);
+				if (owner >= 0 && g_MpScenarios[owner].tickfunc) {
+					g_MpScenarios[owner].tickfunc();
+				}
+			}
 		}
 		modeEventRecord(MODE_EVENT_TICK, -1);
 
@@ -1189,8 +1361,17 @@ void scenarioTick(void)
 void scenarioTickChr(struct chrdata *chr)
 {
 	s32 scenario = scenarioGetSafeIndex("scenarioTickChr");
-	if (g_Vars.normmplayerisrunning && g_MpScenarios[scenario].tickchrfunc) {
-		g_MpScenarios[scenario].tickchrfunc(chr);
+	if (g_Vars.normmplayerisrunning) {
+		const mode_rules_plan_t *plan = scenarioPlan(scenario);
+		s32 k;
+
+		scenarioPlanCompare(scenario, plan, MODE_SEAM_TICK_CHR);
+		for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+			const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_TICK_CHR, k);
+			if (owner >= 0 && g_MpScenarios[owner].tickchrfunc) {
+				g_MpScenarios[owner].tickchrfunc(chr);
+			}
+		}
 	}
 	if (g_Vars.normmplayerisrunning) {
 		const struct chrdata *who = chr ? chr
@@ -1216,7 +1397,15 @@ Gfx *scenarioRenderHud(Gfx *gdl)
 
 	if (g_Vars.normmplayerisrunning) {
 		s32 scenario = scenarioGetSafeIndex("scenarioRenderHud");
-		if (g_MpScenarios[scenario].hudfunc) {
+		const mode_rules_plan_t *plan = scenarioPlan(scenario);
+		s32 k;
+
+		scenarioPlanCompare(scenario, plan, MODE_SEAM_HUD);
+		for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+			const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_HUD, k);
+			if (owner < 0 || !g_MpScenarios[owner].hudfunc) {
+				continue;
+			}
 #if VERSION >= VERSION_NTSC_1_0
 			if (g_MpSetup.paused != MPPAUSEMODE_GAMEOVER && g_NumReasonsToEndMpMatch == 0) {
 				gDPSetTextureFilter(gdl++, G_TF_POINT);
@@ -1228,10 +1417,10 @@ Gfx *scenarioRenderHud(Gfx *gdl)
 				gDPSetRenderMode(gdl++, G_RM_OPA_SURF, G_RM_OPA_SURF2);
 				gDPPipelineMode(gdl++, G_PM_1PRIMITIVE);
 
-				gdl = g_MpScenarios[scenario].hudfunc(gdl);
+				gdl = g_MpScenarios[owner].hudfunc(gdl);
 			}
 #else
-			gdl = g_MpScenarios[scenario].hudfunc(gdl);
+			gdl = g_MpScenarios[owner].hudfunc(gdl);
 #endif
 		}
 
@@ -1297,10 +1486,27 @@ void scenarioCalculatePlayerScore(struct mpchrconfig *mpchr, s32 chrnum, s32 *sc
 	struct mpchrconfig *othermpchr;
 	s32 i;
 	s32 scenario = scenarioGetSafeIndex("scenarioCalculatePlayerScore");
+	const mode_rules_plan_t *plan = scenarioPlan(scenario);
+	s32 owner = MODE_PLAN_NONE;
+	s32 k;
 
-	if (g_MpScenarios[scenario].calcscorefunc) {
-		g_MpScenarios[scenario].calcscorefunc(mpchr, chrnum, score, deaths);
+	/* The first score module the plan names answers. */
+	scenarioPlanCompare(scenario, plan, MODE_SEAM_SCORE);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM && owner == MODE_PLAN_NONE; k++) {
+		owner = scenarioPlanOwner(plan, MODE_SEAM_SCORE, k);
+		if (owner >= 0 && !g_MpScenarios[owner].calcscorefunc) {
+			owner = MODE_PLAN_NONE;
+		}
+	}
+
+	if (owner >= 0) {
+		g_MpScenarios[owner].calcscorefunc(mpchr, chrnum, score, deaths);
+	} else if (owner != MODE_RULES_DEFAULT) {
+		/* No score module: the mode scores nothing. */
+		*score = 0;
+		*deaths = mpchr->numdeaths;
 	} else {
+		/* og.mode.default.score: kills minus suicides and team kills. */
 		*score = 0;
 
 		for (i = 0; i < MAX_MPCHRS; i++) {
@@ -1330,8 +1536,17 @@ void scenarioCalculatePlayerScore(struct mpchrconfig *mpchr, s32 chrnum, s32 *sc
 Gfx *scenarioRadarExtra(Gfx *gdl)
 {
 	s32 scenario = scenarioGetSafeIndex("scenarioRadarExtra");
-	if (g_Vars.normmplayerisrunning && g_MpScenarios[scenario].radarextrafunc) {
-		return g_MpScenarios[scenario].radarextrafunc(gdl);
+	if (g_Vars.normmplayerisrunning) {
+		const mode_rules_plan_t *plan = scenarioPlan(scenario);
+		s32 k;
+
+		scenarioPlanCompare(scenario, plan, MODE_SEAM_RADAR_EXTRA);
+		for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+			const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_RADAR_EXTRA, k);
+			if (owner >= 0 && g_MpScenarios[owner].radarextrafunc) {
+				gdl = g_MpScenarios[owner].radarextrafunc(gdl);
+			}
+		}
 	}
 
 	return gdl;
@@ -1345,8 +1560,18 @@ Gfx *scenarioRadarExtra(Gfx *gdl)
 bool scenarioRadarChr(Gfx **gdl, struct prop *prop)
 {
 	s32 scenario = scenarioGetSafeIndex("scenarioRadarChr");
-	if (g_Vars.normmplayerisrunning && g_MpScenarios[scenario].radarchrfunc) {
-		return g_MpScenarios[scenario].radarchrfunc(gdl, prop);
+	if (g_Vars.normmplayerisrunning) {
+		const mode_rules_plan_t *plan = scenarioPlan(scenario);
+		s32 k;
+
+		scenarioPlanCompare(scenario, plan, MODE_SEAM_RADAR_CHR);
+		for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+			const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_RADAR_CHR, k);
+			if (owner >= 0 && g_MpScenarios[owner].radarchrfunc
+					&& g_MpScenarios[owner].radarchrfunc(gdl, prop)) {
+				return true;
+			}
+		}
 	}
 
 	return false;
@@ -1360,8 +1585,14 @@ bool scenarioRadarChr(Gfx **gdl, struct prop *prop)
 bool scenarioHighlightProp(struct prop *prop, s32 *colour)
 {
 	s32 scenario = scenarioGetSafeIndex("scenarioHighlightProp");
-	if (g_MpScenarios[scenario].highlightpropfunc) {
-		if (g_MpScenarios[scenario].highlightpropfunc(prop, colour)) {
+	const mode_rules_plan_t *plan = scenarioPlan(scenario);
+	s32 k;
+
+	scenarioPlanCompare(scenario, plan, MODE_SEAM_HIGHLIGHT_PROP);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_HIGHLIGHT_PROP, k);
+		if (owner >= 0 && g_MpScenarios[owner].highlightpropfunc
+				&& g_MpScenarios[owner].highlightpropfunc(prop, colour)) {
 			return true;
 		}
 	}
@@ -1454,9 +1685,23 @@ f32 scenarioChooseSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms
 		modeEventRecord(MODE_EVENT_SPAWN, prop && prop->chr ? prop->chr->chrnum : -1);
 	}
 
-	if (g_Vars.normmplayerisrunning && g_MpScenarios[scenario].spawnfunc &&
-			g_MpScenarios[scenario].spawnfunc(chrradius, pos, rooms, prop, &result)) {
-		return result;
+	if (g_Vars.normmplayerisrunning) {
+		const mode_rules_plan_t *plan = scenarioPlan(scenario);
+		s32 k;
+
+		/* In plan order: a mode's chooser may find no place, and the next
+		 * module then answers (og.mode.default.spawn: the general chooser). */
+		scenarioPlanCompare(scenario, plan, MODE_SEAM_SPAWN);
+		for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+			const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_SPAWN, k);
+			if (owner == MODE_RULES_DEFAULT) {
+				break;
+			}
+			if (owner >= 0 && g_MpScenarios[owner].spawnfunc
+					&& g_MpScenarios[owner].spawnfunc(chrradius, pos, rooms, prop, &result)) {
+				return result;
+			}
+		}
 	}
 
 	return playerChooseGeneralSpawnLocation(chrradius, pos, rooms, prop);
@@ -1687,6 +1932,8 @@ void scenarioReset(void)
 	s32 scenario = scenarioGetSafeIndex("scenarioReset");
 
 	scenarioNetResetState();
+	/* gamemode-graphs.md slice 3: a stage loads; the mode's program's plan. */
+	scenarioPlanMake(scenario, "stage_reset");
 
 	switch (scenario) {
 	case MPSCENARIO_KINGOFTHEHILL:
@@ -1806,8 +2053,17 @@ s32 scenarioGetMaxTeams(void)
 {
 	// PC (B-1132): the in-match team switch asks too; a scenario outside the
 	// table has no callbacks (quiet: these three run per menu tick or per room)
-	if (scenarioIndexIsValid(g_MpSetup.scenario) && g_MpScenarios[g_MpSetup.scenario].maxteamsfunc) {
-		return g_MpScenarios[g_MpSetup.scenario].maxteamsfunc();
+	if (scenarioIndexIsValid(g_MpSetup.scenario)) {
+		const mode_rules_plan_t *plan = scenarioPlan(g_MpSetup.scenario);
+		s32 k;
+
+		scenarioPlanCompare(g_MpSetup.scenario, plan, MODE_SEAM_MAX_TEAMS);
+		for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+			const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_MAX_TEAMS, k);
+			if (owner >= 0 && g_MpScenarios[owner].maxteamsfunc) {
+				return g_MpScenarios[owner].maxteamsfunc();
+			}
+		}
 	}
 
 	return MAX_TEAMS;
@@ -1833,8 +2089,18 @@ s32 scenarioGetTeamSpawnAnchor(s32 team, struct coord *out)
  */
 bool scenarioIsRoomHighlighted(RoomNum room)
 {
-	if (scenarioIndexIsValid(g_MpSetup.scenario) && g_MpScenarios[g_MpSetup.scenario].isroomhighlightedfunc) {
-		return g_MpScenarios[g_MpSetup.scenario].isroomhighlightedfunc(room);
+	if (scenarioIndexIsValid(g_MpSetup.scenario)) {
+		const mode_rules_plan_t *plan = scenarioPlan(g_MpSetup.scenario);
+		s32 k;
+
+		scenarioPlanCompare(g_MpSetup.scenario, plan, MODE_SEAM_ROOM_LIGHTS);
+		for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+			const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_ROOM_LIGHTS, k);
+			if (owner >= 0 && g_MpScenarios[owner].isroomhighlightedfunc
+					&& g_MpScenarios[owner].isroomhighlightedfunc(room)) {
+				return true;
+			}
+		}
 	}
 
 	return false;
@@ -1847,8 +2113,17 @@ bool scenarioIsRoomHighlighted(RoomNum room)
  */
 void scenarioHighlightRoom(RoomNum room, s32 *arg1, s32 *arg2, s32 *arg3)
 {
-	if (scenarioIndexIsValid(g_MpSetup.scenario) && g_MpScenarios[g_MpSetup.scenario].highlightroomfunc) {
-		g_MpScenarios[g_MpSetup.scenario].highlightroomfunc(room, arg1, arg2, arg3);
+	if (scenarioIndexIsValid(g_MpSetup.scenario)) {
+		const mode_rules_plan_t *plan = scenarioPlan(g_MpSetup.scenario);
+		s32 k;
+
+		scenarioPlanCompare(g_MpSetup.scenario, plan, MODE_SEAM_ROOM_LIGHTS);
+		for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+			const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_ROOM_LIGHTS, k);
+			if (owner >= 0 && g_MpScenarios[owner].highlightroomfunc) {
+				g_MpScenarios[owner].highlightroomfunc(room, arg1, arg2, arg3);
+			}
+		}
 	}
 }
 

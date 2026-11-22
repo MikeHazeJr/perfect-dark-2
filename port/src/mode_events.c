@@ -21,6 +21,24 @@ static const char *const s_ModeEventNames[MODE_EVENT_COUNT] = {
 
 static s32 s_ModeEventTotals[MODE_EVENT_COUNT];
 
+/* Slice 3's parity probe: seam calls compared with the original table, and
+ * how many of them the mode's plan ran differently. */
+static s32 s_ModeParityCompared;
+static s32 s_ModeParityDiffer;
+
+void modeParityRecord(s32 differ)
+{
+	s_ModeParityCompared++;
+	if (differ) {
+		s_ModeParityDiffer++;
+	}
+}
+
+s32 modeParityDiffer(void)
+{
+	return s_ModeParityDiffer;
+}
+
 /* The first event of each kind for a mode logs a line; a match can change
  * mode between its chosen and its stage events, so the seen table keys on
  * both. Six base modes today; a slot past them is the catch-all. */
@@ -83,6 +101,15 @@ void modeEventsReport(const char *why)
 {
 	const s32 scenario = (s32)g_MpSetup.scenario;
 	s32 any = 0;
+
+	/* Every peer runs the dispatchers, so every peer reports its parity. */
+	if (s_ModeParityCompared) {
+		sysLogPrintf(LOG_NOTE, "MODE.PARITY: %s mode=%s compared=%d differ=%d",
+			why ? why : "report", modeEventModeId(scenario),
+			s_ModeParityCompared, s_ModeParityDiffer);
+		s_ModeParityCompared = 0;
+		s_ModeParityDiffer = 0;
+	}
 
 	for (s32 i = 0; i < MODE_EVENT_COUNT; i++) {
 		any |= s_ModeEventTotals[i] != 0;
