@@ -3960,6 +3960,13 @@ void botJumpOnLand(struct chrdata *chr)
 	}
 }
 
+/* B-1302: from botJumpTickEval's impulse to botJumpOnLand. chr.c gives only
+ * this flight the under-the-feet support; walking keeps the original search. */
+bool botJumpInFlight(const struct chrdata *chr)
+{
+	return chr && chr->aibot && chr->aibot->jumpcooldownuntil60 == BOT_JUMP_AWAITING_LANDING;
+}
+
 /* Budgeted scheduler. Each bot gets evaluated at most
  * (BOT_JUMP_BUDGET_PER_SEC / active_bot_count) times per second.
  * Time source is lvframe60 * 17 ms (engine 60Hz tick is pinned to

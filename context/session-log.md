@@ -100,6 +100,18 @@ rev-parse`), and heredocs for anything with doubled backslashes (Write or Edit i
 `MODE.PARITY ... differ=0`), the network mode smokes (protocol v67), `room_load_preset_smoke` and
 `room_quick_start_smoke` (PR 39), and any smoke on a re-extracted base for the six `MODE.GRAPH: program`
 lines and `LANG.STAGE ... source=archive`.
+Then (2026-11-22, 05:00 UTC onward) Integration's finalization groups G1a and G1b failed on candidate
+dev 96882002 (base 15), and the cause was mine. **B-1302**: since D-052, walking simulants searched for ground
+from only 20 units over their feet instead of the original 69, so stairs and ramps dropped out from under them
+while their ground height trailed the floor on a climb. Combat on Felicity ended with no kill (20 stuck
+relocations), the Hacker Central carrier stalled 360 units from the terminal, and Capture the Case and King of
+the Hill had 21 and 22 relocations. Fix: the original walking search again, the new support only raising it
+(tables and props, as the player's), and the under-the-feet support kept for a jump's flight
+(`botJumpInFlight`). PR 45's Codex review added two points: falls keep D-052's clamped step, and a mesh
+surface supplies its room, flags and lift. **B-1303**: my six local mode fixtures required a respawn; they now accept `spawn=0`.
+Pattern SP-101. Integration holds G1 to G4 (everything with simulant movement) for the rerun; base 15 stays
+(no data change). Lesson: D-052 went on by default with only its own feature smokes listed; an option that
+changes every simulant's movement needs the ordinary mode smokes before it is the default.
 
 2026-11-20 MULTIPLAYER, 16:40 to 18:44 UTC. Repo cleanup on Mike's order (Codex disabled, the
 week sessions archived): push and merge all PD work, fix collisions, clean up before fresh sessions

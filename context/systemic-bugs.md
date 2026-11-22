@@ -4756,6 +4756,42 @@ git grep -nE "(^|[^A-Za-z0-9_.$\\/-])cmd[[:space:]]+/[cCkK]|Invoke-Item|(^|[[:sp
 reg query "HKCR\." /ve
 ```
 
+## SP-101: A new lookup replaces an original one but queries from a different point
+
+**Found:** 2026-11-22, B-1302. D-052 swapped a walking simulant's ground search
+(`cdFindGroundInfoAtCyl` from `manground + 69`, where chr0f01f378 puts the
+point) for `capsuleFindSupportForProp` from `manground + 20`. The new lookup was
+right for the case it was written for, a jump landing on support under the feet.
+It was wrong for walking: while a chr climbs, manground trails the floor by up to
+30 units, and the original search height absorbed that. Turning Bot Jumping on
+by default put every simulant in every match on the new path. No test runs
+movement, so the first sign was finalization smokes with no kills.
+
+**The pattern:** a rewrite replaces an original query outright, behind an option
+or for a whole class of actors. The new query looks from a different point,
+height or radius. Whatever tolerance the original had built in disappears,
+silently and only in motion.
+
+**Rules:**
+- Let the new lookup only add to the original (raise a ground, add a contact),
+  as `bwalkUpdateVertical` does, unless the original is known to be wrong.
+- Gate a new semantic on the state it was designed for (a jump's flight),
+  not on an option that is on for everyone.
+- Before an option goes on by default, run the smokes it changes for every
+  actor it reaches, not only its own feature smokes.
+
+**Audit:**
+```
+# every caller of the new support lookup and the top it asks from
+git grep -n "capsuleFindSupportForProp(" -- src port
+# what the original asked: the ground search point in chr0f01f378
+git grep -n "manground + 69.0f" -- src/game/chr.c
+```
+
+**Checked 2026-11-22:** `bondwalk.c` only raises a legacy ground;
+`botJumpProbeFlight` models the flight's own support (top = arc height + 0.5);
+`chrFindMovementGround` is fixed by B-1302.
+
 ## Scripted pickup can clear the object-to-prop link
 
 A scripted grant must hold the incoming prop through

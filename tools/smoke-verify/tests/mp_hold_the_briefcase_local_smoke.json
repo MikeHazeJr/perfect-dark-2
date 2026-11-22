@@ -110,7 +110,7 @@
       "MATCH\\.RESULT: scenario=1 teams=0 chrs=4 netmode=0",
       "MODE\\.EVENT: chosen mode=base:hold_the_briefcase scenario=1",
       "MODE\\.EVENT: tick mode=base:hold_the_briefcase scenario=1 who=-",
-      "MODE\\.EVENTS: stage_end mode=base:hold_the_briefcase .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.EVENTS: stage_end mode=base:hold_the_briefcase .*tick=[1-9][0-9]* .*spawn=[0-9]+",
       "MODE\\.PLAN: stage_reset mode=base:hold_the_briefcase scenario=1 modules=[1-9][0-9]*",
       "MODE\\.PARITY: stage_end mode=base:hold_the_briefcase compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",

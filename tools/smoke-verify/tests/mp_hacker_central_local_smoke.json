@@ -111,7 +111,7 @@
       "MATCH\\.RESULT: scenario=2 teams=0 chrs=4 netmode=0",
       "MODE\\.EVENT: chosen mode=base:hacker_central scenario=2",
       "MODE\\.EVENT: tick mode=base:hacker_central scenario=2 who=-",
-      "MODE\\.EVENTS: stage_end mode=base:hacker_central .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.EVENTS: stage_end mode=base:hacker_central .*tick=[1-9][0-9]* .*spawn=[0-9]+",
       "MODE\\.PLAN: stage_reset mode=base:hacker_central scenario=2 modules=[1-9][0-9]*",
       "MODE\\.PARITY: stage_end mode=base:hacker_central compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",

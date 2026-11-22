@@ -1,5 +1,47 @@
 # Bug Tracker
 
+## 2026-11-22 B-1302 Since D-052, simulants stall on stairs and ramps: Combat ends with no kill and a Hacker Central carrier never reaches the terminal (T-ENGINE-006, fixed on week-pd/mp-rules, found by Integration's finalization smokes)
+
+Found in Integration's group G1a on the step 9 candidate (dev 96882002, base 15), diagnosed by
+claude-pd-mp-rules-20261121. `mp_combat_local_scorelimit_smoke` (Felicity) ended by its 240 s time limit with
+no simulant kill. The stuck watchdog relocated its three simulants 20 times (`STUCK:`), and the one death was
+a suicide from the watchdog's 25% penalties. In `mp_hacker_central_local_smoke` (Complex) the uplink carrier
+walked back to the same spot, about 360 units from terminal pad 72, six times in 130 s and never downloaded.
+`MODE.PARITY` showed differ=0 in every run, and the B-1204 pad boxes were in effect. Combat passed on 11-16
+and 11-20 (base 14), before D-052 landed.
+
+Root cause: D-052 (386a9389, merged by PR 23 as 5cdacc72 on 11-21) turned Bot Jumping on by default. With it
+on, `chrFindMovementGround` (`src/game/chr.c`) gave a walking simulant `capsuleFindSupportForProp` from 20
+units over its feet (`manground + 20`) instead of the original search, which chr0f01f378 starts at
+`manground + 69`. While a chr climbs, manground trails the floor by up to 30 units (the sumground smoothing
+and its clamp), so on stairs and steeper ramps the floor was above the search. The lookup returned a lower
+floor, the simulant fell against the slope, and its horizontal collision held it there.
+
+Fix: walking simulants use the original search again, with the rendered-floor check. Where no tile is at
+their feet (a table, a prop, a lift after a jump), the new support may raise that ground, as the player's
+`bwalkUpdateVertical` does. Where the rendered floor already found that surface, the support supplies its room,
+flags and lift (Codex review: otherwise a simulant on a mesh-only lift kept the tile's metadata, and
+`liftIsVacant` could see the lift as empty). It never lowers the ground. The under-the-feet support
+(`manground + 0.5`) is used only during a jump, from its impulse to `botJumpOnLand` (`botJumpInFlight`).
+`chrStepSimulantAirborne` steps a jump and any simulant fall onto a ground under its feet. It clamps the
+last step of a long fall to the ground, where `chr0f01f264` would refuse a step the sweep finds blocked and
+leave the simulant hanging over the floor (Codex review). A ground at or over the feet keeps the original
+landing. A jump that ends on the ground without a landing now ends there too, so the next jump is not blocked.
+Propagation: the player's support only raises a legacy ground, and `botJumpProbeFlight` models
+the flight's own support, so neither is affected (SP-101). Tests: `[jump]` static pins in
+`tests/test_jump_two_stage_design.cpp`. Not yet checked in play: Integration reruns G1 (the six local mode
+smokes), G2 (the four ledge and tabletop smokes), G3 (co-op AI) and G4 (net simulants) on the fixed candidate.
+Severity high: every mode with simulants on any arena with stairs or ramps, since 11-21.
+
+## 2026-11-22 B-1303 The six local mode smokes required a respawn, so a match where nobody died failed (T-MODDING-026, fixed on week-pd/mp-rules, found by Integration's finalization smokes)
+
+My gamemode-graphs slice 1 fixtures (`mp_*_local*_smoke.json`, six of them) required
+`spawn=[1-9][0-9]*` in the `MODE.EVENTS` stage-end line. `MODE_EVENT_SPAWN` counts respawns only
+(`scenarioChooseSpawnLocation`), so a match with no death logs spawn=0. Hold the Briefcase failed that way in
+G1a even though its holder scored 4, and a score-limit-1 Combat can end on its first kill before the victim
+respawns. Fix: `spawn=[0-9]+`. The `tick=` requirement, which shows the mode program ran, stays.
+Severity low (test only).
+
 ## 2026-11-21 B-1293 A .pdpack import could write outside the mods folder, and into another mod's folder (CAT-C01, T-MODDING-022, fixed in code, no live caller)
 
 Found by the 2026-11-20 full audit (CAT-C01) and widened in the fix (claude-pd-authored-mods-20261121).
