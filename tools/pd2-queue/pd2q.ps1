@@ -401,8 +401,15 @@ switch ($Command) {
             if ($lease) {
                 if ($lease.state -eq 'queued' -and $lease.job -and -not ($dropped -contains $lease.job)) { throw "$issueId belongs to running job $($lease.job); use pd2q cancel." }
                 $l.leases.Remove($issueId); Write-Pd2qJson $paths.Leases $l
-                try { [void](Save-Pd2qCheckpoint $issueId $lease.holder.session ("lease broken by $who`: $Reason") $lease.holder.agent) } catch { }
-                Clear-Pd2qScratch $lease.holder.session
+                # Only a held lease owns its session's scratch. A queued one saved
+                # its patch at submit, and that scratch may now hold the session's
+                # next issue, which a checkpoint here would file under this one.
+                if ($lease.state -eq 'held') {
+                    $saved = $false
+                    try { [void](Save-Pd2qCheckpoint $issueId $lease.holder.session ("lease broken by $who`: $Reason") $lease.holder.agent); $saved = $true }
+                    catch { Add-Pd2qAlarm 'checkpoint-failed' "lease $($lease.lease) on $issueId broken by $who, but its edits could not be saved: $($_.Exception.Message). Scratch kept at $(Get-Pd2qScratchDir $lease.holder.session)." }
+                    if ($saved) { Clear-Pd2qScratch $lease.holder.session }
+                }
             }
             if (-not $lease -and -not $dropped) { throw "$issueId has no lease and no queued job." }
             Write-Pd2qLog "break $issueId by $who ($Reason): lease $(if ($lease) { $lease.lease } else { 'none' }), dropped $($dropped -join ',')"

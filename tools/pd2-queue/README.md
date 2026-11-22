@@ -34,7 +34,7 @@ pwsh -File $q wait q97-20261122                    # report path and result
 - **Submit checks.** The title must follow the commit standard ("<Area> - <WorkbenchItemID>: <summary>"), and the message must pass `.githooks/commit-msg.py` against the live Workbench. The patch must apply to the current dev. A stale lease number is rejected.
 - **The commit message.** `-Body` names a text file that says what changed and why, as every commit here does. It may not carry trailer lines; the queue writes `Refs` and the `PD2-*` trailers itself, and `-CoAuthor` adds a `Co-Authored-By` line last.
 - **The board.** `board` lists landed fixes. `claim` refuses an issue that already landed unless it is given `-Reopen "why"`.
-- **Other commands.** `break`, `cancel`, `agent codex off -Until <time>`, `resume` and `status` work as the spec describes. `status` shows the running job, the queue, every lease with its age and time left, slow builds, alarms, and the size of the jobs folder, which is an alarm if anything is left there with no job running.
+- **Other commands.** `break`, `cancel`, `agent codex off -Until <time>`, `resume` and `status` work as the spec describes. `break` saves and clears a session's scratch only for a held lease; a queued lease's patch was saved at submit, and its session may be editing its next issue there. `status` shows the running job, the queue, every lease with its age and time left, slow builds, alarms, and the size of the jobs folder, which is an alarm if anything is left there with no job running.
 
 ## The worker
 

@@ -30,11 +30,11 @@ function Q([string[]] $Arguments) {
     return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
 }
 function Events([string] $Job) { @(Get-Content -LiteralPath (Join-Path $root "queue\journal\$Job.jsonl") | ForEach-Object { ($_ | ConvertFrom-Json).event }) }
-function Submit([string] $Issue, [string] $Session, [int] $OwnerPid, [string] $Comment) {
+function Submit([string] $Issue, [string] $Session, [int] $OwnerPid, [string] $Comment, [string] $File = 'port/src/gdl_span.c') {
     $r = Q @('claim', $Issue, '-Session', $Session, '-OwnerPid', $OwnerPid)
     if ($r.Out -notmatch 'lease (\d+) on') { throw "claim failed: $($r.Out)" }
     $lease = $Matches[1]
-    $f = (Q @('edit', 'port/src/gdl_span.c', '-Session', $Session)).Out.Trim()
+    $f = (Q @('edit', $File, '-Session', $Session)).Out.Trim()
     [IO.File]::WriteAllText($f, "/* $Comment */`n" + [IO.File]::ReadAllText($f))
     $r = Q @('submit', $Issue, '-Lease', $lease, '-Title', "Tooling - $($Issue): $Comment")
     $m = [regex]::Match($r.Out, 'q\d+-\d{8}')
@@ -87,16 +87,23 @@ try {
     Check ($w.ExitCode -eq 97 -and (Events $jB)[-1] -eq 'pushing') 'the worker died after pushing, before the journal said so'
     $pushed = @(& $git -C $remote log dev --grep "PD2-Queue-Job: $jB" --format=%H)
     Check ($pushed.Count -eq 1) 'the commit reached the remote once'
-    $w = Start-Worker
+    # The restart's dev reset after the landing fails (test hook): an alarm, and
+    # the landing stands.
+    $w = Start-Worker @{ PD2Q_TEST_FAIL_DEV_RESET = '1' }
     $w.WaitForExit()
     Check ((Events $jB)[-1] -eq 'landed') 'on restart the job is marked Landed'
+    Check (@(Events $jB | Where-Object { $_ -in @('landed', 'failed', 'rejected', 'cancelled') }).Count -eq 1) 'with one ending only, though the dev reset after it failed'
+    Check ((Get-Content -LiteralPath (Join-Path $root 'queue\alarms.json') -Raw) -match 'dev-reset') 'the failed reset is an alarm'
     Check (@(& $git -C $remote log dev --grep "PD2-Queue-Job: $jB" --format=%H).Count -eq 1) 'and it was not pushed twice'
     Check ((Get-Content -LiteralPath (Join-Path $root 'queue\service.log') -Raw) -match "recovery: $jB was pushed before the restart") 'the recovery is logged'
 
     # 3. An unexpected error while the job holds its hub slot (a test hook
     # throws after testing): the job fails, nothing is pushed, and the slot is
     # finished, not left running for everyone behind it.
-    $jC = Submit 'T-M5-003' 'm5-c' $sleeper.Id 'pd2q Milestone 5 error after testing'
+    # Its edit comes from the dev clone the failed reset above left one landing
+    # behind, so it takes a file the earlier jobs did not touch: a stale base
+    # that does not conflict still applies (job 3 of Milestone 3 shows one that does).
+    $jC = Submit 'T-M5-003' 'm5-c' $sleeper.Id 'pd2q Milestone 5 error after testing' 'port/src/fs_path.c'
     $w = Start-Worker @{ PD2Q_TEST_THROW_JOB = $jC }
     $w.WaitForExit()
     $lastC = Get-Content -LiteralPath (Join-Path $root "queue\journal\$jC.jsonl") | Select-Object -Last 1 | ConvertFrom-Json

@@ -281,9 +281,15 @@ function Complete-Job([string] $JobId, [hashtable] $Request, [string] $Result, [
         if ($all.Count -gt 500) { $keep = $all | Select-Object -Last 500; [IO.File]::WriteAllText($paths.Builds, (($keep | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 10 }) -join "`n") + "`n") }
     }
     if ($Result -eq 'landed') {
-        [void](Git $paths.Dev @('fetch', 'origin') -AllowFailure)
-        [void](Git $paths.Dev @('reset', '--hard', 'origin/dev'))
-        Update-DevSubmodules
+        # The landing is journaled and on the board: resetting dev is upkeep. A
+        # failure here is an alarm, never a second ending for a published patch;
+        # the next job's Preparing resets dev again.
+        try {
+            if ($env:PD2Q_TEST_FAIL_DEV_RESET -eq '1') { throw 'test hook: the dev reset fails' }  # Milestone 5 test only
+            [void](Git $paths.Dev @('fetch', 'origin') -AllowFailure)
+            [void](Git $paths.Dev @('reset', '--hard', 'origin/dev'))
+            Update-DevSubmodules
+        } catch { Add-Pd2qAlarm 'dev-reset' "after $JobId landed, resetting $($paths.Dev) to origin/dev failed: $($_.Exception.Message)" }
         Send-WorkbenchNote $Request $JobId $Info
     }
     Write-Pd2qLog "job $JobId $Result$(if ($Info.detail) { ': ' + $Info.detail })"
@@ -598,7 +604,14 @@ try {
                 $err = $_.Exception.Message
                 Write-Pd2qLog "job $($next.Id) error: $err"
                 # The hub slot it took, if any, is finished with it (never leaked).
-                try { Complete-Job $next.Id $next.Request 'failed' @{ attempt = $next.Attempt; devCommit = ''; detail = "queue error: $err"; hubId = $script:JobHubId } } catch { Write-Pd2qLog "could not close $($next.Id): $($_.Exception.Message)" }
+                # A job whose journal already ended (landed, say) keeps that ending.
+                $endedAs = (@(Get-Pd2qJobs | Where-Object { $_.Id -eq $next.Id })[0]).State
+                if ($endedAs -in @('landed', 'rejected', 'failed', 'cancelled')) {
+                    Write-Pd2qLog "job $($next.Id) had already ended $endedAs; the error came after that and changes nothing"
+                    Exit-HubBuildSlot $script:JobHubId "pd2q $($next.Id) $endedAs"
+                } else {
+                    try { Complete-Job $next.Id $next.Request 'failed' @{ attempt = $next.Attempt; devCommit = ''; detail = "queue error: $err"; hubId = $script:JobHubId } } catch { Write-Pd2qLog "could not close $($next.Id): $($_.Exception.Message)" }
+                }
             }
             Set-ServiceState @{ state = 'idle'; job = $null }
             $idleSince = Get-Date

@@ -127,6 +127,22 @@ try {
     $r = Q @('cancel', $job, '-Reason', 'unit test')
     Check ($r.Code -eq 0 -and -not (Leases).leases['T-UNIT-005']) 'cancelling a queued job frees its issue'
 
+    # Breaking a queued lease leaves its session's scratch alone: the session may
+    # be editing its next issue there, and the queued patch was saved at submit.
+    $r = Q @('claim', 'T-UNIT-012', '-Session', 's1', '-OwnerPid', $o1.Id); $n12 = LeaseNumber $r.Out
+    $f12 = (Q @('edit', 'src/a.c', '-Session', 's1')).Out.Trim()
+    [IO.File]::WriteAllText($f12, "int a(void) { return 12; }`n")
+    $r = Q @('submit', 'T-UNIT-012', '-Lease', $n12, '-Title', 'Tooling - T-UNIT-012: Return twelve')
+    Check ($r.Code -eq 0) "submit T-UNIT-012`n$($r.Out)"
+    $r = Q @('claim', 'T-UNIT-013', '-Session', 's1', '-OwnerPid', $o1.Id); $n13 = LeaseNumber $r.Out
+    Check ($r.Code -eq 0) 'a session whose lease is queued may claim its next issue'
+    $f13 = (Q @('edit', 'src/a.c', '-Session', 's1')).Out.Trim()
+    [IO.File]::WriteAllText($f13, "int a(void) { return 13; }`n")
+    $r = Q @('break', 'T-UNIT-012', '-Reason', 'unit test: break a queued lease', '-Session', 'tester')
+    Check ($r.Code -eq 0 -and (Test-Path -LiteralPath $f13) -and (Get-Content -LiteralPath $f13 -Raw) -match 'return 13') "breaking a queued lease leaves the session's next issue's scratch alone`n$($r.Out)"
+    Check ((Get-Content -LiteralPath (Join-Path $root 'queue\tasks\T-UNIT-012.patch') -Raw) -match 'return 12') "and the queued issue's saved patch is still its own"
+    [void](Q @('release', 'T-UNIT-013', '-Lease', $n13))
+
     # Landed issue refuses a claim without -Reopen.
     [IO.File]::AppendAllText((Join-Path $root 'queue\board.jsonl'), ((@{ schema = 'pd2q.board.v1'; issue = 'B-9999'; commit = 'abcdef0123456789'; job = 'q1-20261122'; title = 't'; session = 's'; landedUtc = '2026-11-22T00:00:00.000Z' } | ConvertTo-Json -Compress) + "`n"))
     $r = Q @('claim', 'B-9999', '-Session', 's1', '-OwnerPid', $o1.Id)
