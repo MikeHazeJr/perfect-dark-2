@@ -103,12 +103,28 @@ try {
     $r = Q @('submit', 'T-M3-005', '-Lease', $l5, '-Title', 'Tooling - T-M3-005: Move bx to a revision that does not exist', '-Patch', $movePatch)
     Check ($r.Code -eq 0) "job 5 submitted`n$($r.Out)"; $j5 = JobOf $r.Out
 
+    # 6. A patch that moves bx to a real upstream revision the local seed does
+    # not hold (the pin's parent; the seed is a depth-1 clone): the worker must
+    # fetch it from bx's own remote. A test hook cancels the job once prepared,
+    # so it is not built.
+    $probe = Join-Path $root 'bx-probe'
+    & $git init -q $probe
+    & $git -C $probe fetch -q --depth 2 https://github.com/bkaradzic/bx.git $pin
+    $parent = (& $git -C $probe rev-parse 'FETCH_HEAD^').Trim()
+    Check ($parent -match '^[0-9a-f]{40}$' -and $parent -ne $pin) "found the bx pin's parent $parent"
+    $r = Q @('claim', 'T-M3-006', '-Session', 'm3-g', '-OwnerPid', $sleeper.Id); $l6 = LeaseOf $r.Out
+    $parentPatch = Join-Path $root 'bx-parent.patch'
+    [IO.File]::WriteAllText($parentPatch, "diff --git a/third_party/bgfx/bx b/third_party/bgfx/bx`nindex $pin..$parent 160000`n--- a/third_party/bgfx/bx`n+++ b/third_party/bgfx/bx`n@@ -1 +1 @@`n-Subproject commit $pin`n+Subproject commit $parent`n")
+    $r = Q @('submit', 'T-M3-006', '-Lease', $l6, '-Title', "Tooling - T-M3-006: Move bx to its pin's parent", '-Patch', $parentPatch)
+    Check ($r.Code -eq 0) "job 6 submitted`n$($r.Out)"; $j6 = JobOf $r.Out
+
     # Run the worker until the queue is empty.
     $t1 = Get-Date
     $log = Join-Path $root 'service-run.log'
     $env:PD2Q_TEST_CANCEL_JOB = $j4
+    $env:PD2Q_TEST_CANCEL_PREPARED_JOB = $j6
     try { & $pwsh -NoProfile -File $service -Foreground -Remote $remote -IdleExitSeconds 3 -HubSession 'pd2-queue-m3test' *> $log }
-    finally { Remove-Item Env:PD2Q_TEST_CANCEL_JOB -ErrorAction SilentlyContinue }
+    finally { Remove-Item Env:PD2Q_TEST_CANCEL_JOB, Env:PD2Q_TEST_CANCEL_PREPARED_JOB -ErrorAction SilentlyContinue }
     "worker ran $([int]((Get-Date) - $t1).TotalSeconds) s"
 
     $why1 = "`n--- report ---`n" + (Get-Content -LiteralPath (Join-Path $root "reports\$j1.md") -Raw -ErrorAction SilentlyContinue) +
@@ -135,6 +151,9 @@ try {
     $report5 = Get-Content -LiteralPath (Join-Path $root "reports\$j5.md") -Raw
     $events5 = @(Get-Content -LiteralPath (Join-Path $root "queue\journal\$j5.jsonl") | ForEach-Object { ($_ | ConvertFrom-Json).event })
     Check ((LastEvent $j5) -eq 'failed' -and $report5 -match 'third_party/bgfx/bx to a revision that could not be checked out' -and $events5 -notcontains 'building') "job 5, moving bx to a missing revision, failed before building`n$report5"
+    $serviceLog6 = Get-Content -LiteralPath (Join-Path $root 'queue\service.log') -Raw
+    $report6 = Get-Content -LiteralPath (Join-Path $root "reports\$j6.md") -Raw
+    Check ($serviceLog6 -match "job $j6`: submodule\(s\) third_party/bgfx/bx checked out at the patch's revisions" -and (LastEvent $j6) -eq 'cancelled' -and $report6 -match 'cancelled before building') "job 6 fetched bx's upstream revision from bx's own remote, then was cancelled before building`n$report6"
     $serviceLog = Get-Content -LiteralPath (Join-Path $root 'queue\service.log') -Raw
     Check ($serviceLog -match "job $j1`: the staged asset guard passed") "the staged asset guard ran before job 1's commit"
     $hubState = Get-Content -LiteralPath (Join-Path $Source '.codex-coordination\state.json') -Raw -Encoding utf8 | ConvertFrom-Json
@@ -150,7 +169,7 @@ try {
     Check ((& $git -C (Join-Path $root 'dev') rev-parse HEAD) -eq (& $git -C $remote rev-parse dev)) 'the dev clone was reset to the new tip'
 } finally {
     if ($sleeper) { try { Stop-Process -Id $sleeper.Id -Force } catch { } }
-    Remove-Item Env:PD2Q_ROOT, Env:PD2Q_SUBMODULE_SOURCE, Env:PD2Q_CANONICAL, Env:PD2Q_TEST_CANCEL_JOB -ErrorAction SilentlyContinue
+    Remove-Item Env:PD2Q_ROOT, Env:PD2Q_SUBMODULE_SOURCE, Env:PD2Q_CANONICAL, Env:PD2Q_TEST_CANCEL_JOB, Env:PD2Q_TEST_CANCEL_PREPARED_JOB -ErrorAction SilentlyContinue
     if (-not $KeepFixture -and (Test-Path -LiteralPath $root)) {
         Get-ChildItem -LiteralPath $root -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object { $_.Attributes = 'Normal' }
         Remove-Item -LiteralPath $root -Recurse -Force

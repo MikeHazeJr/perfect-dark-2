@@ -378,11 +378,12 @@ function Invoke-Job($Job) {
     $indexSha = { param($s) (((Git $src @('ls-files', '-s', '--', $s)).Out) -split '\s+')[1] }
     $moved = @($subs | Where-Object { (((Git $src @('ls-tree', 'HEAD', '--', $_)).Out) -split '\s+')[2] -ne (& $indexSha $_) })
     if ($moved) {
-        foreach ($s in $moved) {
-            $url = (Git $src @('config', '-f', '.gitmodules', "submodule.$s.url") -AllowFailure).Out
-            if ($url) { [void](Git $src @('config', "submodule.$s.url", $url)) }
-        }
-        $r = Git $src (@('submodule', 'update', '--init', '--depth', '1', '--') + $moved) -AllowFailure
+        # git submodule sync puts .gitmodules' URL back in both places: the
+        # superproject's config and the initialized submodule's own
+        # remote.origin.url. The submodule was cloned from the dev clone's local
+        # copy, which lacks any revision but dev's pin.
+        $r = Git $src (@('submodule', 'sync', '--') + $moved) -AllowFailure
+        if ($r.Code -eq 0) { $r = Git $src (@('submodule', 'update', '--init', '--depth', '1', '--') + $moved) -AllowFailure }
         $notAt = @($moved | Where-Object { (Git $src @('-C', $_, 'rev-parse', 'HEAD') -AllowFailure).Out -ne (& $indexSha $_) })
         if ($r.Code -ne 0 -or $notAt) {
             $info.detail = "the patch moves submodule(s) $($moved -join ', ') to a revision that could not be checked out, so it was not built"
@@ -391,6 +392,8 @@ function Invoke-Job($Job) {
         }
         Write-Pd2qLog "job $jobId`: submodule(s) $($moved -join ', ') checked out at the patch's revisions"
     }
+    # Milestone 3 test only: a cancel that arrives once the job is prepared.
+    if ($env:PD2Q_TEST_CANCEL_PREPARED_JOB -and $env:PD2Q_TEST_CANCEL_PREPARED_JOB -eq $jobId) { [IO.File]::WriteAllText((Join-Path $paths.Requests "cancel-$jobId.json"), '{"schema":"pd2q.cancel.v1","reason":"test hook"}') }
     $info.seconds.prepare = [math]::Round($prep.Elapsed.TotalSeconds, 1)
     try { $info.hubId = Enter-HubBuildSlot $jobId $request.title }
     catch {
