@@ -3297,7 +3297,14 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 		 * joined. */
 		weaponUnregisterProxy(weapon);
 
-		if (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {
+		/* projectile-events.md slice 7a: what the object holds goes with it,
+		 * whatever its weapon number: the smoke attached to its prop (the
+		 * pinball's, or one a program gave it), a bolt's beam (any object can
+		 * take arm_bolt) and a simulant's memory of it as its rocket. Each is
+		 * a no-op for an object that holds none, and none is a rule a program
+		 * could leave out: a pointer left behind would dangle. The prop is
+		 * asked for first, since both lookups match a NULL one. */
+		if (obj->prop) {
 			smokeClearForProp(obj->prop);
 		}
 
@@ -3314,7 +3321,7 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 			}
 		}
 
-		if (weapon->weaponnum == WEAPON_BOLT) {
+		if (obj->prop) {
 			s32 beammnum = boltbeamFindByProp(obj->prop);
 
 			if (beammnum != -1) {
@@ -3322,10 +3329,7 @@ void objFree(struct defaultobj *obj, bool freeprop, bool canregen)
 			}
 		}
 
-		if (g_Vars.normmplayerisrunning
-				&& weapon->weaponnum == WEAPON_SKROCKET
-				&& obj->projectile
-				&& obj->projectile->ownerprop) {
+		if (g_Vars.normmplayerisrunning && obj->prop) {
 			s32 i;
 
 			for (i = 0; i < g_MpNumChrs; i++) {

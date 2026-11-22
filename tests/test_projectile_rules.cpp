@@ -1268,9 +1268,16 @@ TEST_CASE("projectile rules: weaponTick runs the arm each object chose", "[proje
 	REQUIRE(freeAt != std::string::npos);
 	const std::string freed = propobj.substr(freeAt, propobj.find("\n}\n", freeAt) - freeAt);
 	CHECK(countOf(freed, "weaponUnregisterProxy(weapon);") == 1);
-	CHECK(freed.find("\t\tweaponUnregisterProxy(weapon);\n\n"
-		"\t\tif (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {\n"
-		"\t\t\tsmokeClearForProp(obj->prop);") != std::string::npos);
+	// Slice 7a: so does what the object holds (its smoke, a bolt's beam, a
+	// simulant's memory of it as its rocket), whatever its weapon number.
+	CHECK(freed.find("\t\tweaponUnregisterProxy(weapon);\n") != std::string::npos);
+	CHECK(freed.find("\t\tif (obj->prop) {\n\t\t\tsmokeClearForProp(obj->prop);\n\t\t}") != std::string::npos);
+	CHECK(freed.find("\t\tif (obj->prop) {\n\t\t\ts32 beammnum = boltbeamFindByProp(obj->prop);")
+		!= std::string::npos);
+	CHECK(freed.find("\t\tif (g_Vars.normmplayerisrunning && obj->prop) {") != std::string::npos);
+	CHECK(freed.find("weapon->weaponnum == WEAPON_GRENADE") == std::string::npos);
+	CHECK(freed.find("weapon->weaponnum == WEAPON_BOLT") == std::string::npos);
+	CHECK(freed.find("weapon->weaponnum == WEAPON_SKROCKET") == std::string::npos);
 	CHECK(freed.find("weapon->weaponnum == WEAPON_PROXIMITYMINE") == std::string::npos);
 	CHECK(countOf(body, "weaponRegisterProxy(weapon);") == 2); // the proximity arm, a mod weapon's record arm
 

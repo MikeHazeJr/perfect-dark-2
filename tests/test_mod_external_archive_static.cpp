@@ -4393,7 +4393,7 @@ TEST_CASE("wave 5 unit 0 bug-fix pins stay wired",
 	 * the proximity arm to any weapon object. */
 	REQUIRE(propobj.find("a proxy left in g_Proxies would dangle") != std::string::npos);
 	REQUIRE(propobj.find("\t\tweaponUnregisterProxy(weapon);\n\n"
-		"\t\tif (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {") != std::string::npos);
+		"\t\t/* projectile-events.md slice 7a: what the object holds goes with it,") != std::string::npos);
 
 	/* Wave 5 Unit 6: detonator provenance. Sidecar array beside the mask,
 	 * the predicate exported from the runtime, the widened

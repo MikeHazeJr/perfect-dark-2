@@ -754,6 +754,63 @@ slice 1), and the character spawns at `projectileCreate`. The pickup family
 is its own slice with the object rules. The record clauses' decision (the
 two ways listed above, for Mike and MODS) stays open.
 
+## Slice 7 plan: flight, presentation and the free (Core Weapons, 2026-11-22, before code)
+
+What the survey above missed, read in the tree after held slice 5: there is no
+`event.projectile.freed` (the record-only end of a projectile is `ended`, at
+`objFreeProjectile`, a landing, not the free); `rocketTickFbw` flies only the
+bot Slayer's rocket (`WEAPON_SKROCKET`, botact.c), the player's Slayer rocket
+is a `WEAPON_ROCKET` steered in `playerTick`; the knife's and the pinball's
+sounds are collision sounds in the weapon block, not at the bounce seam, and
+only the pinball's smoke is in the bounce block; and the module word is full
+(modules 0 to 19, gates 24 to 27, the arms' program flag 31).
+
+**7a. The free follows what the object holds, not its weapon number.**
+`objFree`'s three clean-ups run for every weapon object, the way slice 6 made
+the watch list's: the smoke attached to the prop (`smokeClearForProp`; a
+program can give any object a smoke), a bolt's beam (`boltbeamFindByProp`; any
+object can take `arm_bolt`) and a simulant's remembered rocket
+(`aibot->skrocket`, compared by prop). Each is a no-op for an object that holds
+none. No rule event: a clean-up a program could leave out would leave a
+dangling pointer.
+
+**7b. The flight is the object's choice: `event.projectile.in_flight`.** One
+rule event, asked once per weapon object the first tick it flies and kept in
+its prop's record beside the arm (asked again when its weapon number or
+function changes, as the arm is), so a tick costs one lookup. Its modules
+replace the weapon numbers of `projectileTick`:
+
+| Module | Settings | The original gives it to | What it does |
+|---|---|---|---|
+| `og.projectile.fly_by_wire` | | the Skedar rocket (`WEAPON_SKROCKET`) | `rocketTickFbw` flies it instead of the free flight |
+| `og.projectile.thrust` | `max_speed` (units a tick; the rocket's 166.67, speed squared 27777.773), `exhaust` (a smoke, the rocket's `rocket_tail`, or `none`) | the rocket | caps the speed, ends the power at its limit, and smokes 20 units behind while powered |
+| `og.projectile.home` | | the homing rocket | steers at its target |
+| `og.projectile.trail` | `smoke` (`homing_tail`, `grenade_tail`, ...), `while` (`flying`: not colliding; `moving`: not at rest) | the homing rocket (`homing_tail`, flying), the grenade round (`grenade_tail`, moving) | a smoke a tick |
+| `og.projectile.woosh` | | the throwing knife's second function | the thrown knife's woosh |
+| `og.projectile.hit_sound` | `sound` (`knife`, `pinball`) | the knife (either function), the pinball grenade | its collision sound (else the default) |
+| `og.projectile.bounce_smoke` | `smoke` (`pinball`) | the pinball grenade | a puff where it bounces, while it still bounces |
+
+The chain keeps its order and its first-match rule (as slice 6's arms do: the
+original gives an object one flight; a program that chooses several runs the
+first in the chain's order). The record clauses of a mod weapon's object (the
+latched `PROJECTILEFLAG_HOMING`, the held function's `FUNCFLAG_HOMINGROCKET`,
+the record's trail cadence, impact consume and on-impact timer, its hit
+sound) are unchanged: they only ever applied to mod weapons, and their
+decision stays open (above). A program the extractor did not wire for
+`in_flight` (an archive copied before this slice) flies plain, as an
+unwired `armed` arms nothing; the extractor rewrites base archives
+(`embedded.v22`, cache kind `_flightrules`).
+
+**The module word.** The four gates move to bits 27 to 30 (the arms' and the
+flight's program flag stays 31), so modules take bits 0 to 26: seven more,
+exactly this slice's. Archives name kinds, never bits, so nothing stored
+changes. The next slice that adds modules widens the word.
+
+**7c. Spawn by weapon number** (the pinball's bounce and the thrown knife's
+flags at the throw, the fired projectiles' power limit, the guards' and the
+chopper's `projectileCreate`, a dropped grenade's fuse) is the next step,
+after 7a and 7b land.
+
 ## Not in scope
 
 - Held weapons (the fire types in `bondgun.c`): the week note's Held weapons
