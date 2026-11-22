@@ -24,6 +24,7 @@ extern "C" {
 #include "modarchive.h"
 #include "weapon_graph_runtime.h"
 #include "weapon_rules.h"
+#include "target_filter.h"
 }
 
 namespace {
@@ -3473,6 +3474,101 @@ TEST_CASE("a special carries out only a special's actions, and a cloak needs rou
 	const std::string bondgun = readSource("src/game/bondgun.c");
 	REQUIRE(bondgun.find("if (player->gunctrl.ammotypes[cloakslot] < 0\n") != std::string::npos);
 	REQUIRE(bondgun.find("if (hand->matmot1 > 1.0f && player->gunctrl.ammotypes[cloakslot] >= 0) {") != std::string::npos);
+}
+
+// held-weapon-events.md slice 6a: the target filter, the lock chain first.
+TEST_CASE("the look and lock pickers are the target filter's native ones",
+	"[mission-graph][weapon-graph][held-weapon][target-filter]")
+{
+	// lvRender's look test and sightCanTargetProp as they stood (lv.c and
+	// sight.c at b66065f8), for a prop the aim ray found.
+	const auto originalLook = [](s32 proptype, bool cloaked, bool ir, bool reacts, bool training) -> bool {
+		if (proptype == PROPTYPE_CHR || proptype == PROPTYPE_PLAYER) return !(cloaked && !ir);
+		if (proptype == PROPTYPE_OBJ || proptype == PROPTYPE_WEAPON || proptype == PROPTYPE_DOOR) return reacts || training;
+		return false;
+	};
+	const auto originalLock = [](s32 proptype, bool reacts, bool rocketlauncher) -> bool {
+		if (proptype == PROPTYPE_CHR || proptype == PROPTYPE_PLAYER) return true;
+		if ((proptype == PROPTYPE_OBJ || proptype == PROPTYPE_WEAPON || proptype == PROPTYPE_DOOR) && reacts) return true;
+		return rocketlauncher;
+	};
+	// sightTargetFacts' kinds: an object is a vehicle, a sentry or an object.
+	const struct {
+		s32 proptype;
+		u32 kind;
+	} props[] = {
+		{ PROPTYPE_CHR, TARGET_KIND_GUARD }, { PROPTYPE_CHR, TARGET_KIND_SIMULANT },
+		{ PROPTYPE_PLAYER, TARGET_KIND_PLAYER }, { PROPTYPE_OBJ, TARGET_KIND_OBJECT },
+		{ PROPTYPE_OBJ, TARGET_KIND_VEHICLE }, { PROPTYPE_OBJ, TARGET_KIND_SENTRY },
+		{ PROPTYPE_WEAPON, TARGET_KIND_OBJECT }, { PROPTYPE_DOOR, TARGET_KIND_OBJECT },
+		{ PROPTYPE_EXPLOSION, 0 }, { PROPTYPE_SMOKE, 0 },
+	};
+	target_filter_t look, lock, rocket;
+	targetFilterNative(TARGET_PICKER_LOOK, WEAPON_FALCON2, &look);
+	targetFilterNative(TARGET_PICKER_LOCK, WEAPON_CMP150, &lock);
+	targetFilterNative(TARGET_PICKER_LOCK, WEAPON_ROCKETLAUNCHER, &rocket);
+	s32 compared = 0;
+	for (const auto &p : props) {
+		const bool chrlike = p.proptype == PROPTYPE_CHR || p.proptype == PROPTYPE_PLAYER;
+		for (s32 bits = 0; bits < 16; bits++) {
+			const bool cloaked = (bits & 1) && chrlike; // only characters cloak
+			const bool ir = (bits & 2) != 0;
+			const bool reacts = (bits & 4) && !chrlike;
+			const bool training = (bits & 8) && !chrlike;
+			target_facts_t c{};
+			c.kind = p.kind;
+			c.reacts_to_sight = reacts;
+			c.training_target = training;
+			c.relation = TARGET_RELATION_NONE;
+			c.alive = 1;
+			c.cloaked = cloaked;
+			c.owner_ir = ir;
+			INFO("proptype " << p.proptype << " kind " << p.kind << " bits " << bits);
+			const bool looked = originalLook(p.proptype, cloaked, ir, reacts, training);
+			CHECK((targetFilterAccepts(&look, &c) != 0) == looked);
+			// The lock only sees what the look let through.
+			if (looked) {
+				CHECK((targetFilterAccepts(&lock, &c) != 0) == originalLock(p.proptype, reacts, false));
+				CHECK((targetFilterAccepts(&rocket, &c) != 0) == originalLock(p.proptype, reacts, true));
+			}
+			compared++;
+		}
+	}
+	CHECK(compared == 160);
+
+	// The relation of an empty vehicle or an object: nobody's friend.
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_ENEMY, TARGET_RELATION_NONE) == 1);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_ANYONE, TARGET_RELATION_NONE) == 1);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_FRIEND, TARGET_RELATION_NONE) == 0);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_OWNER, TARGET_RELATION_NONE) == 0);
+	CHECK(targetFilterRelationPasses(TARGET_RELATION_ENEMY, TARGET_RELATION_FRIEND) == 0);
+	// Mike's "occupied vehicles only".
+	target_filter_t vehicles{};
+	vehicles.kinds = TARGET_KIND_VEHICLE;
+	vehicles.vehicles_occupied = 1;
+	vehicles.relation = TARGET_RELATION_ENEMY;
+	target_facts_t bike{};
+	bike.kind = TARGET_KIND_VEHICLE;
+	bike.relation = TARGET_RELATION_NONE;
+	bike.alive = 1;
+	CHECK(targetFilterAccepts(&vehicles, &bike) == 0);
+	bike.occupied = 1;
+	bike.relation = TARGET_RELATION_ENEMY;
+	CHECK(targetFilterAccepts(&vehicles, &bike) == 1);
+	vehicles.vehicles_occupied = 0; // "any vehicle": the bike its rider left
+	bike.occupied = 0;
+	bike.relation = TARGET_RELATION_NONE;
+	CHECK(targetFilterAccepts(&vehicles, &bike) == 1);
+
+	// The seams: lvRender and sightCanTargetProp ask the filter; the
+	// rocket launcher's number is the table's.
+	const std::string lv = readSource("src/game/lv.c");
+	REQUIRE(lv.find("targetFilterNative(TARGET_PICKER_LOOK, bgunGetWeaponNum(HAND_RIGHT), &look);") != std::string::npos);
+	CHECK(lv.find("(obj->flags3 & OBJFLAG3_REACTTOSIGHT) == 0") == std::string::npos);
+	const std::string sight = readSource("src/game/sight.c");
+	REQUIRE(sight.find("targetFilterNative(TARGET_PICKER_LOCK, bgunGetWeaponNum(HAND_RIGHT), &lock);") != std::string::npos);
+	CHECK(sight.find("WEAPON_ROCKETLAUNCHER") == std::string::npos);
+	REQUIRE(sight.find("void sightTargetFacts(struct prop *prop, struct target_facts *out)") != std::string::npos);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

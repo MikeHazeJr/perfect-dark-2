@@ -646,6 +646,18 @@ rocket drops it.
   empty one is nobody's friend, so it passes "enemy" and "anyone" and fails
   "friend" and "owner only" (Mike's "the bike stays a target under any").
 
+**6a as written so far (2026-11-22, `week-pd/core-weapons-w6`):** the filter
+(`port/include/target_filter.h`: kinds, things that must react to sight, the
+CI training targets, occupied vehicles, relation, alive, cloaks) and its
+first two pickers. `lvRender`'s look and `sightCanTargetProp`'s lock read a
+prop's facts (`sightTargetFacts`, sight.c) and ask their native filters; the
+rocket launcher's "locks whatever is looked at" is the lock table's answer
+for its weapon number. pd-tests compare both with copies of the inline tests
+as they stood, over 160 combinations of facts (the comparison caught a
+sentry that does not react to sight, which the first draft let through).
+Next: homing, auto-aim, the Farsight, the bot Slayer, proximity and
+sentries.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.

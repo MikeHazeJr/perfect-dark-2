@@ -7,6 +7,8 @@
 #include "game/bg.h"
 #include "game/body.h"
 #include "game/bondgun.h"
+#include "game/sight.h"
+#include "target_filter.h"
 #include "game/bondgun_mod.h" /* T-MODDING-008: committed charge release */
 #include "game/bondhead.h"
 #include "game/bondmove.h"
@@ -1916,28 +1918,18 @@ Gfx *lvRender(Gfx *gdl)
 						|| (weaponHasFlag(bgunGetWeaponNum(HAND_RIGHT), WEAPONFLAG_AIMTRACK) && bmoveIsInSightAimMode())) {
 					g_Vars.currentplayer->lookingatprop.prop = propFindAimingAt(HAND_RIGHT, false, FINDPROPCONTEXT_QUERY);
 
+					/* held-weapon-events.md slice 6a: the look picker's filter
+					 * (its native one: a character or player, a cloaked one only
+					 * through the IR scanner; an object that reacts to sight or a
+					 * CI training target; nothing else). */
 					if (g_Vars.currentplayer->lookingatprop.prop) {
-						if (g_Vars.currentplayer->lookingatprop.prop->type == PROPTYPE_CHR
-								|| g_Vars.currentplayer->lookingatprop.prop->type == PROPTYPE_PLAYER) {
-							chr = g_Vars.currentplayer->lookingatprop.prop->chr;
+						target_filter_t look;
+						target_facts_t facts;
 
-							if ((chr->hidden & CHRHFLAG_CLOAKED) && !USINGDEVICE(DEVICE_IRSCANNER)) {
-								g_Vars.currentplayer->lookingatprop.prop = NULL;
-							}
-						} else if (g_Vars.currentplayer->lookingatprop.prop->type == PROPTYPE_OBJ
-								|| g_Vars.currentplayer->lookingatprop.prop->type == PROPTYPE_WEAPON
-								|| g_Vars.currentplayer->lookingatprop.prop->type == PROPTYPE_DOOR) {
-							struct defaultobj *obj = g_Vars.currentplayer->lookingatprop.prop->obj;
+						targetFilterNative(TARGET_PICKER_LOOK, bgunGetWeaponNum(HAND_RIGHT), &look);
+						sightTargetFacts(g_Vars.currentplayer->lookingatprop.prop, &facts);
 
-							if ((obj->flags3 & OBJFLAG3_REACTTOSIGHT) == 0) {
-								if (g_Vars.stagenum != STAGE_CITRAINING
-										|| (obj->modelnum != MODEL_TARGET
-											&& obj->modelnum != MODEL_CIHUB
-											&& obj->modelnum != MODEL_COMHUB)) {
-									g_Vars.currentplayer->lookingatprop.prop = NULL;
-								}
-							}
-						} else {
+						if (!targetFilterAccepts(&look, &facts)) {
 							g_Vars.currentplayer->lookingatprop.prop = NULL;
 						}
 					}

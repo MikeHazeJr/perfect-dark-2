@@ -18,6 +18,8 @@
 #include "lib/main.h"
 #include "lib/snd.h"
 #include "data.h"
+#include "game/player.h" /* playerCurrentInCutscene, for USINGDEVICE (slice 6a) */
+#include "target_filter.h"
 #include "types.h"
 #include <math.h>
 #include "video.h"
@@ -129,11 +131,64 @@ Gfx *sight0f0d7164(Gfx *gdl)
 	return gdl;
 }
 
+/*
+ * held-weapon-events.md slice 6a: a prop's facts for the target filter, as
+ * the current player sees it: its kind (a player, a simulant, a guard, a
+ * vehicle, a sentry or another object), whether it reacts to sight, whether
+ * it is one of the CI training stage's targets, and whether it is cloaked
+ * and the player sees through cloaks.
+ */
+void sightTargetFacts(struct prop *prop, struct target_facts *out)
+{
+	out->kind = 0;
+	out->reacts_to_sight = 0;
+	out->training_target = 0;
+	out->occupied = 0;
+	out->relation = TARGET_RELATION_NONE;
+	out->alive = 1;
+	out->cloaked = 0;
+	out->owner_ir = USINGDEVICE(DEVICE_IRSCANNER) ? 1 : 0;
+
+	if (!prop) {
+		return;
+	}
+
+	if (prop->type == PROPTYPE_CHR || prop->type == PROPTYPE_PLAYER) {
+		struct chrdata *chr = prop->chr;
+
+		out->kind = prop->type == PROPTYPE_PLAYER ? TARGET_KIND_PLAYER
+			: (chr && chr->aibot ? TARGET_KIND_SIMULANT : TARGET_KIND_GUARD);
+		out->cloaked = chr && (chr->hidden & CHRHFLAG_CLOAKED) ? 1 : 0;
+	} else if (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_WEAPON || prop->type == PROPTYPE_DOOR) {
+		struct defaultobj *obj = prop->obj;
+
+		out->kind = TARGET_KIND_OBJECT;
+
+		if (obj) {
+			if (obj->type == OBJTYPE_HOVERBIKE || obj->type == OBJTYPE_HOVERCAR || obj->type == OBJTYPE_CHOPPER) {
+				out->kind = TARGET_KIND_VEHICLE;
+			} else if (obj->type == OBJTYPE_AUTOGUN) {
+				out->kind = TARGET_KIND_SENTRY;
+			}
+
+			out->reacts_to_sight = (obj->flags3 & OBJFLAG3_REACTTOSIGHT) ? 1 : 0;
+			out->training_target = g_Vars.stagenum == STAGE_CITRAINING
+				&& (obj->modelnum == MODEL_TARGET || obj->modelnum == MODEL_CIHUB || obj->modelnum == MODEL_COMHUB);
+		}
+	}
+}
+
 /**
  * Return true if the given prop can be added to the target list.
+ *
+ * held-weapon-events.md slice 6a: the lock's filter, the gun's (its native
+ * one: a character, a player or an object that reacts to sight; the rocket
+ * launcher locks whatever the player looks at).
  */
 bool sightCanTargetProp(struct prop *prop, s32 max)
 {
+	target_filter_t lock;
+	target_facts_t facts;
 	s32 i;
 
 	for (i = 0; i < max; i++) {
@@ -142,24 +197,10 @@ bool sightCanTargetProp(struct prop *prop, s32 max)
 		}
 	}
 
-	if (prop->type == PROPTYPE_CHR) {
-		return true;
-	}
+	targetFilterNative(TARGET_PICKER_LOCK, bgunGetWeaponNum(HAND_RIGHT), &lock);
+	sightTargetFacts(prop, &facts);
 
-	if (prop->type == PROPTYPE_PLAYER) {
-		return true;
-	}
-
-	if ((prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_WEAPON || prop->type == PROPTYPE_DOOR)
-			&& prop->obj && (prop->obj->flags3 & OBJFLAG3_REACTTOSIGHT)) {
-		return true;
-	}
-
-	if (bgunGetWeaponNum(HAND_RIGHT) == WEAPON_ROCKETLAUNCHER) {
-		return true;
-	}
-
-	return false;
+	return targetFilterAccepts(&lock, &facts) ? true : false;
 }
 
 /**
