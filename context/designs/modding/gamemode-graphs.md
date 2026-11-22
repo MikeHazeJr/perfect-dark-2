@@ -1,7 +1,7 @@
 # Combat Simulator modes as graphs
 
-Status (2026-11-21): slices 1 to 4 written by the Multiplayer and Rules
-session (see "Slice 1 as written" to "Slice 4 as written"); slices 5 to 7
+Status (2026-11-21): slices 1 to 5 written by the Multiplayer and Rules
+session (see "Slice 1 as written" to "Slice 5 as written"); slices 6 and 7
 open. Originally CORE, 2026-11-19: a survey and a plan for the week note's "Combat
 Simulator rules" row ("a mode graph calling native mode modules"), under
 decision 1 ("Players should be able to recreate any existing game behavior
@@ -336,6 +336,37 @@ events choose modules too (64 in all):
   validator and its tests know the 64 modules. The forced team option needed
   no move: `matchConfigApplyScenarioRules` already reads it from the mode's
   rules (`teams.required`).
+
+## Slice 5 as written (Multiplayer and Rules, 2026-11-21; not run in the game yet)
+
+State and wire by state, not by mode number (protocol v67).
+
+- **State.** `struct scenariodata` holds the five modes' states side by side
+  instead of in one union, so a mode's program may run the hill of one mode and
+  the token of another; every `g_ScenarioData.<mode>.*` access stays as it was.
+- **The plan's states** (`modeRulesPlanStates`): one bit per mode whose modules
+  the plan runs; the defaults keep no state, so Combat uses none.
+- **Wire.** `SVC_SCENARIO_STATE` carries a count and one section per state the
+  running mode's plan uses that has a wire body (`net_scenario_state_list_t`,
+  `netScenarioStateListWrite` and `Read` in `net_scenario_state_wire.c`); each
+  section is the old payload, keyed by its state. Sections are distinct states
+  on one revision, 1 to 5 of them; a bad count, a repeated state or two
+  revisions are refused whole (`NET_SCENARIO_STATE_BAD_SECTIONS`), and the
+  caller's list is not touched. A base mode sends its own state alone, so the
+  bytes are the old ones behind a count of 1.
+- **Host and client.** The host captures each state its plan uses
+  (`scenarioNetCaptureState`) and moves the shared revision when any section
+  changed outside its timers; a client takes the list only when it carries
+  exactly the states its own plan uses (both peers hold the same mode archive,
+  so anything else is dropped and logged as before), and each mode's presenter
+  takes its own section (`scenarioNetTakePending(state, ...)`). The log lines
+  the network smokes require keep their text, naming the first section's state
+  (`SCENARIO.STATE: sent scenario=N rev=R reason=baseline sections=1`).
+- Tests: the section list's round trip and refusals in
+  `tests/test_net_scenario_state_wire.cpp`, the states and the wiring in
+  `tests/test_mode_graph_program.cpp` (`[slice5]`), the protocol pins. In the
+  game: the network mode smokes (`mp_<mode>_net_smoke`, `_net_rematch_smoke`,
+  `_reconnect_smoke`) in the finalization batch.
 
 ## Questions for MULTIPLAYER
 

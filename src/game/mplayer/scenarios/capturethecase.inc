@@ -374,7 +374,7 @@ static void ctcNetPresent(void)
 	s32 i;
 	s32 j;
 
-	if (scenarioNetTakePending(&state)) {
+	if (scenarioNetTakePending(NET_SCENARIO_STATE_CAPTURETHECASE, &state)) {
 		const net_scenario_ctc_state_t *in = &state.body.ctc;
 		s32 changed = false;
 

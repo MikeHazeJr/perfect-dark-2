@@ -170,7 +170,38 @@ typedef enum net_scenario_state_status {
 	NET_SCENARIO_STATE_BAD_SCENARIO,
 	/* A field outside its documented range, or a non-finite position. */
 	NET_SCENARIO_STATE_BAD_FIELD,
+	/* gamemode-graphs.md slice 5: a section count outside 1 ..
+	 * NET_SCENARIO_STATE_MAX_SECTIONS, two sections of one state, or sections
+	 * that disagree on the revision. */
+	NET_SCENARIO_STATE_BAD_SECTIONS,
 } net_scenario_state_status_e;
+
+/*
+ * gamemode-graphs.md slice 5 (protocol v67): the message carries one section
+ * per mode state the running mode's program uses (the owners of its plan),
+ * each a whole state payload as above, keyed by the state, not by the mode
+ * number: a base mode sends its own state alone, a mode that runs King of the
+ * Hill's hill and Hold the Briefcase's token would send both. Sections are
+ * distinct states and share one revision.
+ */
+#define NET_SCENARIO_STATE_MAX_SECTIONS 5
+
+typedef struct net_scenario_state_list {
+	u8 count;
+	net_scenario_state_t sections[NET_SCENARIO_STATE_MAX_SECTIONS];
+} net_scenario_state_list_t;
+
+/* Every section valid, the count in range, the states distinct, one revision. */
+net_scenario_state_status_e netScenarioStateListValidate(const net_scenario_state_list_t *list);
+
+/* u8 count, then each section's payload. Writes nothing usable and sets the
+ * buffer error when the list is invalid or does not fit. Returns 1 or 0. */
+s32 netScenarioStateListWrite(struct netbuf *dst, const net_scenario_state_list_t *list);
+
+/* Decodes and validates the whole list before publishing it: on any failure
+ * *out is left exactly as it was and the buffer error is set. */
+net_scenario_state_status_e netScenarioStateListRead(struct netbuf *src,
+		net_scenario_state_list_t *out);
 
 /* Range checks shared by the encoder and the decoder. */
 net_scenario_state_status_e netScenarioStateValidate(const net_scenario_state_t *state);

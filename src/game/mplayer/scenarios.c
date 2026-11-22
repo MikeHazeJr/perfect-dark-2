@@ -529,11 +529,12 @@ static s32 scenarioFallbackRoomPads(s16 *outpads, s32 maxout, const s16 *existin
  * PC (T-NETWORKING-011): host-authoritative scenario state, shared part. The
  * scenario files capture and present their own bodies; see scenarios.h.
  */
-static net_scenario_state_t s_ScenarioNetLast;    // host: previous capture
+static net_scenario_state_list_t s_ScenarioNetLast;    // host: previous capture
 static s32 s_ScenarioNetHaveLast;
 static u32 s_ScenarioNetRevision;                 // host: revision of the newest change
-static net_scenario_state_t s_ScenarioNetPending; // client: newest state from the host
+static net_scenario_state_list_t s_ScenarioNetPending; // client: newest state from the host
 static s32 s_ScenarioNetHavePending;
+static u32 s_ScenarioNetPendingStates; /* the sections not yet taken, one bit per state */
 static u32 s_ScenarioNetShownRevision;            // client: revision already presented
 static s32 s_ScenarioNetHaveShown;
 
@@ -608,21 +609,40 @@ static void scenarioNetResetState(void)
 	s_ScenarioNetHaveLast = false;
 	s_ScenarioNetRevision = 0;
 	s_ScenarioNetHavePending = false;
+	s_ScenarioNetPendingStates = 0;
 	s_ScenarioNetShownRevision = 0;
 	s_ScenarioNetHaveShown = false;
 }
 
 /* Client, scenario tick: takes the newest state the host sent, once. */
-static s32 scenarioNetTakePending(net_scenario_state_t *out)
+/* gamemode-graphs.md slice 5: each mode presents its own section of the
+ * host's list; the list is shown once every section of it has been taken. */
+static s32 scenarioNetTakePending(u8 state, net_scenario_state_t *out)
 {
-	if (!s_ScenarioNetHavePending) {
+	s32 i;
+
+	if (!s_ScenarioNetHavePending || state >= 32 || !(s_ScenarioNetPendingStates & (1u << state))) {
 		return false;
 	}
 
-	*out = s_ScenarioNetPending;
-	s_ScenarioNetHavePending = false;
+	for (i = 0; i < s_ScenarioNetPending.count; i++) {
+		if (s_ScenarioNetPending.sections[i].scenario == state) {
+			*out = s_ScenarioNetPending.sections[i];
+			break;
+		}
+	}
+
+	if (i >= s_ScenarioNetPending.count) {
+		return false;
+	}
+
+	s_ScenarioNetPendingStates &= ~(1u << state);
 	s_ScenarioNetShownRevision = out->revision;
 	s_ScenarioNetHaveShown = true;
+
+	if (s_ScenarioNetPendingStates == 0) {
+		s_ScenarioNetHavePending = false;
+	}
 
 	return true;
 }
@@ -1752,20 +1772,41 @@ f32 scenarioChooseSpawnLocation(f32 chrradius, struct coord *pos, RoomNum *rooms
  * stage specific such as pad and room numbers, then re-reads the setup
  * file to reload that information.
  */
-s32 scenarioNetHasState(void)
+/* gamemode-graphs.md slice 5: the states the running mode's plan uses that
+ * have a wire body, one bit per state. */
+static u32 scenarioNetStates(void)
 {
+	const mode_rules_plan_t *plan;
+	u32 states;
+	u32 wired = 0;
+	s32 state;
+
 	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
-		return false;
+		return 0;
 	}
 
-	return netScenarioStatePayloadSize((u8)g_MpSetup.scenario) > 0;
+	plan = scenarioPlan(g_MpSetup.scenario);
+	states = modeRulesPlanStates(plan);
+
+	for (state = 0; state < MODE_RULES_MODE_COUNT; state++) {
+		if ((states & (1u << state)) && netScenarioStatePayloadSize((u8)state) > 0) {
+			wired |= 1u << state;
+		}
+	}
+
+	return wired;
+}
+
+s32 scenarioNetHasState(void)
+{
+	return scenarioNetStates() != 0;
 }
 
 /* Whether two captures differ in anything but the revision and a running
  * timer (the King of the Hill hold time), which the host resends at a low
  * rate instead. Captures are zeroed before they are filled, so padding is
  * equal and memcmp is exact. */
-static s32 scenarioNetStateChanged(const net_scenario_state_t *a, const net_scenario_state_t *b)
+static s32 scenarioNetSectionChanged(const net_scenario_state_t *a, const net_scenario_state_t *b)
 {
 	net_scenario_state_t x;
 	net_scenario_state_t y;
@@ -1809,42 +1850,72 @@ static s32 scenarioNetStateChanged(const net_scenario_state_t *a, const net_scen
 	return memcmp(&x, &y, sizeof(x)) != 0;
 }
 
-s32 scenarioNetCaptureState(net_scenario_state_t *out, s32 *changed)
+static s32 scenarioNetStateChanged(const net_scenario_state_list_t *a, const net_scenario_state_list_t *b)
 {
-	net_scenario_state_t state;
+	s32 i;
+
+	if (a->count != b->count) {
+		return true;
+	}
+
+	for (i = 0; i < a->count; i++) {
+		if (scenarioNetSectionChanged(&a->sections[i], &b->sections[i])) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+s32 scenarioNetCaptureState(net_scenario_state_list_t *out, s32 *changed)
+{
+	net_scenario_state_list_t list;
+	u32 states = scenarioNetStates();
+	s32 state;
+	s32 i;
 
 	if (changed) {
 		*changed = false;
 	}
 
-	if (out == NULL || !scenarioNetHasState()) {
+	if (out == NULL || states == 0) {
 		return false;
 	}
 
-	memset(&state, 0, sizeof(state));
-	state.scenario = (u8)g_MpSetup.scenario;
+	/* gamemode-graphs.md slice 5: one section per state the plan uses, keyed
+	 * by the state, in mode order. */
+	memset(&list, 0, sizeof(list));
 
-	switch (state.scenario) {
-	case NET_SCENARIO_STATE_KINGOFTHEHILL:
-		kohNetCapture(&state.body.koh);
-		break;
-	case NET_SCENARIO_STATE_POPACAP:
-		pacNetCapture(&state.body.pac);
-		break;
-	case NET_SCENARIO_STATE_HOLDTHEBRIEFCASE:
-		htbNetCapture(&state.body.htb);
-		break;
-	case NET_SCENARIO_STATE_HACKERCENTRAL:
-		htmNetCapture(&state.body.htm);
-		break;
-	case NET_SCENARIO_STATE_CAPTURETHECASE:
-		ctcNetCapture(&state.body.ctc);
-		break;
-	default:
-		return false;
+	for (state = 0; state < MODE_RULES_MODE_COUNT && list.count < NET_SCENARIO_STATE_MAX_SECTIONS; state++) {
+		net_scenario_state_t *section;
+
+		if (!(states & (1u << state))) {
+			continue;
+		}
+
+		section = &list.sections[list.count++];
+		section->scenario = (u8)state;
+
+		switch (state) {
+		case NET_SCENARIO_STATE_KINGOFTHEHILL:
+			kohNetCapture(&section->body.koh);
+			break;
+		case NET_SCENARIO_STATE_POPACAP:
+			pacNetCapture(&section->body.pac);
+			break;
+		case NET_SCENARIO_STATE_HOLDTHEBRIEFCASE:
+			htbNetCapture(&section->body.htb);
+			break;
+		case NET_SCENARIO_STATE_HACKERCENTRAL:
+			htmNetCapture(&section->body.htm);
+			break;
+		case NET_SCENARIO_STATE_CAPTURETHECASE:
+			ctcNetCapture(&section->body.ctc);
+			break;
+		}
 	}
 
-	if (!s_ScenarioNetHaveLast || scenarioNetStateChanged(&state, &s_ScenarioNetLast)) {
+	if (!s_ScenarioNetHaveLast || scenarioNetStateChanged(&list, &s_ScenarioNetLast)) {
 		s_ScenarioNetRevision++;
 
 		if (changed) {
@@ -1852,10 +1923,13 @@ s32 scenarioNetCaptureState(net_scenario_state_t *out, s32 *changed)
 		}
 	}
 
-	state.revision = s_ScenarioNetRevision;
-	memcpy(&s_ScenarioNetLast, &state, sizeof(state));
+	for (i = 0; i < list.count; i++) {
+		list.sections[i].revision = s_ScenarioNetRevision;
+	}
+
+	memcpy(&s_ScenarioNetLast, &list, sizeof(list));
 	s_ScenarioNetHaveLast = true;
-	memcpy(out, &state, sizeof(state));
+	memcpy(out, &list, sizeof(list));
 
 	return true;
 }
@@ -1931,32 +2005,50 @@ static void scenarioNetLocalizeSlots(net_scenario_state_t *state)
 	}
 }
 
-s32 scenarioNetReceiveState(const net_scenario_state_t *in)
+s32 scenarioNetReceiveState(const net_scenario_state_list_t *in)
 {
-	if (in == NULL || scenarioNetIsAuthority()) {
+	const u32 states = scenarioNetStates();
+	u32 received = 0;
+	u32 revision;
+	s32 i;
+
+	if (in == NULL || in->count < 1 || scenarioNetIsAuthority()) {
 		return false;
 	}
 
-	if (!scenarioNetHasState() || in->scenario != (u8)g_MpSetup.scenario) {
+	/* gamemode-graphs.md slice 5: the host sends exactly the states this
+	 * mode's plan uses (both peers hold the same mode archive). */
+	for (i = 0; i < in->count; i++) {
+		if (in->sections[i].scenario < 32) {
+			received |= 1u << in->sections[i].scenario;
+		}
+	}
+
+	if (states == 0 || received != states) {
 		sysLogPrintf(LOG_WARNING, "SCENARIO.STATE: dropped scenario=%u rev=%u, match runs scenario %d",
-			(unsigned)in->scenario, (unsigned)in->revision, (s32)g_MpSetup.scenario);
+			(unsigned)in->sections[0].scenario, (unsigned)in->sections[0].revision, (s32)g_MpSetup.scenario);
 		return false;
 	}
+
+	revision = in->sections[0].revision;
 
 	// Reliable and ordered, so an older revision means a stale copy (for
 	// example a baseline retried after a newer change was sent)
-	if ((s_ScenarioNetHaveShown && in->revision < s_ScenarioNetShownRevision)
-			|| (s_ScenarioNetHavePending && in->revision < s_ScenarioNetPending.revision)) {
+	if ((s_ScenarioNetHaveShown && revision < s_ScenarioNetShownRevision)
+			|| (s_ScenarioNetHavePending && revision < s_ScenarioNetPending.sections[0].revision)) {
 		return false;
 	}
 
 	if (!s_ScenarioNetHaveShown && !s_ScenarioNetHavePending) {
 		sysLogPrintf(LOG_NOTE, "SCENARIO.STATE: first state from host scenario=%u rev=%u",
-			(unsigned)in->scenario, (unsigned)in->revision);
+			(unsigned)in->sections[0].scenario, (unsigned)revision);
 	}
 
 	memcpy(&s_ScenarioNetPending, in, sizeof(s_ScenarioNetPending));
-	scenarioNetLocalizeSlots(&s_ScenarioNetPending);
+	for (i = 0; i < s_ScenarioNetPending.count; i++) {
+		scenarioNetLocalizeSlots(&s_ScenarioNetPending.sections[i]);
+	}
+	s_ScenarioNetPendingStates = received;
 	s_ScenarioNetHavePending = true;
 
 	return true;

@@ -164,6 +164,9 @@ void modeRulesNativePlan(s32 mode, mode_rules_plan_t *plan);
 s32 modeRulesPlanRuns(const mode_rules_plan_t *plan, s32 seam, s32 owner);
 /* Whether two plans run the same modules, in the same order, at the seam. */
 s32 modeRulesPlanSeamEqual(const mode_rules_plan_t *a, const mode_rules_plan_t *b, s32 seam);
+/* gamemode-graphs.md slice 5: the mode states the plan's modules use, one
+ * bit per mode (1u << MPSCENARIO_*); the defaults use none. */
+u32 modeRulesPlanStates(const mode_rules_plan_t *plan);
 
 #ifdef __cplusplus
 }

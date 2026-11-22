@@ -667,7 +667,7 @@ static void htmNetPresent(void)
 	struct prop *uplink = NULL;
 	s32 i;
 
-	if (scenarioNetTakePending(&state)) {
+	if (scenarioNetTakePending(NET_SCENARIO_STATE_HACKERCENTRAL, &state)) {
 		const net_scenario_htm_state_t *in = &state.body.htm;
 		s32 holder = in->uplink_holder;
 		s32 dlplayer = in->dl_player;

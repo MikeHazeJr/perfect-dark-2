@@ -4339,14 +4339,15 @@ struct scenariodata_ctc {
 	/*0x58*/ struct prop *tokens[4];
 };
 
+/* gamemode-graphs.md slice 5: the five modes' states side by side (the
+ * original kept them in one union), so a mode's program may run the hill of
+ * one mode and the token of another. */
 struct scenariodata {
-	union {
-		struct scenariodata_htb htb;
-		struct scenariodata_htm htm;
-		struct scenariodata_pac pac;
-		struct scenariodata_koh koh;
-		struct scenariodata_ctc ctc;
-	};
+	struct scenariodata_htb htb;
+	struct scenariodata_htm htm;
+	struct scenariodata_pac pac;
+	struct scenariodata_koh koh;
+	struct scenariodata_ctc ctc;
 };
 
 struct bgportal {

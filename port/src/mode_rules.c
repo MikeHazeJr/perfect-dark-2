@@ -535,3 +535,17 @@ s32 modeRulesPlanSeamEqual(const mode_rules_plan_t *a, const mode_rules_plan_t *
 	}
 	return 1;
 }
+
+u32 modeRulesPlanStates(const mode_rules_plan_t *plan)
+{
+	u32 states = 0;
+
+	if (!plan) return 0;
+	for (s32 seam = 0; seam < MODE_SEAM_COUNT; seam++) {
+		for (s32 k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+			const s32 owner = plan->owner[seam][k];
+			if (owner >= 0 && owner < MODE_RULES_MODE_COUNT) states |= 1u << owner;
+		}
+	}
+	return states;
+}

@@ -646,3 +646,74 @@ TEST_CASE("the code outside the mode table runs through the plan",
 	REQUIRE(modeRulesSeamEvent(MODE_SEAM_TOKEN_DROPPED) == MISSION_GRAPH_EVENT_MODE_TOKEN_DROPPED);
 	REQUIRE(modeRulesSeamEvent(MODE_SEAM_INTRO_PAD) == MISSION_GRAPH_EVENT_MODE_INTRO_PAD);
 }
+
+TEST_CASE("a plan names the mode states its modules use",
+	"[gamemode-graphs][slice5][plan]")
+{
+	for (s32 mode = 0; mode < MODE_RULES_MODE_COUNT; mode++) {
+		mode_rules_plan_t plan;
+		modeRulesNativePlan(mode, &plan);
+		// A base mode uses its own state alone; Combat uses none (the defaults
+		// keep no state).
+		REQUIRE(modeRulesPlanStates(&plan) == (mode == MPSCENARIO_COMBAT ? 0u : 1u << mode));
+	}
+
+	// A program that runs King of the Hill's hill and Hold the Briefcase's
+	// token uses both states (registration refuses it until slice 6).
+	CompiledProgram mixed;
+	compileMode(mixed, "{\"nodes\":[{\"id\":\"t\",\"kind\":\"event.mode.tick\"},"
+		"{\"id\":\"k\",\"kind\":\"og.mode.koh.tick\"},{\"id\":\"h\",\"kind\":\"og.mode.htb.tick\"}],"
+		"\"edges\":[{\"from\":\"t\",\"to\":\"k\",\"input\":\"exec\"},{\"from\":\"t\",\"to\":\"h\",\"input\":\"exec\"}]}");
+	INFO(mixed.err);
+	REQUIRE(mixed.program != nullptr);
+	mode_rules_plan_t plan;
+	REQUIRE(modeRulesPlanFromProgram(mixed.program, &plan) == 1);
+	REQUIRE(modeRulesPlanStates(&plan) ==
+		((1u << MPSCENARIO_KINGOFTHEHILL) | (1u << MPSCENARIO_HOLDTHEBRIEFCASE)));
+	REQUIRE(modeRulesPlanStates(nullptr) == 0);
+}
+
+TEST_CASE("the mode states sit side by side and travel as one section each",
+	"[gamemode-graphs][slice5][static]")
+{
+	const std::string types = readRepoFile("src/include/types.h");
+	const size_t data = types.find("struct scenariodata {");
+	REQUIRE(data != std::string::npos);
+	const std::string body = types.substr(data, types.find("};", data) - data);
+	REQUIRE(body.find("union") == std::string::npos);
+	for (const char *state : { "struct scenariodata_htb htb;", "struct scenariodata_htm htm;",
+			"struct scenariodata_pac pac;", "struct scenariodata_koh koh;", "struct scenariodata_ctc ctc;" }) {
+		REQUIRE(body.find(state) != std::string::npos);
+	}
+
+	const std::string scenarios = readRepoFile("src/game/mplayer/scenarios.c");
+	REQUIRE(scenarios.find("states = modeRulesPlanStates(plan);") != std::string::npos);
+	REQUIRE(scenarios.find("section->scenario = (u8)state;") != std::string::npos);
+	REQUIRE(scenarios.find("static s32 scenarioNetTakePending(u8 state, net_scenario_state_t *out)") !=
+		std::string::npos);
+	REQUIRE(scenarios.find("if (states == 0 || received != states) {") != std::string::npos);
+	REQUIRE(scenarios.find("state.scenario = (u8)g_MpSetup.scenario;") == std::string::npos);
+	for (const char *take : { "scenarioNetTakePending(NET_SCENARIO_STATE_CAPTURETHECASE, &state)",
+			"scenarioNetTakePending(NET_SCENARIO_STATE_HACKERCENTRAL, &state)",
+			"scenarioNetTakePending(NET_SCENARIO_STATE_HOLDTHEBRIEFCASE, &state)",
+			"scenarioNetTakePending(NET_SCENARIO_STATE_KINGOFTHEHILL, &state)",
+			"scenarioNetTakePending(NET_SCENARIO_STATE_POPACAP, &state)" }) {
+		INFO(take);
+		bool found = false;
+		for (const char *inc : { "capturethecase", "hackthatmac", "holdthebriefcase", "kingofthehill", "popacap" }) {
+			const std::string text = readRepoFile((std::string("src/game/mplayer/scenarios/") + inc + ".inc").c_str());
+			found = found || text.find(take) != std::string::npos;
+		}
+		REQUIRE(found);
+	}
+
+	const std::string netmsg = readRepoFile("port/src/net/netmsg.c");
+	REQUIRE(netmsg.find("netScenarioStateListWrite(dst, list)") != std::string::npos);
+	REQUIRE(netmsg.find("status = netScenarioStateListRead(src, &state);") != std::string::npos);
+	REQUIRE(netmsg.find("SCENARIO.STATE: sent scenario=%u rev=%u reason=baseline sections=%u") !=
+		std::string::npos);
+	const std::string net = readRepoFile("port/src/net/net.c");
+	REQUIRE(net.find("static net_scenario_state_list_t s_NetScenarioLastSent;") != std::string::npos);
+	const std::string net_h = readRepoFile("port/include/net/net.h");
+	REQUIRE(net_h.find("#define NET_PROTOCOL_VER 67") != std::string::npos);
+}

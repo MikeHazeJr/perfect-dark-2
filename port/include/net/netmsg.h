@@ -451,7 +451,8 @@ u32 netmsgSvcAlarmRead(struct netbuf *src, struct netclient *srccl);
  * the baseline form captures the running scenario itself and fails (writes
  * nothing) when the scenario has no network state. */
 struct net_scenario_state;
-u32 netmsgSvcScenarioStateWrite(struct netbuf *dst, const struct net_scenario_state *state);
+struct net_scenario_state_list;
+u32 netmsgSvcScenarioStateWrite(struct netbuf *dst, const struct net_scenario_state_list *list);
 u32 netmsgSvcScenarioStateBaselineWrite(struct netbuf *dst);
 u32 netmsgSvcScenarioStateRead(struct netbuf *src, struct netclient *srccl);
 u32 netmsgSvcCutsceneRead(struct netbuf *src, struct netclient *srccl);

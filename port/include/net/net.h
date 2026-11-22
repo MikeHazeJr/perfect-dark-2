@@ -11,7 +11,13 @@
 /* Forward declaration — avoids pulling enet.h into every translation unit */
 typedef struct _ENetAddress ENetAddress;
 
-#define NET_PROTOCOL_VER 66  /* v66 (2026-11-21, MULTIPLAYER AND RULES, B-1277):
+#define NET_PROTOCOL_VER 67  /* v67 (2026-11-21, MULTIPLAYER AND RULES,
+                             * gamemode-graphs slice 5): SVC_SCENARIO_STATE
+                             * carries a count and one section per mode state
+                             * the running mode's program uses, keyed by the
+                             * state rather than the mode number (a v66 peer
+                             * reads a single state with no count).
+                             * v66 (2026-11-21, MULTIPLAYER AND RULES, B-1277):
                              * a reconnect world row's lifecycle byte carries
                              * the host's scheduler presence (bit 8, on the
                              * active or paused part of the prop chain), so a
