@@ -811,6 +811,56 @@ flags at the throw, the fired projectiles' power limit, the guards' and the
 chopper's `projectileCreate`, a dropped grenade's fuse) is the next step,
 after 7a and 7b land.
 
+## Slice 7a and 7b as written (Core Weapons, 2026-11-22; on `week-pd/core-weapons-p7`, not run in the game yet)
+
+- **7a.** `objFree` clears every weapon object's prop-held smoke, releases a
+  bolt beam held by its prop and clears simulants' `skrocket` pointing at it,
+  each behind `obj->prop` (both lookups match a NULL prop). No weapon number
+  is asked.
+- **7b, the event.** `MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT` is kind 40,
+  after the weapon events (35 to 39); `isProjectileEventKind` takes the range
+  and 40. The runner, the table (`s_ProjectileEvents`, applying
+  `PROJECTILE_MODULE_FLIGHT`), registration and conformance know it.
+- **7b, the table.** `projectileRulesNative` at `in_flight` is the chain as it
+  stood (pd-tests compare it for every weapon number and function with a copy
+  of the chain at f43a7be5): the Skedar rocket `fly_by_wire`; the rocket
+  `thrust`; the homing rocket `home` and `trail`; the grenade round `trail`;
+  the knife `hit_sound` (either function) and `woosh` (its second); the
+  pinball `hit_sound` and `bounce_smoke`. `projectileRulesNativeFlight` gives
+  the settings (the cap is written `166.666656`, whose float square is the
+  original's 27777.773 exactly). Settings are parsed by
+  `projectileRulesFlightSettings`, written by
+  `projectileRulesFlightSettingsText` and compared by
+  `projectileRulesFlightSame`.
+- **7b, the record.** `projectileFlightModules` keeps the answer and its
+  settings in the prop's record beside the arm (`flew`, `flight_weaponnum`,
+  `flight_gunfunc`, `flight`, `flightset`); a launch that binds the object
+  clears `flew` as it clears `armed`. The settings reach the walk through the
+  rule context (`projectile_rule_context_t.flight`), so `projectileRuleDecide`
+  is unchanged; a program whose modules are the original's and whose
+  settings are not counts in `rules.differ` too
+  ("PROJECTILE.RULE differs: in_flight ... settings").
+- **7b, the seams.** `projectileTick` asks `projectileFlightFor` once at its
+  top (0 for anything but a weapon object) and `projectileFlightSettings`;
+  the Skedar dispatch, the homing test, the in-flight chain (woosh, thrust,
+  the flying trail, the record clause, the moving trail: the first chosen
+  runs), the collision sounds and the bounce puff read them. The record
+  clauses are unchanged.
+- **7b, the extractor.** `in_flight` is wired last (the arm and the fuse stay
+  first), each flight module with the original's settings; the rule buffers
+  are 4096 bytes and the archive buffer 12288. Marker `embedded.v22`, cache
+  kind `_flightrules`.
+- **Not exact, on purpose:** none.
+
+Smokes for Integration's batch (none run by Core Weapons):
+
+| Smoke | What it shows |
+|---|---|
+| `boot_smoke` on a freshly extracted install | every base weapon re-extracts once (`embedded.v22`) and registers; no `program refused` line |
+| `projectile_events_smoke` | the rocket launcher's rocket logs `PROJECTILE.RULE: in_flight ... modules=thrust native=thrust`, the homing rocket `home+trail`, the Devastator's round `trail`, the thrown knife `woosh+hit_sound`, the pinball grenade `hit_sound+bounce_smoke`; `rules.differ=0`; the existing lines unchanged |
+| a Combat Simulator match where a simulant fires the Slayer (`WEAPON_SKROCKET`) | the bot's rocket logs `modules=fly_by_wire` and flies its waypoints as before |
+| any smoke that frees a bolt with a beam or a pinball grenade | no `smoke`/`boltbeam` warnings; nothing dangles |
+
 ## Not in scope
 
 - Held weapons (the fire types in `bondgun.c`): the week note's Held weapons

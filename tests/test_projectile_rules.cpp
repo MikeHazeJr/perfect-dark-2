@@ -14,6 +14,7 @@
 #include "catch.hpp"
 
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 
@@ -86,7 +87,7 @@ TEST_CASE("projectile rules: every module has one kind and one bit", "[projectil
 		seen |= bit;
 	}
 	CHECK(seen == PROJECTILE_MODULE_ALL);
-	CHECK(PROJECTILE_MODULE_COUNT == 20);
+	CHECK(PROJECTILE_MODULE_COUNT == 27); // slice 7 added the flight modules
 	CHECK(projectileRulesModuleKind(0) == nullptr);
 	CHECK(projectileRulesModuleKind(PROJECTILE_MODULE_STICK | PROJECTILE_MODULE_PIERCE) == nullptr);
 	CHECK(projectileRulesModuleKind(1u << PROJECTILE_MODULE_COUNT) == nullptr);
@@ -103,7 +104,7 @@ TEST_CASE("projectile rules: every module has one kind and one bit", "[projectil
 	CHECK(projectileRulesModuleBit("og.projectile.arm_remote") == PROJECTILE_MODULE_ARM_REMOTE);
 	CHECK(projectileRulesModuleBit("og.projectile.arm_proximity") == PROJECTILE_MODULE_ARM_PROXIMITY);
 	CHECK(projectileRulesModuleBit("og.projectile.arm_bolt") == PROJECTILE_MODULE_ARM_BOLT);
-	CHECK(PROJECTILE_MODULE_ARMS == (PROJECTILE_MODULE_ALL & ~((1u << 13) - 1)));
+	CHECK(PROJECTILE_MODULE_ARMS == (((1u << 20) - 1) & ~((1u << 13) - 1))); // bits 13 to 19
 	CHECK(PROJECTILE_MODULE_ARM_FUSE < PROJECTILE_MODULE_ARM_WALL_FUSE);
 	CHECK(PROJECTILE_MODULE_ARM_PROXIMITY < PROJECTILE_MODULE_ARM_BOLT);
 	// What the runtime keeps beside an object's arms is no module and no gate.
@@ -189,7 +190,7 @@ TEST_CASE("projectile rules: the events and the modules each applies", "[project
 		CHECK((projectileRulesEventModules(kind) & ~PROJECTILE_MODULE_ALL) == 0);
 		count++;
 	}
-	CHECK(count == 16);
+	CHECK(count == 17); // slice 7: in_flight
 	CHECK(projectileRulesEventAt(-1) == -1);
 	CHECK(projectileRulesEventName(MISSION_GRAPH_EVENT_PICKUP_TOUCHED) == nullptr);
 	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PICKUP_TOUCHED) == 0);
@@ -1011,7 +1012,7 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 	REQUIRE(extractor.find("const s32 explosion = projectileRulesNativeExplosion(objweapon, objfunc);") != std::string::npos);
 	REQUIRE(extractor.find("\tprojectileRulesLaunchedObject(p->weaponnum, p->mode_index,") != std::string::npos);
 	REQUIRE(extractor.find("\t\tpayload_plan.payloads[i].weaponnum = weapon_id;") != std::string::npos);
-	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges\"") != std::string::npos);
+	REQUIRE(extractor.find("_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules\"") != std::string::npos);
 	// Every rule event of the table is wired, the arm and the fuse first.
 	for (const char *row : { "{ MISSION_GRAPH_EVENT_PROJECTILE_ARMED, \"armed\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_TIMER_EXPIRED, \"fuse\" },",
@@ -1024,7 +1025,8 @@ TEST_CASE("projectile rules: the seams, the extractor and the validator read the
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_REMOTE_SIGNAL, \"remote_signal\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_DAMAGED, \"damaged\" },",
 			"{ MISSION_GRAPH_EVENT_PROJECTILE_THROWN, \"thrown\" },",
-			"{ MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, \"sentry_aimed\" }," }) {
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED, \"sentry_aimed\" },",
+			"{ MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT, \"in_flight\" }," }) {
 		INFO(row);
 		CHECK(extractor.find(row) != std::string::npos);
 	}
@@ -1348,4 +1350,205 @@ TEST_CASE("projectile rules: a throw and a sentry ask the rules", "[projectile][
 		"\t\tconst char *asset_id, u32 native)\n{") != std::string::npos);
 	REQUIRE(countOf(events, "return projectileRuleDecide(") == 3);
 	REQUIRE(events.find("\tif (!gset || !asset_id || !asset_id[0]) {\n\t\treturn original;\n\t}") != std::string::npos);
+}
+
+// projectile-events.md slice 7: the flight rule.
+TEST_CASE("the flight rule is projectileTick's original chain", "[projectile-rules][flight]")
+{
+	CHECK(std::string(projectileRulesEventName(MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT)) == "event.projectile.in_flight");
+	CHECK(missionGraphEventIsProjectile(MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT) == 1);
+	CHECK(missionGraphEventIsWeapon(MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT) == 0);
+	CHECK(projectileRulesEventModules(MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT) == PROJECTILE_MODULE_FLIGHT);
+	CHECK(PROJECTILE_MODULE_FLIGHT == (PROJECTILE_MODULE_ALL & ~((1u << 20) - 1)));
+	CHECK(projectileRulesModuleBit("og.projectile.fly_by_wire") == PROJECTILE_MODULE_FLY_BY_WIRE);
+	CHECK(projectileRulesModuleBit("og.projectile.thrust") == PROJECTILE_MODULE_THRUST);
+	CHECK(projectileRulesModuleBit("og.projectile.home") == PROJECTILE_MODULE_HOME);
+	CHECK(projectileRulesModuleBit("og.projectile.trail") == PROJECTILE_MODULE_TRAIL);
+	CHECK(projectileRulesModuleBit("og.projectile.woosh") == PROJECTILE_MODULE_WOOSH);
+	CHECK(projectileRulesModuleBit("og.projectile.hit_sound") == PROJECTILE_MODULE_HIT_SOUND);
+	CHECK(projectileRulesModuleBit("og.projectile.bounce_smoke") == PROJECTILE_MODULE_BOUNCE_SMOKE);
+	// The gates moved above the flight modules; the program flag stays above them.
+	CHECK(PROJECTILE_RULE_GATE_FUSE_ARMED == (1u << 27));
+	CHECK((PROJECTILE_FLIGHT_PROGRAM & (PROJECTILE_MODULE_ALL | PROJECTILE_RULE_GATE_ALL)) == 0);
+
+	// The table is the chain as it stood before the slice (propobj.c at
+	// f43a7be5): the Skedar rocket's fly-by-wire before anything else of the
+	// tick, the homing test, the in-flight chain (knife woosh, rocket, homing
+	// tail, ..., grenade round), the collision sounds and the pinball's puff.
+	const auto chain = [](s32 weaponnum, s32 gunfunc) {
+		u32 modules = 0;
+		if (weaponnum == WEAPON_SKROCKET) return (u32)PROJECTILE_MODULE_FLY_BY_WIRE;
+		if (weaponnum == WEAPON_HOMINGROCKET) modules |= PROJECTILE_MODULE_HOME;
+		if (weaponnum == WEAPON_COMBATKNIFE && gunfunc == FUNC_SECONDARY) {
+			modules |= PROJECTILE_MODULE_WOOSH;
+		} else if (weaponnum == WEAPON_ROCKET) {
+			modules |= PROJECTILE_MODULE_THRUST;
+		} else if (weaponnum == WEAPON_HOMINGROCKET) {
+			modules |= PROJECTILE_MODULE_TRAIL;
+		} else if (weaponnum == WEAPON_GRENADEROUND) {
+			modules |= PROJECTILE_MODULE_TRAIL;
+		}
+		if (weaponnum == WEAPON_COMBATKNIFE || weaponnum == WEAPON_COMBATKNIFE) {
+			modules |= PROJECTILE_MODULE_HIT_SOUND;
+		} else if (weaponnum == WEAPON_GRENADE && gunfunc == FUNC_SECONDARY) {
+			modules |= PROJECTILE_MODULE_HIT_SOUND;
+		}
+		if (weaponnum == WEAPON_GRENADE && gunfunc == FUNC_SECONDARY) {
+			modules |= PROJECTILE_MODULE_BOUNCE_SMOKE;
+		}
+		return modules;
+	};
+	s32 flying = 0;
+	for (s32 weaponnum = -1; weaponnum <= 0x5f; weaponnum++) {
+		for (s32 gunfunc = FUNC_PRIMARY; gunfunc <= FUNC_POISON; gunfunc++) {
+			INFO("weapon " << weaponnum << " func " << gunfunc);
+			const u32 native = projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT, weaponnum, gunfunc, 0);
+			CHECK(native == chain(weaponnum, gunfunc));
+			CHECK((native & ~PROJECTILE_MODULE_FLIGHT) == 0);
+			flying += native != 0;
+		}
+	}
+	CHECK(flying > 0);
+
+	// The original's settings: the rocket's cap (its square the original's
+	// 27777.773 exactly) and exhaust, each trail's smoke and when, the
+	// sounds and the puff.
+	projectile_flight_t f;
+	projectileRulesNativeFlight(WEAPON_ROCKET, FUNC_PRIMARY, &f);
+	CHECK(f.max_speed * f.max_speed == 27777.773f);
+	CHECK(f.exhaust == SMOKETYPE_ROCKETTAIL);
+	projectileRulesNativeFlight(WEAPON_HOMINGROCKET, FUNC_PRIMARY, &f);
+	CHECK(f.trail_smoke == SMOKETYPE_HOMINGTAIL);
+	CHECK(f.trail_while == PROJECTILE_TRAIL_WHILE_FLYING);
+	projectileRulesNativeFlight(WEAPON_GRENADEROUND, FUNC_SECONDARY, &f);
+	CHECK(f.trail_smoke == SMOKETYPE_GRENADETAIL);
+	CHECK(f.trail_while == PROJECTILE_TRAIL_WHILE_MOVING);
+	projectileRulesNativeFlight(WEAPON_COMBATKNIFE, FUNC_PRIMARY, &f);
+	CHECK(f.hit_sound == PROJECTILE_HIT_SOUND_KNIFE);
+	projectileRulesNativeFlight(WEAPON_GRENADE, FUNC_SECONDARY, &f);
+	CHECK(f.hit_sound == PROJECTILE_HIT_SOUND_PINBALL);
+	CHECK(f.bounce_smoke == SMOKETYPE_PINBALL);
+
+	// The extractor writes each module's settings and they read back the same.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	const auto parsed = [](const std::string &members) {
+		// ", "key": value, ..." into texts, as missionGraphParamText reads them.
+		Texts texts;
+		size_t at = 0;
+		while ((at = members.find('"', at)) != std::string::npos) {
+			const size_t keyEnd = members.find('"', at + 1);
+			const std::string key = members.substr(at + 1, keyEnd - at - 1);
+			size_t value = members.find(':', keyEnd) + 1;
+			while (members[value] == ' ') value++;
+			std::string text;
+			if (members[value] == '"') {
+				const size_t end = members.find('"', value + 1);
+				text = members.substr(value + 1, end - value - 1);
+				at = end + 1;
+			} else {
+				size_t end = members.find(',', value);
+				if (end == std::string::npos) end = members.size();
+				text = members.substr(value, end - value);
+				at = end;
+			}
+			texts.values[key] = text;
+		}
+		return texts;
+	};
+	for (s32 weaponnum : { WEAPON_ROCKET, WEAPON_HOMINGROCKET, WEAPON_GRENADEROUND, WEAPON_COMBATKNIFE, WEAPON_GRENADE }) {
+		for (s32 gunfunc : { FUNC_PRIMARY, FUNC_SECONDARY }) {
+			projectile_flight_t native;
+			projectileRulesNativeFlight(weaponnum, gunfunc, &native);
+			const u32 modules = projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT, weaponnum, gunfunc, 0);
+			for (s32 m = 0; m < PROJECTILE_MODULE_COUNT; m++) {
+				const u32 bit = 1u << m;
+				if (!(modules & bit)) continue;
+				char buf[192];
+				REQUIRE(projectileRulesFlightSettingsText(bit, &native, buf, sizeof(buf)) >= 0);
+				INFO(projectileRulesModuleKind(bit) << buf);
+				Texts texts = parsed(buf);
+				projectile_flight_t back;
+				projectileRulesNativeFlight(-1, FUNC_PRIMARY, &back);
+				CHECK(projectileRulesFlightSettings(bit, Texts::get, &texts, &back, nullptr) == 1);
+				CHECK(projectileRulesFlightSame(bit, &back, &native) == 1);
+			}
+		}
+	}
+	// Malformed settings keep their defaults and name the key.
+	{
+		Texts bad;
+		bad.values["smoke"] = "purple";
+		projectile_flight_t g;
+		projectileRulesNativeFlight(WEAPON_HOMINGROCKET, FUNC_PRIMARY, &g);
+		const char *key = nullptr;
+		CHECK(projectileRulesFlightSettings(PROJECTILE_MODULE_TRAIL, Texts::get, &bad, &g, &key) == 0);
+		REQUIRE(key != nullptr);
+		CHECK(std::string(key) == "smoke");
+		CHECK(g.trail_smoke == SMOKETYPE_HOMINGTAIL);
+		CHECK(std::string(projectileRulesFlightSettingHelp("smoke")) == "rocket, homing, grenade or pinball");
+		Texts fast;
+		fast.values["max_speed"] = "0";
+		CHECK(projectileRulesFlightSettings(PROJECTILE_MODULE_THRUST, Texts::get, &fast, &g, &key) == 0);
+		CHECK(std::string(key) == "max_speed");
+		Texts none;
+		none.values["exhaust"] = "none";
+		CHECK(projectileRulesFlightSettings(PROJECTILE_MODULE_THRUST, Texts::get, &none, &g, &key) == 1);
+		CHECK(g.exhaust == -1);
+	}
+
+	// The seams: projectileTick asks the object's flight, not its weapon number.
+	const std::string propobj = readSource("src/game/propobj.c");
+	const size_t tick = propobj.find("s32 projectileTick(struct defaultobj *obj, bool *embedded)\n{");
+	REQUIRE(tick != std::string::npos);
+	const std::string body = propobj.substr(tick, propobj.find("\n}\n", tick) - tick);
+	CHECK(body.find("weaponnum == WEAPON_SKROCKET") == std::string::npos);
+	CHECK(body.find("homingwobj->weaponnum == WEAPON_HOMINGROCKET") == std::string::npos);
+	CHECK(body.find("weapon->weaponnum == WEAPON_ROCKET") == std::string::npos);
+	CHECK(body.find("weapon->weaponnum == WEAPON_HOMINGROCKET") == std::string::npos);
+	CHECK(body.find("weapon->weaponnum == WEAPON_GRENADEROUND") == std::string::npos);
+	CHECK(body.find("weapon->weaponnum == WEAPON_COMBATKNIFE") == std::string::npos);
+	CHECK(body.find("weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY") == std::string::npos);
+	CHECK(body.find("27777.773f") == std::string::npos);
+	REQUIRE(body.find("const u32 flight = obj->type == OBJTYPE_WEAPON ? projectileFlightFor(obj) : 0;") != std::string::npos);
+	REQUIRE(body.find("if (flight & PROJECTILE_MODULE_FLY_BY_WIRE) {\n\t\t\tresult = rocketTickFbw((struct weaponobj *) obj);")
+		!= std::string::npos);
+	REQUIRE(body.find("if ((flight & PROJECTILE_MODULE_HOME)\n\t\t\t\t\t\t\t|| (projectile->flags & PROJECTILEFLAG_HOMING)")
+		!= std::string::npos);
+	REQUIRE(body.find("if (tmp > flightset->max_speed * flightset->max_speed) {") != std::string::npos);
+	REQUIRE(body.find("smokeCreateAtProp(prop, flightset->bounce_smoke);") != std::string::npos);
+	// The order: woosh, thrust, the flying trail, the record clause, the moving trail.
+	const size_t woosh = body.find("if (flight & PROJECTILE_MODULE_WOOSH) {");
+	const size_t thrust = body.find("} else if (flight & PROJECTILE_MODULE_THRUST) {");
+	const size_t flyingTrail = body.find("&& flightset->trail_while == PROJECTILE_TRAIL_WHILE_FLYING) {");
+	const size_t record = body.find("} else if (customproj != NULL\n");
+	const size_t movingTrail = body.find("&& flightset->trail_while == PROJECTILE_TRAIL_WHILE_MOVING) {");
+	REQUIRE(woosh != std::string::npos);
+	REQUIRE(thrust != std::string::npos);
+	REQUIRE(flyingTrail != std::string::npos);
+	REQUIRE(record != std::string::npos);
+	REQUIRE(movingTrail != std::string::npos);
+	CHECK(woosh < thrust);
+	CHECK(thrust < flyingTrail);
+	CHECK(flyingTrail < record);
+	CHECK(record < movingTrail);
+	const std::string events = readSource("port/src/projectile_events.c");
+	REQUIRE(events.find("u32 projectileFlightModules(struct defaultobj *obj, u32 native)\n{") != std::string::npos);
+	REQUIRE(events.find("\t\tflight = projectileRuleDecide(MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT, obj, obj, who,\n"
+		"\t\t\toriginal, &context) | PROJECTILE_FLIGHT_PROGRAM;") != std::string::npos);
+	REQUIRE(events.find("\tbind->flew = 0;  /* and its flight (slice 7) */") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("{ MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT, \"in_flight\" },") != std::string::npos);
+	REQUIRE(extractor.find("projectileRulesNativeFlight(objweapon, objfunc, &flightset);") != std::string::npos);
+	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v22\"") != std::string::npos);
+	const std::string runtime = readSource("port/src/weapon_graph_runtime.c");
+	REQUIRE(runtime.find("missionGraphProgramVisitModuleParams(program, projectileProgramFlightVisit, &flightcheck)")
+		!= std::string::npos);
 }

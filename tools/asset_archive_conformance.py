@@ -2140,7 +2140,9 @@ PROJECTILE_GRAPH_EVENTS = ("event.projectile.spawned", "event.projectile.bounced
                            # slice 5: the sentry rule events
                            "event.projectile.thrown", "event.projectile.sentry_aimed",
                            # slice 6: the arm rule event
-                           "event.projectile.armed")
+                           "event.projectile.armed",
+                           # slice 7: the flight rule event
+                           "event.projectile.in_flight")
 # Slice 3: a module is a choice the seam of its event acts on, so each event
 # applies only the modules listed for it; one wired anywhere else would do
 # nothing, and the game refuses the program. Keep in step with
@@ -2163,6 +2165,9 @@ PROJECTILE_GRAPH_EVENT_MODULES = {
     "event.projectile.came_to_rest": ("og.projectile.spend_fuse",),
     "event.projectile.landed": ("og.projectile.shield_device", "og.projectile.land_bolt",
                                 "og.projectile.land_knife", "og.projectile.poison_target"),
+    "event.projectile.in_flight": ("og.projectile.fly_by_wire", "og.projectile.thrust",
+                                   "og.projectile.home", "og.projectile.trail", "og.projectile.woosh",
+                                   "og.projectile.hit_sound", "og.projectile.bounce_smoke"),
 }
 PROJECTILE_GRAPH_MODULES = ("og.projectile.explode", "og.projectile.stick",
                             "og.projectile.wall_hug", "og.projectile.pierce",
@@ -2175,7 +2180,11 @@ PROJECTILE_GRAPH_MODULES = ("og.projectile.explode", "og.projectile.stick",
                             "og.projectile.arm_fuse", "og.projectile.arm_wall_fuse",
                             "og.projectile.arm_struck_fuse", "og.projectile.arm_mine_fuse",
                             "og.projectile.arm_remote", "og.projectile.arm_proximity",
-                            "og.projectile.arm_bolt")
+                            "og.projectile.arm_bolt",
+                            # slice 7: the flight (how projectileTick flies it, and how it looks and sounds)
+                            "og.projectile.fly_by_wire", "og.projectile.thrust",
+                            "og.projectile.home", "og.projectile.trail", "og.projectile.woosh",
+                            "og.projectile.hit_sound", "og.projectile.bounce_smoke")
 # Slice 6: only an arm asks the fuse rule, and the bolt's arm runs no fuse. A
 # projectile archive's program that wires event.projectile.timer_expired must
 # reach one of these from event.projectile.armed, or it would never go off
@@ -2200,6 +2209,17 @@ PROJECTILE_GRAPH_GATE_EVENTS = {
 # (EXPLOSIONTYPE_BASE_COUNT rows; 0 is "none") with a whole number.
 PROJECTILE_GRAPH_EXPLOSION_PARAM = "explosion_type"
 PROJECTILE_GRAPH_EXPLOSION_TYPES = 26
+# Slice 7: the flight modules' settings (projectileRulesFlightSettings).
+PROJECTILE_GRAPH_SMOKES = ("rocket", "homing", "grenade", "pinball")
+PROJECTILE_GRAPH_FLIGHT_SETTINGS = {
+    "og.projectile.thrust": {"max_speed": ("speed", "above 0 and up to 10000 (units a tick)"),
+                             "exhaust": (PROJECTILE_GRAPH_SMOKES + ("none",),
+                                         "rocket, homing, grenade, pinball or none")},
+    "og.projectile.trail": {"smoke": (PROJECTILE_GRAPH_SMOKES, "rocket, homing, grenade or pinball"),
+                            "while": (("flying", "moving"), "flying or moving")},
+    "og.projectile.hit_sound": {"sound": (("knife", "pinball"), "knife or pinball")},
+    "og.projectile.bounce_smoke": {"smoke": (PROJECTILE_GRAPH_SMOKES, "rocket, homing, grenade or pinball")},
+}
 PROJECTILE_GRAPH_MAX_NODES = 4096
 PROJECTILE_GRAPH_MAX_EDGES = 16384
 
@@ -2246,6 +2266,16 @@ def validate_projectile_graph_program(where: str, graph: dict, entity: bool = Fa
                     errors.append(f"{where} og.projectile.explode {node_id!r} needs "
                                   f"{PROJECTILE_GRAPH_EXPLOSION_PARAM} from 1 to "
                                   f"{PROJECTILE_GRAPH_EXPLOSION_TYPES - 1}, or none")
+            for key, (allowed, help_text) in PROJECTILE_GRAPH_FLIGHT_SETTINGS.get(kind, {}).items():
+                if key not in node:
+                    continue
+                value = node[key]
+                if allowed == "speed":
+                    good = not isinstance(value, bool) and isinstance(value, (int, float)) and 0 < value <= 10000
+                else:
+                    good = value in allowed
+                if not good:
+                    errors.append(f"{where} {kind} {node_id!r} needs {key} {help_text}")
         elif kind == "gate.objective.status":
             if node.get("status") not in MISSION_GRAPH_STATUSES:
                 errors.append(f"{where} gate {node_id!r} needs status complete, incomplete or failed")

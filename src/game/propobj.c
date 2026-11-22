@@ -5200,6 +5200,22 @@ static u32 projectileFuseFor(struct defaultobj *obj, s32 *exptype)
 		projectileRulesNativeExplosion(weapon->weaponnum, weapon->gunfunc), exptype);
 }
 
+/* projectile-events.md slice 7: how this weapon object flies and how it
+ * looks and sounds in flight (PROJECTILE_MODULE_FLY_BY_WIRE to
+ * _BOUNCE_SMOKE bits), with PROJECTILE_FLIGHT_PROGRAM when its archive has a
+ * program. It chooses once, the first time it is asked
+ * (event.projectile.in_flight); after that this is one table lookup, and
+ * projectileFlightSettings has the settings it chose. With no program the
+ * original's flight for its weapon number and function answers. */
+static u32 projectileFlightFor(struct defaultobj *obj)
+{
+	struct weaponobj *weapon = (struct weaponobj *)obj;
+
+	return projectileFlightModules(obj,
+		projectileRulesNative(MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT,
+			weapon->weaponnum, weapon->gunfunc, 0));
+}
+
 /* projectile-events.md slice 6: the arms this weapon object runs in
  * weaponTick (PROJECTILE_MODULE_ARM_* bits), with PROJECTILE_ARMS_PROGRAM
  * when its archive has a program. It chooses once, when it is first ticked
@@ -8228,7 +8244,14 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 	s32 i;
 
 	if (g_Vars.lvupdate240 > 0) {
-		if (obj->type == OBJTYPE_WEAPON && ((struct weaponobj *)obj)->weaponnum == WEAPON_SKROCKET) {
+		/* projectile-events.md slice 7: how a weapon object flies, and how it
+		 * looks and sounds in flight, is its choice (event.projectile.
+		 * in_flight, kept with its prop): the Skedar rocket flies by wire
+		 * (og.projectile.fly_by_wire) instead of freely. */
+		const u32 flight = obj->type == OBJTYPE_WEAPON ? projectileFlightFor(obj) : 0;
+		const projectile_flight_t *flightset = projectileFlightSettings(obj);
+
+		if (flight & PROJECTILE_MODULE_FLY_BY_WIRE) {
 			result = rocketTickFbw((struct weaponobj *) obj);
 		} else if (projectile->flags & PROJECTILEFLAG_00001000) {
 			result = (projectile->flags & PROJECTILEFLAG_00002000) != 0;
@@ -8700,9 +8723,11 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 
 				homingrocket = false;
 
-				/* B-914 (Q1): honor graph-authored homing in addition to the OG
-				 * weaponnum identity. The weaponnum clause stays first and
-				 * verbatim, so OG WEAPON_HOMINGROCKET behavior is bit-identical.
+				/* B-914 (Q1): honor graph-authored homing in addition to the
+				 * object's own choice. projectile-events.md slice 7: that is
+				 * og.projectile.home (the homing rocket's, where the original
+				 * tested WEAPON_HOMINGROCKET), first, so its homing is the
+				 * original's.
 				 * PROJECTILEFLAG_HOMING is latched from projectile.homing IR at
 				 * spawn (projectileApplyGraphRuntime); the gsetHasFunctionFlags
 				 * clause honors an authored FUNCFLAG_HOMINGROCKET held-function
@@ -8711,7 +8736,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 				if (obj->type == OBJTYPE_WEAPON) {
 					struct weaponobj *homingwobj = (struct weaponobj *)obj;
 
-					if (homingwobj->weaponnum == WEAPON_HOMINGROCKET
+					if ((flight & PROJECTILE_MODULE_HOME)
 							|| (projectile->flags & PROJECTILEFLAG_HOMING)
 							|| gsetHasFunctionFlags(&homingwobj->gset, FUNCFLAG_HOMINGROCKET)) {
 						homingrocket = true;
@@ -9446,12 +9471,10 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								sp350 = true;
 							}
 
-							if (obj->type == OBJTYPE_WEAPON) {
-								struct weaponobj *weapon = (struct weaponobj *) obj;
-
-								if (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {
-									smokeCreateAtProp(prop, SMOKETYPE_PINBALL);
-								}
+							/* Slice 7: og.projectile.bounce_smoke (the pinball's; a
+							 * weapon object's choice, none for anything else). */
+							if (flight & PROJECTILE_MODULE_BOUNCE_SMOKE) {
+								smokeCreateAtProp(prop, flightset->bounce_smoke);
 							}
 						}
 
@@ -9534,15 +9557,18 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 							weapon->timer240 = 0;
 						}
 
-						if (weapon->weaponnum == WEAPON_COMBATKNIFE && weapon->gunfunc == FUNC_SECONDARY) {
+						/* Slice 7: the object's flight modules, in the
+						 * original's order, the first chosen running (the
+						 * original gave each weapon number one). */
+						if (flight & PROJECTILE_MODULE_WOOSH) {
 							knifePlayWooshSound(obj);
-						} else if (weapon->weaponnum == WEAPON_ROCKET) {
+						} else if (flight & PROJECTILE_MODULE_THRUST) {
 							if (cdresult != CDRESULT_COLLISION) {
 								f32 tmp = projectile->speed.f[0] * projectile->speed.f[0]
 									+ projectile->speed.f[1] * projectile->speed.f[1]
 									+ projectile->speed.f[2] * projectile->speed.f[2];
 
-								if (tmp > 27777.773f) {
+								if (tmp > flightset->max_speed * flightset->max_speed) {
 									projectile->unk010 = 0.0f;
 									projectile->unk014 = 0.0f;
 									projectile->unk018 = 0.0f;
@@ -9551,7 +9577,7 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 								if (projectile->powerlimit240 >= 0 && projectile->flighttime240 > projectile->powerlimit240) {
 									projectile->unk01c = 0.0f;
 									projectile->flags &= ~(PROJECTILEFLAG_POWERED | PROJECTILEFLAG_00000020);
-								} else {
+								} else if (flightset->exhaust >= 0) {
 									struct coord smokepos;
 
 									smokepos.x = projectile->speed.x;
@@ -9564,12 +9590,13 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 									smokepos.y = prop->pos.y - smokepos.y * 20.0f;
 									smokepos.z = prop->pos.z - smokepos.z * 20.0f;
 
-									smokeCreateSimple(&smokepos, prop->rooms, SMOKETYPE_ROCKETTAIL);
+									smokeCreateSimple(&smokepos, prop->rooms, flightset->exhaust);
 								}
 							}
-						} else if (weapon->weaponnum == WEAPON_HOMINGROCKET) {
+						} else if ((flight & PROJECTILE_MODULE_TRAIL)
+								&& flightset->trail_while == PROJECTILE_TRAIL_WHILE_FLYING) {
 							if (cdresult != CDRESULT_COLLISION) {
-								smokeCreateSimple(&prop->pos, prop->rooms, SMOKETYPE_HOMINGTAIL);
+								smokeCreateSimple(&prop->pos, prop->rooms, flightset->trail_smoke);
 							}
 						} else if (customproj != NULL
 								&& ((customproj->has_impact && customproj->impact_consume_on_hit)
@@ -9609,19 +9636,24 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 									projectile->smoketimer240 -= g_Vars.lvupdate240;
 								}
 							}
-						} else if (weapon->weaponnum == WEAPON_GRENADEROUND) {
-							/* Its trail while it moves; the fuse is the
-							 * came_to_rest rule's above. */
+						} else if ((flight & PROJECTILE_MODULE_TRAIL)
+								&& flightset->trail_while == PROJECTILE_TRAIL_WHILE_MOVING) {
+							/* Its trail while it moves (the grenade round's);
+							 * the fuse is the came_to_rest rule's above. */
 							if (!atrest) {
-								smokeCreateSimple(&prop->pos, prop->rooms, SMOKETYPE_GRENADETAIL);
+								smokeCreateSimple(&prop->pos, prop->rooms, flightset->trail_smoke);
 							}
 						}
 
 						if (cdresult == CDRESULT_COLLISION) {
 							if (projectile->unk0a4 < g_Vars.lvframenum - 2) {
-								if (weapon->weaponnum == WEAPON_COMBATKNIFE || weapon->weaponnum == WEAPON_COMBATKNIFE) {
+								/* Slice 7: og.projectile.hit_sound (the knife's,
+								 * either function, and the pinball's). */
+								if ((flight & PROJECTILE_MODULE_HIT_SOUND)
+										&& flightset->hit_sound == PROJECTILE_HIT_SOUND_KNIFE) {
 									psCreate(0, prop, SFX_808B, -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);
-								} else if (weapon->weaponnum == WEAPON_GRENADE && weapon->gunfunc == FUNC_SECONDARY) {
+								} else if ((flight & PROJECTILE_MODULE_HIT_SOUND)
+										&& flightset->hit_sound == PROJECTILE_HIT_SOUND_PINBALL) {
 									u16 sp100[] = {SFX_0027, SFX_0028, SFX_0029, SFX_002A};
 
 									psCreate(0, prop, sp100[rngRandom() % 4], -1, -1, 0, 0, PSTYPE_NONE, 0, -1.0f, 0, -1, -1.0f, -1.0f, -1.0f);

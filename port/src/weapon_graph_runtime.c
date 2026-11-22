@@ -684,6 +684,37 @@ static s32 projectileProgramExplosionVisit(const char *kind,
 		PROJECTILE_EXPLOSION_REFUSED;
 }
 
+/* projectile-events.md slice 7: a flight module's settings are values of
+ * their kinds (projectileRulesFlightSettings); the first one that is not
+ * stops the visit and is named. */
+typedef struct projectile_flight_check {
+	const char *kind;
+	const char *key;
+	const char *text;
+} projectile_flight_check_t;
+
+static const char *projectileFlightParamText(const char *key, void *user)
+{
+	return missionGraphParamText((const mission_graph_params_t *)user, key);
+}
+
+static s32 projectileProgramFlightVisit(const char *kind,
+	const mission_graph_params_t *params, void *userdata)
+{
+	projectile_flight_check_t *check = (projectile_flight_check_t *)userdata;
+	const u32 bit = projectileRulesModuleBit(kind);
+	projectile_flight_t flight;
+	const char *bad = NULL;
+
+	if (!(bit & PROJECTILE_MODULE_FLIGHT)) return 1;
+	projectileRulesNativeFlight(-1, FUNC_PRIMARY, &flight);
+	if (projectileRulesFlightSettings(bit, projectileFlightParamText, (void *)params, &flight, &bad)) return 1;
+	check->kind = kind;
+	check->key = bad;
+	check->text = bad ? missionGraphParamText(params, bad) : NULL;
+	return 0;
+}
+
 /* projectile-events.md slices 3 and 4: a module chooses what the seam of its
  * event does, so one wired to an event whose seam does not apply it would
  * do nothing; a gate reads what its event carries, so one wired to an event
@@ -725,6 +756,17 @@ static s32 projectileProgramModulesApply(const mission_graph_program_t *program,
 		snprintf(why, why_cap, "og.projectile.explode needs " PROJECTILE_EXPLODE_TYPE_PARAM
 			" from 1 to %d, or none", PROJECTILE_EXPLOSION_TYPE_COUNT - 1);
 		return 0;
+	}
+	{
+		projectile_flight_check_t flightcheck;
+
+		memset(&flightcheck, 0, sizeof(flightcheck));
+		if (!missionGraphProgramVisitModuleParams(program, projectileProgramFlightVisit, &flightcheck)) {
+			snprintf(why, why_cap, "%s needs %s %s, got %s", flightcheck.kind ? flightcheck.kind : "a flight module",
+				flightcheck.key ? flightcheck.key : "a setting", projectileRulesFlightSettingHelp(flightcheck.key),
+				flightcheck.text ? flightcheck.text : "?");
+			return 0;
+		}
 	}
 	/* Only an arm asks the fuse rule (weaponTick), and the object runs the
 	 * arm it chooses at event.projectile.armed. The bolt's arm runs no fuse. */

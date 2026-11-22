@@ -60,10 +60,14 @@ void projectileEventsReport(const char *why);
  * What a rule event carries for the gates that read it (projectile_rules.h):
  * the seam fills it in and passes it with the event.
  */
+struct projectile_flight;
 typedef struct projectile_rule_context {
 	s32 trigger_close;     /* proximity: what came near is within 250 units */
 	s32 trigger_character; /* proximity: it is a character, not a moving object */
 	s32 damage_weaponnum;  /* damaged: the weapon number the damage is marked with */
+	/* in_flight (slice 7): the settings its flight modules name, filled in
+	 * over the original's as the modules run. */
+	struct projectile_flight *flight;
 } projectile_rule_context_t;
 
 /*
@@ -164,6 +168,25 @@ u32 projectileFuseModules(struct defaultobj *obj, u32 native, s32 native_explosi
  */
 #define PROJECTILE_ARMS_PROGRAM (1u << 31) /* beside the arm bits: its archive has a program */
 u32 projectileArmModules(struct defaultobj *obj, u32 native);
+
+/*
+ * The flight rule (projectile-events.md slice 7). projectileTick asks how a
+ * weapon object flies and how it looks and sounds in flight:
+ * PROJECTILE_MODULE_FLY_BY_WIRE to _BOUNCE_SMOKE bits. As with the arm, the
+ * object chooses the first time it is asked (event.projectile.in_flight),
+ * with the settings its modules' nodes name, and the choice is kept with its
+ * prop, so a tick costs one lookup; it chooses again when its weapon number
+ * or function changes. With no program the answer is the original's for its
+ * weapon number and function (`native`), with the original's settings. The
+ * answer carries PROJECTILE_FLIGHT_PROGRAM when its archive has a program.
+ * Parity is counted with the other rules, once per object; a program whose
+ * modules are the original's and whose settings are not differs too.
+ */
+#define PROJECTILE_FLIGHT_PROGRAM (1u << 31)
+u32 projectileFlightModules(struct defaultobj *obj, u32 native);
+/* The settings of the flight the object chose (its last answer), else the
+ * original's for its weapon number. Never NULL. */
+const struct projectile_flight *projectileFlightSettings(const struct defaultobj *obj);
 
 #ifdef __cplusplus
 }

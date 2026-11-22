@@ -156,6 +156,8 @@ const struct {
 	{ "event.projectile.sentry_aimed", MISSION_GRAPH_EVENT_PROJECTILE_SENTRY_AIMED },
 	// Slice 6: the arm rule event.
 	{ "event.projectile.armed", MISSION_GRAPH_EVENT_PROJECTILE_ARMED },
+	// Slice 7: the flight rule event, numbered after the weapon events.
+	{ "event.projectile.in_flight", MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT },
 };
 
 // The projectile event kind of a node kind, or 0 for none.
@@ -169,8 +171,9 @@ s32 projectileEventKindOf(const std::string &kind)
 
 bool isProjectileEventKind(s32 kind)
 {
-	return kind >= MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED &&
-		kind <= MISSION_GRAPH_EVENT_PROJECTILE_ARMED;
+	return (kind >= MISSION_GRAPH_EVENT_PROJECTILE_SPAWNED &&
+			kind <= MISSION_GRAPH_EVENT_PROJECTILE_ARMED)
+		|| kind == MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT;
 }
 
 // The held weapon events by name (held-weapon-events.md slice 1).

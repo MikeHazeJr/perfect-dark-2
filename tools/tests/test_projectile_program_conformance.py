@@ -116,16 +116,19 @@ class Schemas(unittest.TestCase):
 
 class Programs(unittest.TestCase):
     def test_the_events_and_modules_a_projectile_program_has(self):
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 20)
-        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 16)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_MODULES), 27)
+        self.assertEqual(len(conf.PROJECTILE_GRAPH_EVENTS), 17)
         # Slice 6: the arms, in the order weaponTick tests them.
         self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.armed"],
                          ("og.projectile.arm_fuse", "og.projectile.arm_wall_fuse",
                           "og.projectile.arm_struck_fuse", "og.projectile.arm_mine_fuse",
                           "og.projectile.arm_remote", "og.projectile.arm_proximity",
                           "og.projectile.arm_bolt"))
-        self.assertEqual(conf.PROJECTILE_GRAPH_MODULES[13:],
+        self.assertEqual(conf.PROJECTILE_GRAPH_MODULES[13:20],
                          conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.armed"])
+        # Slice 7: the flight modules, last.
+        self.assertEqual(conf.PROJECTILE_GRAPH_MODULES[20:],
+                         conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.in_flight"])
         self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.thrown"],
                          ("og.projectile.deploy_sentry",))
         self.assertEqual(conf.PROJECTILE_GRAPH_EVENT_MODULES["event.projectile.sentry_aimed"],
@@ -369,6 +372,53 @@ class Programs(unittest.TestCase):
         self.assertEqual(one({"from": "spawn_state", "to": "motion"},
                              {"from": "motion", "to": "nowhere"}), [])
         self.assertIn("edges must be an array", program_errors(edited(edges={}))[0])
+
+
+class FlightRule(unittest.TestCase):
+    """projectile-events.md slice 7: event.projectile.in_flight chooses the
+    flight modules, whose settings are values of their kinds."""
+
+    def _program(self, module: dict) -> dict:
+        return {
+            "schema": "pd.projectile_graph.v2", "asset_id": "base:test__projectile", "graph_id": "flight",
+            "nodes": [
+                {"id": "flight", "kind": "event.projectile.in_flight"},
+                dict(module, id="flight_module"),
+            ],
+            "edges": [{"from": "flight", "output": "out", "to": "flight_module", "input": "exec"}],
+        }
+
+    def _errors(self, module: dict) -> list:
+        return conf.validate_projectile_graph_program("test", self._program(module))
+
+    def test_the_original_settings(self):
+        for module in ({"kind": "og.projectile.thrust", "max_speed": 166.666656, "exhaust": "rocket"},
+                       {"kind": "og.projectile.thrust", "exhaust": "none"},
+                       {"kind": "og.projectile.trail", "smoke": "homing", "while": "flying"},
+                       {"kind": "og.projectile.trail", "smoke": "grenade", "while": "moving"},
+                       {"kind": "og.projectile.hit_sound", "sound": "pinball"},
+                       {"kind": "og.projectile.bounce_smoke", "smoke": "pinball"},
+                       {"kind": "og.projectile.fly_by_wire"}, {"kind": "og.projectile.home"},
+                       {"kind": "og.projectile.woosh"}):
+            with self.subTest(module=module):
+                self.assertEqual(self._errors(module), [])
+
+    def test_malformed_settings(self):
+        for module, why in (({"kind": "og.projectile.thrust", "max_speed": 0}, "needs max_speed above 0"),
+                            ({"kind": "og.projectile.thrust", "exhaust": "steam"}, "needs exhaust rocket"),
+                            ({"kind": "og.projectile.trail", "smoke": "none"}, "needs smoke rocket"),
+                            ({"kind": "og.projectile.trail", "while": "always"}, "needs while flying or moving"),
+                            ({"kind": "og.projectile.hit_sound", "sound": "bell"}, "needs sound knife or pinball")):
+            with self.subTest(module=module):
+                messages = self._errors(module)
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+
+    def test_a_flight_module_elsewhere_does_nothing(self):
+        program = self._program({"kind": "og.projectile.thrust"})
+        program["nodes"][0]["kind"] = "event.projectile.armed"
+        messages = conf.validate_projectile_graph_program("test", program)
+        self.assertTrue(any("has no effect on" in m for m in messages), messages)
 
 
 class Archives(unittest.TestCase):
