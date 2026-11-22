@@ -19,7 +19,7 @@ Fix (fixture only): `--debug-end-mission 100:complete`, which leaves about 36 s 
 and also works if the assist does skip it. Rerun R8 (candidate 3, checkout 11cb964d) failed the same way, for the
 reason in B-1312: the timing was only half of it.
 
-## 2026-11-22 B-1312 A match or mission started from the solo Room ran under the Room's menu input layer when the Room owned it (T-MENUS-009, T-NETWORKING-007, fixed on week-pd/mp-rules-b1312, found in Integration's finalization run R8)
+## 2026-11-22 B-1312 A co-op mission started from the solo Room ran under the Room's menu input layer when the Room owned it (T-MENUS-009, T-NETWORKING-007, fixed on week-pd/mp-rules-b1312, found in Integration's finalization run R8)
 
 In R8 (candidate 3), with B-1311's fixture in place, Defection's intro ended at 84.3 s, the buddy spawned and the
 mission ended at 100 s to its results. Still, `offline_gameplay_ready` began its stability window only once, in
@@ -30,16 +30,25 @@ CI before the Room opened. INPUTCTX shows why:
   relative mode for gameplay"). There was no input reset at the stage change.
 - The readiness wait needs the gameplay layer on top, so it could not hold.
 
-Cause: both solo Start Match paths in `pdgui_menu_room.cpp` (the Combat Simulator start after `matchStart()`, and
-the Campaign start after `pdguiRoomStartOfflineCoop`) called `pdguiSoloRoomClose()`, which only clears the Room's
-flags. The Leave path releases `MENU_TYPE_ROOM` first. A Room opened without the Main Menu's push (B-1278's
-`--launch-offline-room`, and possibly a Room the Main Menu no longer covers) owns the layer, so only that release
-pops it. Same class as B-1042, which fixed the listen host's lobby only.
+Cause: the offline Campaign start, `pdguiRoomStartOfflineCoop` (`pdgui_bridge.c`), was the one gameplay start that
+released no menu-pool slot. The Room's Combat Simulator start goes through `mpStartMatch`, which releases the whole
+pool before it asks for its stage (B-1076). The end screen's Retry and Next Mission release it after the same
+`menuhandlerAcceptMission` call, and Solo Missions pops `imgui_menu` itself. Both solo Room starts then called
+`pdguiSoloRoomClose()`, which only clears the Room's flags; Leave releases `MENU_TYPE_ROOM` first. A Room opened without
+the Main Menu's push (B-1278's `--launch-offline-room`) owns the layer. Its slot is PC-only
+(`menupoolLegacyStackOptional`), so the per-frame watchdog that reclaims leaked legacy-stack slots skips it. Same class
+as B-1042, which fixed the listen host's lobby only.
 
-Fix: both solo starts call `menupoolRelease(MENU_TYPE_ROOM)` before `pdguiSoloRoomClose()`. The release is
-idempotent, and a shared slot does not pop. Tests: `[b1312]` in `tests/test_net_mission_end_static.cpp`. Not yet seen
-with a human in normal play; the rerun is `coop_ai_buddies_offline_smoke` on candidate 4. Severity: high if a player's
-start leaves the layer up (absolute mouse; gameplay-only actions suppressed, per B-1042), otherwise test only.
+Fix: `pdguiRoomStartOfflineCoop` releases every menu-pool slot after the mission start
+(`SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL`, "room offline coop"), as the end screen's starts do. It first checks the
+stage archive repair status, as Solo Missions does: a stage not yet repaired returns -4 and the Room stays open, so the
+pool is never released without a stage request (before this, the Room closed with no mission started). Both solo Room
+starts also release `MENU_TYPE_ROOM` before `pdguiSoloRoomClose()`, as Leave does, so the Room never closes holding its
+slot. The release is idempotent, and a shared slot does not pop. Propagation: every caller of `pdguiSoloRoomClose()`
+releases first. Networked starts release at the lobby state boundary (B-1042) and in
+`netServerPrepareInClientStageTransition` (B-1076). Tests: `[b1312]` in `tests/test_net_mission_end_static.cpp`. Not yet
+seen with a human in normal play; the rerun is `coop_ai_buddies_offline_smoke` on candidate 4. Severity: high if a
+player's start leaves the layer up (absolute mouse; gameplay-only actions suppressed, per B-1042), otherwise test only.
 
 ## 2026-11-22 B-1309 `release.ps1` would commit Codex's memory from a fresh clone of this public repository (T-RELEASE-006, open: Mike's decision)
 

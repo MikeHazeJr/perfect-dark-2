@@ -44,6 +44,7 @@
 #include "inputctx.h"
 #include "menupool.h"
 #include "scene_transition.h"
+#include "stage_archive_repair.h"
 #include "lib/main.h"
 #include "config.h"
 #include "lib/vi.h"
@@ -1308,6 +1309,15 @@ s32 pdguiRoomStartOfflineCoop(const char *stage_id, u8 difficulty)
             stage_id);
         return -3;
     }
+    /* B-1312: Solo Missions makes this check before its start too.
+     * menuhandlerAcceptMission makes it again and returns without a stage
+     * request, and the menu pool is released below, so a stage not yet
+     * repaired keeps the Room open instead. */
+    if (stageArchiveRepairStatus(stage.stagenum) != 0) {
+        sysLogPrintf(LOG_WARNING,
+            "COOP.AIBUDDIES: offline start: '%s' is not ready (stage archive repair)", stage_id);
+        return -4;
+    }
 
     max_buddies = getMaxAiBuddiesForDifficulty(difficulty);
     if (buddies < 1) {
@@ -1337,6 +1347,13 @@ s32 pdguiRoomStartOfflineCoop(const char *stage_id, u8 difficulty)
         stage_id, stageindex, (unsigned)difficulty, buddies,
         (unsigned)g_NetCoopAiBuddies, max_buddies);
     menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);
+    /* B-1312: a gameplay start releases every menu-pool slot, as the end
+     * screen's Retry and Next Mission do after this same call (and
+     * mpStartMatch, B-1076). This start did not, so a Room that owned the
+     * menu input layer kept it above the whole mission: the Room's slot is
+     * PC-only, and the per-frame watchdog never reclaims those. */
+    sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,
+        "room offline coop");
     return 0;
 }
 
