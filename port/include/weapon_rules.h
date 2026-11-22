@@ -1509,6 +1509,18 @@ static inline s32 weaponRulesApplyLockSettings(weapon_rule_text_fn get, void *us
 	return ok;
 }
 
+/* held-weapon-events.md slice 6c: whether a lock seeks vehicles: it holds
+ * targets and names its kinds, vehicles among them. The look then offers a
+ * vehicle its filter takes, though no vehicle reacts to sight, and a rider
+ * it does not take as the vehicle they ride. A lock that takes every kind
+ * (the rocket launcher's) takes what the look offers, as the original's
+ * did. */
+static inline s32 weaponRulesLockSeeksVehicles(const weapon_rule_lock_t *lock)
+{
+	return lock && lock->locks > 0 && (lock->filter.kinds & TARGET_KIND_VEHICLE)
+		&& lock->filter.kinds != TARGET_KINDS_ALL;
+}
+
 /* Whether two locks hold the same targets the same way (the parity probe). */
 static inline s32 weaponRulesLockEqual(const weapon_rule_lock_t *a, const weapon_rule_lock_t *b)
 {

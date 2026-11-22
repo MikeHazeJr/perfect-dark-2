@@ -24,6 +24,7 @@
 #include "target_filter.h"
 #include "weapon_rules.h"
 #include "weapon_events.h"
+#include "vehicle_graph_runtime.h"
 #include "types.h"
 #include <math.h>
 #include "video.h"
@@ -135,6 +136,50 @@ Gfx *sight0f0d7164(Gfx *gdl)
 	return gdl;
 }
 
+struct prop *sightVehicleRider(struct prop *vehicle)
+{
+	s32 gunner = -1;
+	s32 i;
+
+	if (!vehicle) {
+		return NULL;
+	}
+
+	for (i = 0; i < MAX_PLAYERS; i++) {
+		struct player *player = g_Vars.players[i];
+
+		if (player && player->prop && player->hoverbike == vehicle && player->bondmovemode == MOVEMODE_BIKE) {
+			if (vehicleGraphRuntimeSeatOfPlayer(vehicle, vehicle->lifecycle_generation, i) != VEHICLE_GRAPH_SEAT_GUNNER) {
+				return player->prop;
+			}
+
+			if (gunner < 0) {
+				gunner = i;
+			}
+		}
+	}
+
+	return gunner >= 0 ? g_Vars.players[gunner]->prop : NULL;
+}
+
+struct prop *sightRiderVehicle(struct prop *prop)
+{
+	s32 playernum;
+
+	if (!prop || prop->type != PROPTYPE_PLAYER) {
+		return NULL;
+	}
+
+	playernum = playermgrGetPlayerNumByProp(prop);
+
+	if (playernum < 0 || playernum >= MAX_PLAYERS || !g_Vars.players[playernum]
+			|| g_Vars.players[playernum]->bondmovemode != MOVEMODE_BIKE) {
+		return NULL;
+	}
+
+	return g_Vars.players[playernum]->hoverbike;
+}
+
 /*
  * held-weapon-events.md slice 6a: a prop's facts for the target filter, as
  * the current player sees it: its kind (a player, a simulant, a guard, a
@@ -194,10 +239,27 @@ void sightTargetFactsFor(struct prop *prop, struct prop *ownerprop, s32 owner_ir
 
 		if (obj) {
 			if (obj->type == OBJTYPE_HOVERBIKE || obj->type == OBJTYPE_HOVERCAR || obj->type == OBJTYPE_CHOPPER) {
+				/* slice 6c: a vehicle is occupied while someone rides it,
+				 * and is its rider's friend or enemy; an empty one is
+				 * nobody's (TARGET_RELATION_NONE). */
+				struct prop *rider = sightVehicleRider(prop);
+
 				out->kind = TARGET_KIND_VEHICLE;
+				out->occupied = rider || (obj->hidden & OBJHFLAG_MOUNTED) ? 1 : 0;
+
+				if (rider && rider->chr) {
+					struct chrdata *self = ownerprop ? ownerprop->chr : NULL;
+
+					out->relation = rider == ownerprop ? TARGET_RELATION_OWNER
+						: (self && chrCompareTeams(self, rider->chr, COMPARE_FRIENDS) ? TARGET_RELATION_FRIEND
+							: TARGET_RELATION_ENEMY);
+				}
 			} else if (obj->type == OBJTYPE_AUTOGUN) {
 				out->kind = TARGET_KIND_SENTRY;
 			}
+
+			/* slice 6c: a thing is alive until it is destroyed. */
+			out->alive = objGetDestroyedLevel(obj) == 0 ? 1 : 0;
 
 			out->reacts_to_sight = (obj->flags3 & OBJFLAG3_REACTTOSIGHT) ? 1 : 0;
 			out->training_target = g_Vars.stagenum == STAGE_CITRAINING

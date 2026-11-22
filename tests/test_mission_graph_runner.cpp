@@ -4234,6 +4234,66 @@ TEST_CASE("a mine's arm names what sets it off, and a mod mine's record is its n
 		!= std::string::npos);
 }
 
+// held-weapon-events.md slice 6c: a lock that names vehicles seeks them.
+TEST_CASE("a lock that names vehicles seeks them, and the original's locks do not",
+	"[mission-graph][held-weapon][target-filter][weapon-rules]")
+{
+	weapon_rule_lock_t rocket, cmp, falcon;
+	weaponRulesNativeLock(WEAPON_ROCKETLAUNCHER, FUNC_PRIMARY, SIGHTTRACKTYPE_ROCKETLAUNCHER, &rocket);
+	weaponRulesNativeLock(WEAPON_CMP150, FUNC_SECONDARY, SIGHTTRACKTYPE_FOLLOWLOCKON, &cmp);
+	weaponRulesNativeLock(WEAPON_FALCON2, FUNC_PRIMARY, SIGHTTRACKTYPE_DEFAULT, &falcon);
+	// The original's locks take what the look offers, which is never a vehicle
+	// that does not react to sight.
+	CHECK(weaponRulesLockSeeksVehicles(&rocket) == 0);
+	CHECK(weaponRulesLockSeeksVehicles(&cmp) == 0);
+	CHECK(weaponRulesLockSeeksVehicles(&falcon) == 0);
+	CHECK(weaponRulesLockSeeksVehicles(nullptr) == 0);
+	// Mike's "Enemy vehicles", and a lock that names vehicles among others.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts enemyVehicles;
+	enemyVehicles.values = { { "kinds", "vehicle" }, { "vehicles", "occupied" }, { "relation", "enemy" },
+		{ "alive", "true" }, { "cloaked", "never" } };
+	weapon_rule_lock_t lock;
+	REQUIRE(weaponRulesApplyLockSettings(Texts::get, &enemyVehicles, &lock) == 1);
+	CHECK(weaponRulesLockSeeksVehicles(&lock) == 1);
+	Texts mixed;
+	mixed.values = { { "kinds", "player, vehicle" }, { "locks", "2" } };
+	REQUIRE(weaponRulesApplyLockSettings(Texts::get, &mixed, &lock) == 1);
+	CHECK(weaponRulesLockSeeksVehicles(&lock) == 1);
+	Texts all;
+	all.values = { { "kinds", "all" } };
+	REQUIRE(weaponRulesApplyLockSettings(Texts::get, &all, &lock) == 1);
+	CHECK(weaponRulesLockSeeksVehicles(&lock) == 0);
+	Texts people;
+	people.values = { { "kinds", "characters" } };
+	REQUIRE(weaponRulesApplyLockSettings(Texts::get, &people, &lock) == 1);
+	CHECK(weaponRulesLockSeeksVehicles(&lock) == 0);
+
+	// The seams: a vehicle's facts come from its rider and its damage, and the
+	// look offers vehicles and riders' vehicles to a lock that seeks them.
+	const std::string sight = readSource("src/game/sight.c");
+	REQUIRE(sight.find("struct prop *rider = sightVehicleRider(prop);") != std::string::npos);
+	REQUIRE(sight.find("out->occupied = rider || (obj->hidden & OBJHFLAG_MOUNTED) ? 1 : 0;") != std::string::npos);
+	REQUIRE(sight.find("out->relation = rider == ownerprop ? TARGET_RELATION_OWNER") != std::string::npos);
+	REQUIRE(sight.find("out->alive = objGetDestroyedLevel(obj) == 0 ? 1 : 0;") != std::string::npos);
+	REQUIRE(sight.find("vehicleGraphRuntimeSeatOfPlayer(vehicle, vehicle->lifecycle_generation, i) != VEHICLE_GRAPH_SEAT_GUNNER")
+		!= std::string::npos);
+	REQUIRE(sight.find("return g_Vars.players[playernum]->hoverbike;") != std::string::npos);
+	const std::string lv = readSource("src/game/lv.c");
+	REQUIRE(lv.find("if (weaponRulesLockSeeksVehicles(lock)) {") != std::string::npos);
+	REQUIRE(lv.find("? NULL : sightRiderVehicle(g_Vars.currentplayer->lookingatprop.prop);") != std::string::npos);
+	REQUIRE(lv.find("if (facts.kind == TARGET_KIND_VEHICLE && targetFilterAccepts(&lock->filter, &facts)) {\n"
+		"\t\t\t\t\t\t\t\tlook.things_must_react = 0;") != std::string::npos);
+}
+
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
 	"[mission][graph][runner]")
 {

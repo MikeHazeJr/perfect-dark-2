@@ -764,6 +764,21 @@ mine's program names an arm filter it replaces the record's filters within
 the record's radius. Base programs name none (no re-extract). Slice 6b is
 done; 6c makes vehicles lockable.
 
+**6c part 1 as written (2026-11-22, `week-pd/core-weapons-w6b`): vehicles
+lockable.** A vehicle's facts come from its rider (`sightVehicleRider`: the
+player whose hoverbike it is in bike mode, the driver before the gunner, the
+gunner's seat read through `vehicleGraphRuntimeSeatOfPlayer`): occupied
+while someone rides it (or it is mounted), and its rider's friend or enemy;
+an empty one is nobody's. A thing is alive until it is destroyed. A lock
+seeks vehicles when it holds targets and names its kinds, vehicles among
+them (`weaponRulesLockSeeksVehicles`); for such a lock the look offers a
+vehicle its filter takes, though no vehicle reacts to sight, and sees a
+rider the lock does not take as the vehicle they ride (`sightRiderVehicle`),
+so Mike's "Enemy vehicles" locks the bike when the aim is on its rider. A
+lock that takes every kind (the rocket launcher's, written `kinds: all`)
+takes what the look offers, as the original's did, so no base weapon locks a
+vehicle it could not before. The sample weapon and its smoke are part 2.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.

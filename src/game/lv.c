@@ -9,6 +9,8 @@
 #include "game/bondgun.h"
 #include "game/sight.h"
 #include "target_filter.h"
+#include "weapon_rules.h"
+#include "weapon_events.h"
 #include "game/bondgun_mod.h" /* T-MODDING-008: committed charge release */
 #include "game/bondhead.h"
 #include "game/bondmove.h"
@@ -1925,9 +1927,34 @@ Gfx *lvRender(Gfx *gdl)
 					if (g_Vars.currentplayer->lookingatprop.prop) {
 						target_filter_t look;
 						target_facts_t facts;
+						const weapon_rule_lock_t *lock = weaponSightLock(0);
 
 						targetFilterNative(TARGET_PICKER_LOOK, bgunGetWeaponNum(HAND_RIGHT), &look);
 						sightTargetFacts(g_Vars.currentplayer->lookingatprop.prop, &facts);
+
+						/* held-weapon-events.md slice 6c: a lock that seeks
+						 * vehicles sees a rider it does not take as the
+						 * vehicle they ride, and a vehicle it takes though
+						 * no vehicle reacts to sight. */
+						if (weaponRulesLockSeeksVehicles(lock)) {
+							struct prop *vehicle = targetFilterAccepts(&lock->filter, &facts)
+								? NULL : sightRiderVehicle(g_Vars.currentplayer->lookingatprop.prop);
+
+							if (vehicle) {
+								target_facts_t vehiclefacts;
+
+								sightTargetFacts(vehicle, &vehiclefacts);
+
+								if (targetFilterAccepts(&lock->filter, &vehiclefacts)) {
+									g_Vars.currentplayer->lookingatprop.prop = vehicle;
+									facts = vehiclefacts;
+								}
+							}
+
+							if (facts.kind == TARGET_KIND_VEHICLE && targetFilterAccepts(&lock->filter, &facts)) {
+								look.things_must_react = 0;
+							}
+						}
 
 						if (!targetFilterAccepts(&look, &facts)) {
 							g_Vars.currentplayer->lookingatprop.prop = NULL;
