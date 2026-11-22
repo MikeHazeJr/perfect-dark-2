@@ -58,6 +58,11 @@ try {
     $r = Q @('claim', 'T-M3-001', '-Session', 'm3-a', '-OwnerPid', $sleeper.Id); $l1 = LeaseOf $r.Out
     $f = (Q @('edit', 'port/src/gdl_span.c', '-Session', 'm3-a')).Out.Trim()
     Edit-Line $f { param($t) "/* pd2q Milestone 3 trivial patch */`n" + $t }
+    # And a new file with a non-ASCII name: git quotes it in plain --name-only
+    # output, so the worker's touched-files check must read verbatim paths.
+    $cafe = "docs/caf$([char]0xE9).txt"
+    [void](Q @('edit', $cafe, '-Session', 'm3-a', '-New'))
+    [IO.File]::WriteAllText((Join-Path $root "scratch\m3-a\$cafe"), "a name git quotes`n")
     $body1 = Join-Path $root 'body-1.txt'
     [IO.File]::WriteAllText($body1, "A comment at the top of gdl_span.c, so the queue builds, tests and lands one real patch.`n")
     $r = Q @('submit', 'T-M3-001', '-Lease', $l1, '-Title', 'Tooling - T-M3-001: Add a build queue test comment', '-Body', $body1, '-CoAuthor', 'Queue Test <noreply@example.invalid>')
@@ -118,7 +123,10 @@ try {
     $r = Q @('submit', 'T-M3-006', '-Lease', $l6, '-Title', "Tooling - T-M3-006: Move bx to its pin's parent", '-Patch', $parentPatch)
     Check ($r.Code -eq 0) "job 6 submitted`n$($r.Out)"; $j6 = JobOf $r.Out
 
-    # Run the worker until the queue is empty.
+    # Run the worker until the queue is empty. The remote moved since setup (the
+    # conflicting README commit), so the worker's startup refresh must bring the
+    # dev clone sessions copy from to the remote's tip.
+    $tipBefore = (& $git -C $remote rev-parse --short=12 dev).Trim()
     $t1 = Get-Date
     $log = Join-Path $root 'service-run.log'
     $env:PD2Q_TEST_CANCEL_JOB = $j4
@@ -138,8 +146,11 @@ try {
     Check ($landedBody -match "(?m)^PD2-Issue: T-M3-001$" -and $landedBody -match "(?m)^PD2-Queue-Job: $j1$") 'the landed commit carries both trailers'
     Check ($landedBody -match '(?m)^A comment at the top of gdl_span\.c, so the queue builds' -and $landedBody -match '(?m)^Refs: T-M3-001$' -and
         ($landedBody.TrimEnd() -split "`n")[-1] -eq 'Co-Authored-By: Queue Test <noreply@example.invalid>') "the landed commit has the submitted body, Refs, and the co-author trailer last`n$landedBody"
-    $landedFiles = @(& $git -C $remote show --name-only --format= (& $git -C $remote log --grep "PD2-Queue-Job: $j1" --format=%H dev) | Where-Object { $_ })
-    Check ($landedFiles.Count -eq 1 -and $landedFiles[0] -eq 'port/src/gdl_span.c') "the landed commit is the patch: $($landedFiles -join ', ')"
+    $savedEncoding = [Console]::OutputEncoding
+    [Console]::OutputEncoding = [Text.Encoding]::UTF8  # git writes UTF-8 names
+    try { $landedFiles = @(& $git -C $remote -c core.quotePath=false show --name-only --format= (& $git -C $remote log --grep "PD2-Queue-Job: $j1" --format=%H dev) | Where-Object { $_ }) }
+    finally { [Console]::OutputEncoding = $savedEncoding }
+    Check ($landedFiles.Count -eq 2 -and $landedFiles -contains 'port/src/gdl_span.c' -and $landedFiles -contains $cafe) "the landed commit is the patch, the non-ASCII name included: $($landedFiles -join ', ')"
     Check ((LastEvent $j2) -eq 'failed') 'job 2 failed'
     $report2 = Get-Content -LiteralPath (Join-Path $root "reports\$j2.md") -Raw
     Check ($report2 -match 'gdl_span\.c' -and $report2 -match 'error') "job 2's report holds the compile error line`n$report2"
@@ -153,9 +164,12 @@ try {
     Check ((LastEvent $j5) -eq 'failed' -and $report5 -match 'third_party/bgfx/bx to a revision that could not be checked out' -and $events5 -notcontains 'building') "job 5, moving bx to a missing revision, failed before building`n$report5"
     $serviceLog6 = Get-Content -LiteralPath (Join-Path $root 'queue\service.log') -Raw
     $report6 = Get-Content -LiteralPath (Join-Path $root "reports\$j6.md") -Raw
-    Check ($serviceLog6 -match "job $j6`: submodule\(s\) third_party/bgfx/bx checked out at the patch's revisions" -and (LastEvent $j6) -eq 'cancelled' -and $report6 -match 'cancelled before building') "job 6 fetched bx's upstream revision from bx's own remote, then was cancelled before building`n$report6"
+    $events6 = @(Get-Content -LiteralPath (Join-Path $root "queue\journal\$j6.jsonl") | ForEach-Object { ($_ | ConvertFrom-Json).event })
+    # The cancel lands in the admission wait or right after it: either way, not built.
+    Check ($serviceLog6 -match "job $j6`: submodule\(s\) third_party/bgfx/bx checked out at the patch's revisions" -and (LastEvent $j6) -eq 'cancelled' -and $report6 -match 'cancelled (before building|while it waited for the build slot)' -and $events6 -notcontains 'building') "job 6 fetched bx's upstream revision from bx's own remote, then was cancelled before building`n$report6"
     $serviceLog = Get-Content -LiteralPath (Join-Path $root 'queue\service.log') -Raw
     Check ($serviceLog -match "job $j1`: the staged asset guard passed") "the staged asset guard ran before job 1's commit"
+    Check ($serviceLog -match "dev refresh \(startup\): dev clone at $tipBefore") "at startup the worker brought the dev clone to the remote's tip $tipBefore"
     $hubState = Get-Content -LiteralPath (Join-Path $Source '.codex-coordination\state.json') -Raw -Encoding utf8 | ConvertFrom-Json
     $running = @($hubState.queue | Where-Object { $_.sessionId -eq 'pd2-queue-m3test' -and $_.status -eq 'running' })
     Check ($running.Count -eq 0) "no hub slot of the test worker is left running ($($running.Count))"

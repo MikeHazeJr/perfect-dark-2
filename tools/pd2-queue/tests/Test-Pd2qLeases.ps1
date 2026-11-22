@@ -283,6 +283,20 @@ try {
     Check ((Test-Path -LiteralPath (Join-Path $rootX 'queue\service.log')) -and (Get-Content -LiteralPath (Join-Path $rootX 'queue\service.log') -Raw) -match 'setup: cloning dev') "Queue-Service.ps1 -Root lays out and logs under that root`n$out"
     Check ((Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\Install-QueueService.ps1') -Raw) -match '-Foreground -Root `"\$Root`"') 'Install-QueueService.ps1 passes its -Root to the scheduled worker'
 
+    # The Workbench gate before the worker writes landing notes (AGENTS.md):
+    # canonical, not isolated, and both roots in the main checkout.
+    $main = 'C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike'
+    $good = [pscustomobject]@{ canonical = $true; isolated = $false; projectRoot = $main; dataDir = "$main\Tools\Workbench\data" }
+    Check (Test-Pd2qWorkbenchMeta $good $main) 'the main checkout Workbench passes the gate'
+    Check (Test-Pd2qWorkbenchMeta ([pscustomobject]@{ canonical = $true; isolated = $false; projectRoot = 'c:/users/mikeh/perfect-dark-2/perfect_dark-mike/'; dataDir = 'C:/Users/mikeh/Perfect-Dark-2/perfect_dark-mike/Tools/Workbench/data' }) $main) 'whatever the case and slashes'
+    foreach ($bad in @(
+        @{ canonical = $true; isolated = $false; projectRoot = 'D:\other-clone'; dataDir = 'D:\other-clone\Tools\Workbench\data' },
+        @{ canonical = $true; isolated = $false; projectRoot = $main; dataDir = 'D:\elsewhere\data' },
+        @{ canonical = $true; isolated = $true; projectRoot = $main; dataDir = "$main\Tools\Workbench\data" },
+        @{ canonical = $false; isolated = $false; projectRoot = $main; dataDir = "$main\Tools\Workbench\data" })) {
+        Check (-not (Test-Pd2qWorkbenchMeta ([pscustomobject]$bad) $main)) "a Workbench that is not the main checkout's is refused ($($bad.projectRoot), $($bad.dataDir), isolated=$($bad.isolated), canonical=$($bad.canonical))"
+    }
+
     # Milestone 4: the push target is dev and nothing else.
     Import-Module (Join-Path $PSScriptRoot '..\Pd2Queue.psm1') -Force
     $msg = Get-Pd2qCommitMessage @{ title = 'Networking - T-NETWORKING-007: Fix rejoin'; issue = 'B-1277'; session = 's'; agent = 'claude'; body = 'Why.'; coAuthor = 'A <a@b.c>' } 'q9-20261122' 'Built.'

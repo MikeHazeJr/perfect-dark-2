@@ -43,6 +43,8 @@ pwsh -File tools\pd2-queue\Queue-Service.ps1 -Setup        # layout and the dev 
 pwsh -File tools\pd2-queue\Queue-Service.ps1 -Foreground   # the worker
 ```
 
+The worker brings the dev clone to origin/dev at startup, after each landing and every five idle minutes, so a session's scratch starts from a recent dev. It does this only while the clone is clean; a dirty clone pauses the queue and nothing is reset.
+
 `-Root <folder>` picks the queue root; otherwise `PD2Q_ROOT`, else `C:\PD2`. `Install-QueueService.ps1 -Root` passes it to the scheduled worker.
 
 A job runs through five states. Each step is written to the job's journal before it starts.

@@ -704,6 +704,19 @@ function Test-Pd2qCommitMessage([string] $Message) {
     return $null
 }
 
+function Test-Pd2qWorkbenchMeta($Meta, [string] $Canonical) {
+    # AGENTS.md's gate before any Workbench write: canonical, not isolated, and
+    # its project and data roots in the main checkout. "canonical" alone means
+    # only that the server runs in its own main checkout, which may be another
+    # clone's.
+    if (-not $Meta -or $Meta.canonical -ne $true -or $Meta.isolated -ne $false) { return $false }
+    $norm = { param($p) if (-not $p) { return '' }; ([IO.Path]::GetFullPath([string]$p)).TrimEnd('\', '/').ToLowerInvariant() }
+    $root = & $norm $Canonical
+    $project = & $norm $Meta.projectRoot
+    $data = & $norm $Meta.dataDir
+    return [bool]($root -and $project -eq $root -and $data -and $data.StartsWith($root + '\'))
+}
+
 function Assert-Pd2qPushTarget([string] $Ref) {
     # The queue pushes only to dev; main is never pushed, merged or rebased.
     if ($Ref -cne 'refs/heads/dev') { throw "pd2q pushes only refs/heads/dev; refused '$Ref'." }

@@ -84,6 +84,28 @@ function Initialize-DevCheckout {
     Update-DevSubmodules
 }
 
+function Update-DevClone([string] $Why) {
+    # The clean dev clone that sessions copy from follows origin/dev: at
+    # startup (spec), after each landing (Complete-Job) and every few idle
+    # minutes, so a session's scratch starts from a recent dev rather than from
+    # whatever the last job left. Only while it is clean: a session that wrote
+    # to it pauses the queue, as Preparing does, and nothing is reset.
+    $dirty = (Git $paths.Dev @('status', '--porcelain') -AllowFailure).Out
+    if ($dirty) {
+        $state = Read-Pd2qJson $paths.Service @{}
+        if (-not ($state.ContainsKey('paused') -and $state.paused)) {
+            Set-ServiceState @{ paused = "dev checkout is dirty: $(($dirty -split "`n" | Select-Object -First 3) -join '; ')" }
+            Add-Pd2qAlarm 'dev-dirty' "git status --porcelain in $($paths.Dev) is not empty; nothing reset. pd2q resume after a look."
+        }
+        return
+    }
+    [void](Git $paths.Dev @('fetch', '--quiet', 'origin') -AllowFailure)
+    $r = Git $paths.Dev @('reset', '--hard', '--quiet', 'origin/dev') -AllowFailure
+    if ($r.Code -ne 0) { Write-Pd2qLog "dev refresh ($Why) failed: $($r.Out)"; return }
+    try { Update-DevSubmodules } catch { Write-Pd2qLog "dev refresh ($Why): submodules: $($_.Exception.Message)" }
+    Write-Pd2qLog "dev refresh ($Why): dev clone at $((Git $paths.Dev @('rev-parse', '--short=12', 'HEAD')).Out)"
+}
+
 function Get-SubmodulePaths([string] $Dir) {
     $file = Join-Path $Dir '.gitmodules'
     if (-not (Test-Path -LiteralPath $file)) { return @() }
@@ -333,7 +355,7 @@ function Send-WorkbenchNote([hashtable] $Request, [string] $JobId, [hashtable] $
     if ($Remote) { return }
     try {
         $meta = Invoke-RestMethod -Uri 'http://127.0.0.1:8378/api/meta' -TimeoutSec 3
-        if (-not ($meta.canonical -eq $true -and $meta.isolated -eq $false)) { return }
+        if (-not (Test-Pd2qWorkbenchMeta $meta $canonical)) { Write-Pd2qLog "workbench note for $JobId skipped: the Workbench on 8378 is not the main checkout's ($($meta.projectRoot))"; return }
         $body = @{ target = $Request.issue; author = 'pd2-queue'; text = "Landed by the build queue: $JobId, commit $($Info.pushed) on dev (built from $($Info.devCommit)); $($Request.title). Session $($Request.session) ($($Request.agent))." } | ConvertTo-Json
         [void](Invoke-RestMethod -Uri 'http://127.0.0.1:8378/api/notes' -Method Post -ContentType 'application/json' -Body $body -TimeoutSec 5)
         # The item itself carries the pushed commit as evidence.
@@ -545,7 +567,9 @@ function Invoke-Job($Job) {
     # checks ran just above.
     [void](Git $src @('-c', "user.name=$name", '-c', "user.email=$email", 'commit', '-q', '--no-verify', '-F', $msgFile))
     $commit = (Git $src @('rev-parse', 'HEAD')).Out
-    $touched = @((Git $src @('diff', '--name-only', $devCommit, $commit)).Out -split "`n" | Where-Object { $_ })
+    # NUL-separated and verbatim (-z): plain --name-only quotes and escapes a
+    # name like café.txt, which then never equals the declared path.
+    $touched = @([Text.Encoding]::UTF8.GetString((Invoke-Pd2qGitBytes $src @('diff', '--name-only', '-z', $devCommit, $commit))).Split([char]0) | Where-Object { $_ })
     $declared = @($request.files)
     $extra = @($touched | Where-Object { $declared -notcontains $_ })
     if ($declared -and $extra) {
@@ -683,6 +707,8 @@ try {
         Clear-HubStaleSlots
     }
     Invoke-Recovery
+    Update-DevClone 'startup'
+    $lastRefresh = Get-Date
     [void](Invoke-Pd2qLocked { Update-Pd2qBoardFromGit })
     $idleSince = Get-Date
     while ($true) {
@@ -717,6 +743,7 @@ try {
         }
         Set-ServiceState @{ state = $(if ($service.ContainsKey('paused') -and $service.paused) { 'paused' } else { 'idle' }); job = $null }
         if ($IdleExitSeconds -gt 0 -and ((Get-Date) - $idleSince).TotalSeconds -ge $IdleExitSeconds) { break }
+        if (((Get-Date) - $lastRefresh).TotalMinutes -ge 5) { Update-DevClone 'idle'; $lastRefresh = Get-Date }
         [void]$wake.WaitOne([TimeSpan]::FromSeconds(30))  # woken by pd2q submit/cancel/resume
     }
 } finally {
