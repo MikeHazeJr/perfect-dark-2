@@ -781,6 +781,10 @@ TEST_CASE("simulants charge, and a dropped cloak turns off, by the weapon progra
 		!= std::string::npos);
 	REQUIRE(bot.find("weaponRulesSpendRounds(charge.charge_ammo, &aibot->loadedammo[i]);")
 		!= std::string::npos);
+	/* Every whole step a frame crosses is paid, and the level stops at the
+	 * last step paid (Core Weapons' N-1194, the player's loop). */
+	REQUIRE(bot.find("for (step = oldchargei; step < newchargei; step++) {") != std::string::npos);
+	REQUIRE(bot.find("aibot->maulercharge[i] = step;") != std::string::npos);
 	CHECK(bot.find("aibot->weaponnum == WEAPON_MAULER") == std::string::npos);
 	CHECK(bot.find("aibot->maulercharge[i] += g_Vars.lvupdate60freal * 0.05f;") == std::string::npos);
 

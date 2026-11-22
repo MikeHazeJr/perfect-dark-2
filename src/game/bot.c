@@ -5296,6 +5296,7 @@ void botTickUnpaused(struct chrdata *chr)
 								const f32 steps = (f32)charge.charge_steps;
 								s32 newchargei;
 								s32 oldchargei = aibot->maulercharge[i];
+								s32 step;
 
 								aibot->maulercharge[i] += g_Vars.lvupdate60freal * (steps / (f32)charge.charge_time);
 
@@ -5305,7 +5306,16 @@ void botTickUnpaused(struct chrdata *chr)
 
 								newchargei = aibot->maulercharge[i];
 
-								if (newchargei != oldchargei) {
+								// Every whole step the frame crosses is paid, and the
+								// charge stops at the last step the clip could pay, as
+								// the player's loop does (one step a frame with the
+								// Mauler's numbers, as the original).
+								for (step = oldchargei; step < newchargei; step++) {
+									if (aibot->loadedammo[i] < weaponRulesChargeStepNeeds(&charge)) {
+										aibot->maulercharge[i] = step;
+										break;
+									}
+
 									weaponRulesSpendRounds(charge.charge_ammo, &aibot->loadedammo[i]);
 								}
 							}
