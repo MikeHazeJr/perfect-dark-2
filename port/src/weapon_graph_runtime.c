@@ -949,6 +949,9 @@ const char *weaponGraphRuntimeHeldParamText(s32 weaponnum, const struct mission_
 typedef struct held_param_check {
 	char keys[WEAPON_RULE_MAX_STATES][WEAPON_RULE_STATE_KEY_LEN];
 	s32 key_count;
+	s32 functype; /* the function record's type, -1 when unknown (slice 4) */
+	s32 custom;    /* slice 5 review: 1 a custom weapon's function, 0 a base one's, -1 unknown */
+	s32 committed; /* its record is a custom weapon's committed charge launch (charge_time_ticks60) */
 	char why[160];
 } held_param_check_t;
 
@@ -958,7 +961,7 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 	const u32 bit = weaponRulesModuleBit(kind);
 	const u32 gate = weaponRulesGateBit(kind);
 	char buf[WEAPON_RULE_STATE_KEY_LEN];
-	char vbuf[32];
+	char vbuf[WEAPON_RULE_ITEM_LEN]; /* as long as an item's catalog id */
 
 	if (gate == WEAPON_RULE_GATE_HAS_AMMO) {
 		const char *raw = missionGraphParamText(params, WEAPON_RULE_ROUNDS_PARAM);
@@ -972,7 +975,13 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 		}
 		return 1;
 	}
-	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO)) {
+	if ((bit & WEAPON_MODULE_SHOTS) && check->functype >= 0 && !weaponRulesShotFits(bit, check->functype)) {
+		/* slice 4: the attack's states are its record's family. */
+		snprintf(check->why, sizeof(check->why), "%s does not fit this function (its record's function type is 0x%04x)",
+			kind, (unsigned)check->functype);
+		return 0;
+	}
+	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_RELOAD)) {
 		for (s32 i = 0; weaponRulesSettingAt(i); i++) {
 			const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
 			const char *raw = setting->module == bit ? missionGraphParamText(params, setting->key) : NULL;
@@ -988,10 +997,59 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 					snprintf(check->why, sizeof(check->why),
 						"%s needs %s in rounds per minute, above 0 and up to %d, got %s",
 						kind, setting->key, (int)WEAPON_RULE_MAX_RATE, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_NUMBER) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s above 0 and up to %d, got %s",
+						kind, setting->key, setting->hi, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_ITEM) {
+					snprintf(check->why, sizeof(check->why),
+						"%s needs %s own or an item's catalog id such as base:rocket, got %s", kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_ITEM_FUNCTION) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s gun, 0, 1 or 2, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_ACTION) {
+					snprintf(check->why, sizeof(check->why),
+						"%s needs %s detonate, boost, revert_boost, crouch, uplink, shoot, launch, throw, melee or melee_no_uncloak, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_MODE) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s cloak, got %s", kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_STYLE) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s magazine, one_at_a_time or regrow, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_CHARGE_START) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s while_selected or on_press, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_RELEASE) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s on_press or on_full, got %s",
+						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_NONNEG) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s from 0 up to %d, got %s",
+						kind, setting->key, setting->hi, raw);
 				} else {
 					snprintf(check->why, sizeof(check->why), "%s needs %s from %d to %d, got %s",
 						kind, setting->key, setting->lo, setting->hi, raw);
 				}
+				return 0;
+			}
+		}
+		if (bit == WEAPON_MODULE_CHARGE) {
+			/* slice 5 (PR 31 review): only the charges the runtime runs, so no
+			 * start or release is accepted and then ignored. */
+			char sbuf[WEAPON_RULE_ITEM_LEN];
+			char rbuf[WEAPON_RULE_ITEM_LEN];
+			const char *sraw = missionGraphParamText(params, WEAPON_RULE_START_PARAM);
+			const char *rraw = missionGraphParamText(params, WEAPON_RULE_RELEASE_PARAM);
+			const char *problem;
+			s32 start;
+
+			if (heldParamDeferred(sraw) || heldParamDeferred(rraw)) return 1;
+			start = weaponRulesChargeStartFromText(sraw ? heldParamTextIn(s_held_register_variables, params,
+				WEAPON_RULE_START_PARAM, sbuf, sizeof(sbuf)) : NULL, check->committed);
+			problem = weaponRulesChargeUnsupported(start,
+				weaponRulesChargeReleaseFromText(rraw ? heldParamTextIn(s_held_register_variables, params,
+					WEAPON_RULE_RELEASE_PARAM, rbuf, sizeof(rbuf)) : NULL, start),
+				check->custom);
+			if (problem) {
+				snprintf(check->why, sizeof(check->why), "%s: %s", kind, problem);
 				return 0;
 			}
 		}
@@ -1035,7 +1093,8 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 /* held-weapon-events.md slice 2: a module chooses what the seam of its event
  * does, so one wired to an event whose seam does not apply it would do
  * nothing; such a program is refused, with the pair named. */
-static s32 heldProgramModulesApply(const mission_graph_program_t *program, char *why, size_t why_cap)
+static s32 heldProgramModulesApply(const mission_graph_program_t *program, s32 functype, s32 custom,
+	s32 committed, char *why, size_t why_cap)
 {
 	held_param_check_t check;
 
@@ -1056,6 +1115,9 @@ static s32 heldProgramModulesApply(const mission_graph_program_t *program, char 
 		}
 	}
 	memset(&check, 0, sizeof(check));
+	check.functype = functype;
+	check.custom = custom;
+	check.committed = committed;
 	if (!missionGraphProgramVisitModuleParams(program, heldProgramParamVisit, &check)) {
 		snprintf(why, why_cap, "%s", check.why);
 		return 0;
@@ -1100,7 +1162,13 @@ static s32 heldProgramsRegister(s32 weaponnum, const weapon_graph_ir_t *ir,
 		why[0] = '\0';
 		program = missionGraphProgramCompileWeapon(ir->held_program_json[f],
 			ir->held_program_json_size[f], heldProgramModuleKnown, why, sizeof(why));
-		if (program && !heldProgramModulesApply(program, why, sizeof(why))) {
+		if (program && !heldProgramModulesApply(program,
+				s_held_functions[weaponnum][f].valid && s_held_functions[weaponnum][f].has_function_type_id
+					? s_held_functions[weaponnum][f].function_type_id : -1,
+				weaponnum >= WEAPON_CUSTOM_START,
+				weaponnum >= WEAPON_CUSTOM_START && s_held_functions[weaponnum][f].valid
+					&& s_held_functions[weaponnum][f].has_charge,
+				why, sizeof(why))) {
 			missionGraphProgramFree(program);
 			program = NULL;
 		}
@@ -2578,6 +2646,17 @@ void weaponGraphIrFree(weapon_graph_ir_t *ir)
 	ir->subgraph_capacity = 0;
 }
 
+static s32 heldIrFunctionType(const weapon_graph_ir_t *ir, s32 f);
+static s32 heldIrFunctionCommits(const weapon_graph_ir_t *ir, s32 f);
+
+/* slice 5 review: whether the IR is a custom weapon's (its asset id is not
+ * base:'s), -1 when it names none. */
+static s32 heldIrCustom(const weapon_graph_ir_t *ir)
+{
+	if (!ir || !ir->asset_id[0]) return -1;
+	return strncmp(ir->asset_id, "base:", 5) != 0;
+}
+
 s32 weaponGraphValidateJson(asset_type_e graph_type, const char *json,
                             u32 json_size, char *err, size_t err_cap)
 {
@@ -2601,7 +2680,8 @@ s32 weaponGraphValidateJson(asset_type_e graph_type, const char *json,
 			why[0] = '\0';
 			program = missionGraphProgramCompileWeapon(ir.held_program_json[f],
 				ir.held_program_json_size[f], heldProgramModuleKnown, why, sizeof(why));
-			if (program && !heldProgramModulesApply(program, why, sizeof(why))) {
+			if (program && !heldProgramModulesApply(program, heldIrFunctionType(&ir, f), heldIrCustom(&ir),
+					heldIrFunctionCommits(&ir, f), why, sizeof(why))) {
 				missionGraphProgramFree(program);
 				program = NULL;
 			}
@@ -5157,6 +5237,44 @@ static s32 weaponGraphValidateRegisteredReticles(s32 weaponnum,
 		}
 	}
 	return 0;
+}
+
+/* held-weapon-events.md slice 4: the record's function type of function f of
+ * an IR, read as weaponGraphRuntimeRegisterHeldIr reads its exports; -1 when
+ * the IR has none. */
+/* The IR's record of function f, as registration reads it; 0 when it has none. */
+static s32 heldIrFunction(const weapon_graph_ir_t *ir, s32 f, weapon_graph_held_function_t *held)
+{
+	for (s32 i = 0; ir && i < ir->export_count; i++) {
+		const s32 node_index = ir->exports[i].node;
+
+		if (heldModeToFuncIndex(ir->exports[i].name) != f || node_index < 0 || node_index >= ir->node_count) {
+			continue;
+		}
+		if (!heldOpcodeIsSupported(ir->nodes[node_index].opcode)) {
+			continue;
+		}
+		memset(held, 0, sizeof(*held));
+		heldFunctionFromNode(ir, &ir->nodes[node_index], ir->exports[i].name, held);
+		return 1;
+	}
+	return 0;
+}
+
+static s32 heldIrFunctionType(const weapon_graph_ir_t *ir, s32 f)
+{
+	weapon_graph_held_function_t held;
+
+	return heldIrFunction(ir, f, &held) && held.has_function_type_id ? held.function_type_id : -1;
+}
+
+/* slice 5 review: whether function f's record is a custom weapon's
+ * committed charge launch (its charge's start then defaults to on_press). */
+static s32 heldIrFunctionCommits(const weapon_graph_ir_t *ir, s32 f)
+{
+	weapon_graph_held_function_t held;
+
+	return heldIrFunction(ir, f, &held) && held.has_charge && heldIrCustom(ir) != 0;
 }
 
 s32 weaponGraphRuntimeRegisterHeldIr(s32 weaponnum, const weapon_graph_ir_t *ir,

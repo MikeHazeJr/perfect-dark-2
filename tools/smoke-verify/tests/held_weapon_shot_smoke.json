@@ -1,0 +1,225 @@
+{
+  "scenario_name": "held_weapon_shot_smoke",
+  "description": "Held weapon shots (context/designs/modding/held-weapon-events.md, slice 4). On Felicity with no simulants, player 0 is given each base weapon whose shot was a weapon-number case and uses it: the rocket launcher, crossbow, Devastator and Super Dragon launch the items the original's if-chain chose (base:rocket, base:bolt with the gun's function, base:grenaderound with the gun's and as function 2), the Farsight's bullet passes walls with ten times its shield damage, the Tranquilizer's sedative strike takes 4 rounds, the RCP120's cloak toggles and drains 24 rounds a second, and the Laptop gun is thrown as a sentry, giving up the gun. Each function's first press logs its program's plan, the shot included, beside the original's; they must be equal, and no rule may differ in the totals at the scripted exit.",
+  "tags": [
+    "graph",
+    "weapons",
+    "projectiles",
+    "combatsim",
+    "smoke"
+  ],
+  "paths_of_interest": [
+    "src/game/bondgun.c",
+    "src/game/prop.c",
+    "src/game/chraction.c",
+    "port/src/weapon_events.c",
+    "port/include/weapon_rules.h"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 360,
+  "install_state": "current",
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-force-first-person",
+    "--launch-mp-room",
+    "base:arena_mp_felicity",
+    "base:combat",
+    "0",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 240000,
+      "stable_ms": 3000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Wait for first-person Combat Simulator gameplay."
+    },
+    {
+      "at_ms": 500,
+      "type": "action",
+      "name": "ACTION_DEBUG_INVINCIBILITY",
+      "action": "tap",
+      "comment": "Dev invincibility: rockets and grenade rounds go off in a small room. From every give to its first input there are 3 s (equip time)."
+    },
+    {
+      "at_ms": 1000,
+      "type": "give_weapon",
+      "path": "base:rocketlauncher"
+    },
+    {
+      "at_ms": 4000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Rocket launcher: launches base:rocket."
+    },
+    {
+      "at_ms": 7000,
+      "type": "give_weapon",
+      "path": "base:crossbow"
+    },
+    {
+      "at_ms": 10000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Crossbow: launches base:bolt with the gun's function."
+    },
+    {
+      "at_ms": 13000,
+      "type": "give_weapon",
+      "path": "base:devastator"
+    },
+    {
+      "at_ms": 16000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Devastator: launches base:grenaderound with the gun's function."
+    },
+    {
+      "at_ms": 19000,
+      "type": "give_weapon",
+      "path": "base:superdragon"
+    },
+    {
+      "at_ms": 22000,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the grenade launcher."
+    },
+    {
+      "at_ms": 23000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Super Dragon: launches base:grenaderound as function 2."
+    },
+    {
+      "at_ms": 27000,
+      "type": "give_weapon",
+      "path": "base:farsight"
+    },
+    {
+      "at_ms": 30000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Farsight: a bullet that passes walls and does ten times its damage to shields."
+    },
+    {
+      "at_ms": 33000,
+      "type": "give_weapon",
+      "path": "base:tranquilizer"
+    },
+    {
+      "at_ms": 36000,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the sedative strike."
+    },
+    {
+      "at_ms": 37000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Sedative strike: takes 4 rounds."
+    },
+    {
+      "at_ms": 40000,
+      "type": "give_weapon",
+      "path": "base:rcp120"
+    },
+    {
+      "at_ms": 43000,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the cloak."
+    },
+    {
+      "at_ms": 44000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Cloak on: drains 24 rounds a second."
+    },
+    {
+      "at_ms": 47000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Cloak off."
+    },
+    {
+      "at_ms": 50000,
+      "type": "give_weapon",
+      "path": "base:laptopgun"
+    },
+    {
+      "at_ms": 53000,
+      "type": "action",
+      "name": "ACTION_FIRE_MODE",
+      "action": "tap",
+      "comment": "Switch to the deploy."
+    },
+    {
+      "at_ms": 54000,
+      "type": "action",
+      "name": "ACTION_FIRE_PRIMARY",
+      "action": "tap",
+      "comment": "Laptop gun: thrown as a sentry, giving up the gun."
+    },
+    {
+      "at_ms": 58000,
+      "type": "exit"
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=held_weapon_shot_smoke",
+      "PLAYER: invincibility ON",
+      "SMOKE\\.GIVE_WEAPON: weapon=base:rocketlauncher weaponnum=[0-9]+ result=1",
+      "SMOKE\\.GIVE_WEAPON: weapon=base:laptopgun weaponnum=[0-9]+ result=1",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:rocketlauncher func=primary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 shot=launch item=base:rocket item_function=keep native_plan=fire_once rounds=1 shot=launch item=base:rocket item_function=keep",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:crossbow func=primary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 shot=launch item=base:bolt item_function=gun native_plan=fire_once rounds=1 shot=launch item=base:bolt item_function=gun",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:devastator func=primary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 shot=launch item=base:grenaderound item_function=gun native_plan=fire_once rounds=1 shot=launch item=base:grenaderound item_function=gun",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:superdragon func=secondary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 shot=launch item=base:grenaderound item_function=2 native_plan=fire_once rounds=1 shot=launch item=base:grenaderound item_function=2",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:farsight func=primary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 shot=hitscan pellets=1 through_walls=true shield_damage=10 native_plan=fire_once rounds=1 shot=hitscan pellets=1 through_walls=true shield_damage=10",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:tranquilizer func=secondary program=yes modules=fire_once native=fire_once plan=fire_once rounds=4 shot=melee native_plan=fire_once rounds=4 shot=melee",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:rcp120 func=secondary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 shot=mode_toggle mode=cloak drain=24 native_plan=fire_once rounds=1 shot=mode_toggle mode=cloak drain=24",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:laptopgun func=secondary program=yes modules=fire_once native=fire_once plan=fire_once rounds=0 shot=throw give_up_gun=true native_plan=fire_once rounds=0 shot=throw give_up_gun=true",
+      "PROJECTILE\\.EVENT: spawned weapon=base:rocketlauncher func=primary object=base:rocket ",
+      "PROJECTILE\\.EVENT: spawned weapon=base:crossbow func=primary object=base:bolt ",
+      "PROJECTILE\\.EVENT: spawned weapon=base:devastator func=primary object=base:grenaderound ",
+      "PROJECTILE\\.EVENT: spawned weapon=base:superdragon func=secondary object=base:grenaderound ",
+      "WEAPON\\.EVENTS: smoke_exit trigger_pressed=[1-9][0-9]* ready_while_held=[0-9]+ clip_empty=[0-9]+ trigger_released=[1-9][0-9]* reload_done=[0-9]+ rules\\.compared=[1-9][0-9]* rules\\.differ=0",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "KILLFEED: suicide",
+      "PLAYER: invincibility OFF",
+      "SMOKE\\.GIVE_WEAPON: [^\\n]*result=0",
+      "WEAPON\\.RULE differs",
+      "WEAPON\\.SHOT: launch",
+      "program refused",
+      "ASSET\\.FALLBACK",
+      "LOUDFAIL\\.FALLBACK"
+    ]
+  }
+}

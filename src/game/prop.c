@@ -51,6 +51,7 @@
 #include "actionmap.h"
 #include "weapon_graph_v2_runtime.h"
 #include "weapon_nested_runtime_harness.h"
+#include "weapon_rules.h"
 
 #include <stdint.h>
 
@@ -676,6 +677,7 @@ static struct prop *shotCalculateHitsSource(s32 handnum, bool isshooting, struct
 	s32 s1 = 0;
 	struct weaponfunc *func;
 	bool laserstream = false;
+	const weapon_rule_trigger_t *shotplan;
 	bool ismelee = false;
 	f32 range = 200;
 	struct prop *result = NULL;
@@ -764,7 +766,11 @@ static struct prop *shotCalculateHitsSource(s32 handnum, bool isshooting, struct
 		}
 	}
 
-	if (shotdata.gset.weaponnum == WEAPON_LASER && shotdata.gset.weaponfunc == FUNC_SECONDARY) {
+	/* held-weapon-events.md slice 4: the hand's shot decides the beam
+	 * (og.weapon.beam's range; the Laser stream's 300) and whether bullets
+	 * pass walls (og.weapon.hitscan's through_walls; the Farsight's). */
+	shotplan = bgunHandPlan(handnum);
+	if (shotplan->shot == WEAPON_MODULE_BEAM) {
 		laserstream = true;
 	}
 
@@ -783,9 +789,9 @@ static struct prop *shotCalculateHitsSource(s32 handnum, bool isshooting, struct
 	}
 
 	if (laserstream) {
-		hitpos.x = shotdata.gunpos3d.x + shotdata.gundir3d.x * 300;
-		hitpos.y = shotdata.gunpos3d.y + shotdata.gundir3d.y * 300;
-		hitpos.z = shotdata.gunpos3d.z + shotdata.gundir3d.z * 300;
+		hitpos.x = shotdata.gunpos3d.x + shotdata.gundir3d.x * shotplan->range;
+		hitpos.y = shotdata.gunpos3d.y + shotdata.gundir3d.y * shotplan->range;
+		hitpos.z = shotdata.gunpos3d.z + shotdata.gundir3d.z * shotplan->range;
 	} else if (ismelee) {
 		if ((func->type & 0xff) == INVENTORYFUNCTYPE_MELEE) {
 			struct weaponfunc_melee *meleefunc = (struct weaponfunc_melee *) func;
@@ -804,7 +810,7 @@ static struct prop *shotCalculateHitsSource(s32 handnum, bool isshooting, struct
 	portal00018148(&playerprop->pos, &shotdata.gunpos3d, playerprop->rooms, spc8, 0, 0);
 	portal00018148(&shotdata.gunpos3d, &hitpos, spc8, spb8, rooms, 30);
 
-	if (shotdata.gset.weaponnum != WEAPON_FARSIGHT || g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
+	if (!shotplan->through_walls || g_Vars.currentplayer->visionmode != VISIONMODE_XRAY) {
 		/* B-1189: on a scenario-source stage no room has render vertex
 		 * batches, so bgTestHitInRoom never hit and shots ignored walls and
 		 * floors: no wall hits or sparks, and props behind walls were hit.
@@ -864,7 +870,7 @@ static struct prop *shotCalculateHitsSource(s32 handnum, bool isshooting, struct
 		}
 	}
 
-	if (hitbg && shotdata.gset.weaponnum != WEAPON_FARSIGHT) {
+	if (hitbg && !shotplan->through_walls) {
 		mtx4TransformVec(camGetWorldToScreenMtxf(), &sp694.pos, &sp658);
 
 		if (shotdata.distance > -sp658.z) {
@@ -944,7 +950,8 @@ static struct prop *shotCalculateHitsSource(s32 handnum, bool isshooting, struct
 		for (i = 0; i < ARRAYCOUNT(shotdata.hits); i++) {
 			hitprop = shotdata.hits[i].prop;
 
-			if (hitprop && !(laserstream && shotdata.hits[i].distance > 300)) {
+			/* slice 4 (review): the hit stops where the beam does. */
+			if (hitprop && !(laserstream && shotdata.hits[i].distance > shotplan->range)) {
 				if (accepted) {
 					weaponGraphWorldHitObserve(receipt, &shotdata.gset, &shotdata.hits[i], 0);
 					if (!wgV2RuntimeDeliveryValid(receipt) || g_Vars.currentplayer != receipt->owner) goto graph_done;
@@ -1138,7 +1145,7 @@ static struct prop *shotCalculateHitsSource(s32 handnum, bool isshooting, struct
 			hitprop = shotdata.hits[i].prop;
 
 			if (hitprop && !done) {
-				if (laserstream && shotdata.hits[i].distance > 300) {
+				if (laserstream && shotdata.hits[i].distance > shotplan->range) {
 					done = true;
 				} else {
 					if (hitprop->type == PROPTYPE_CHR
@@ -1683,13 +1690,14 @@ void handTickAttack(s32 handnum)
 				chrUncloakTemporarily(g_Vars.currentplayer->prop->chr);
 				mpstatsIncrementPlayerShotCount2(&gset, 0);
 
-				if (weaponnum == WEAPON_SHOTGUN) {
-					shotCreate(handnum, true, true, 1, true);
-					shotCreate(handnum, true, true, 1, true);
-					shotCreate(handnum, true, true, 1, true);
-					shotCreate(handnum, true, true, 1, true);
-					shotCreate(handnum, true, true, 1, true);
-					shotCreate(handnum, true, true, 1, true);
+				/* held-weapon-events.md slice 4: each of og.weapon.hitscan's
+				 * pellets (the Shotgun's six) is a bullet of its own. */
+				const weapon_rule_trigger_t *shotplan = bgunHandPlan(handnum);
+
+				if (shotplan->shot == WEAPON_MODULE_HITSCAN && shotplan->pellets > 1) {
+					for (s32 pellet = 0; pellet < shotplan->pellets; pellet++) {
+						shotCreate(handnum, true, true, 1, true);
+					}
 				} else {
 					shotCreate(handnum, true, true, bgunGetShotsToTake(handnum), g_Vars.mplayerisrunning);
 				}

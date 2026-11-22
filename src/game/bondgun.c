@@ -1136,8 +1136,12 @@ s32 bgun0f098ca0(s32 funcnum, struct handweaponinfo *info, struct hand *hand)
 			/* T-MODDING-008: a self-loading mod magazine has no reserve to run
 			 * out of, so a reload is always possible (and an empty trigger
 			 * pull reloads instead of switching weapons). */
+			/* held-weapon-events.md (PR 31 review): so does a clip its
+			 * program regrows (og.weapon.reload style regrow), a base
+			 * weapon's too. */
 			bool noreserve = g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] == 0
-				&& !bgunModAmmoIsSelfLoading(info->weaponnum, ammoindex);
+				&& !bgunModAmmoIsSelfLoading(info->weaponnum, ammoindex)
+				&& !weaponProgramRegrows(info->weaponnum, funcnum);
 
 			result = 1;
 
@@ -1339,6 +1343,22 @@ s32 bgunTickIncIdle(struct handweaponinfo *info, s32 handnum, struct hand *hand,
 
 	if (hand->inuse) {
 		sp34 = bgun0f098ca0(hand->gset.weaponfunc, info, hand);
+
+		/* held-weapon-events.md slice 3 (review): an attack whose shots take
+		 * more rounds than the original's minimum (og.weapon.use_ammo): a
+		 * clip that holds fewer than a shot's is below what a shot needs, so
+		 * the trigger up reloads it (clip_empty) and the trigger down clicks;
+		 * with no reserve there is nothing to fire. */
+		if (sp34 == 1 || sp34 == 2) {
+			struct weaponfunc *idlefunc = gsetGetWeaponFunction(&hand->gset);
+			weapon_rule_trigger_t press;
+
+			weaponFunctionPlan(info->weaponnum, hand->gset.weaponfunc, &press);
+			if (idlefunc && idlefunc->ammoindex >= 0 && idlefunc->ammoindex <= 1 && press.rounds > 1
+					&& hand->loadedammo[idlefunc->ammoindex] < press.rounds) {
+				sp34 = sp34 == 1 ? 0 : -1;
+			}
+		}
 
 		// Handle changing gun function
 		if (gunfunc != hand->gset.weaponfunc && hand->modenext != HANDMODE_RELOAD) {
@@ -1675,6 +1695,8 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 {
 	u32 stack;
 	struct weaponfunc *func = gsetGetWeaponFunction(&hand->gset);
+	weapon_rule_function_t rulerecord;
+	const weapon_rule_reload_t *reloadplan;
 
 	if (g_Vars.currentplayer->isdead) {
 		hand->animmode = HANDANIMMODE_IDLE;
@@ -1685,14 +1707,29 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 		}
 	}
 
-	/* T-MODDING-008: a regrowing mod magazine (crystals regrow in their
-	 * sockets) has no reload animation or reserve; it adds one round at a time. */
-	if (func && (func->ammoindex == 0 || func->ammoindex == 1)) {
+	/* held-weapon-events.md slice 4b: the hand's reload style is its plan's
+	 * (og.weapon.reload's style, the record's own when it has none: a
+	 * regrowing mod magazine, the Shotgun's and the crossbow's round at a
+	 * time, else the magazine). T-MODDING-008: a regrowing magazine
+	 * (crystals regrow in their sockets) has no reload animation or reserve;
+	 * it adds one round each regrow_time ticks. */
+	bgunRuleFunctionOf(hand, func, &rulerecord);
+	reloadplan = weaponHandReload(hand, &rulerecord);
+	if (func && (func->ammoindex == 0 || func->ammoindex == 1) && reloadplan->style == WEAPON_RULE_RELOAD_REGROW) {
 		const loader_pool_mod_ammo_t *mod = bgunModAmmo(info->weaponnum, func->ammoindex);
+		loader_pool_mod_ammo_t grow;
 
-		if (mod && mod->regrow) {
-			return bgunModTickIncReloadRegrow(info, handnum, hand, lvupdate, func->ammoindex, mod);
+		if (mod) {
+			grow = *mod;
+		} else {
+			memset(&grow, 0, sizeof(grow));
+			grow.valid = 1;
+			grow.seat_part_base = -1;
+			grow.regrow_sound = -1;
 		}
+		grow.regrow = 1;
+		grow.regrow_ticks60 = reloadplan->regrow_time;
+		return bgunModTickIncReloadRegrow(info, handnum, hand, lvupdate, func->ammoindex, &grow);
 	}
 
 	if (hand->statecycles == 0) {
@@ -1728,7 +1765,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 
 					hand->unk0d0e_07 = true;
 
-					if (info->definition->ammos[func->ammoindex]->flags & AMMOFLAG_INCREMENTALRELOAD) {
+					if (reloadplan->style == WEAPON_RULE_RELOAD_ONE_AT_A_TIME) {
 						hand->incrementalreloading = true;
 					}
 
@@ -1744,7 +1781,7 @@ s32 bgunTickIncReload(struct handweaponinfo *info, s32 handnum, struct hand *han
 				}
 			}
 		} else {
-			if (info->definition->ammos[func->ammoindex]->flags & AMMOFLAG_INCREMENTALRELOAD) {
+			if (reloadplan->style == WEAPON_RULE_RELOAD_ONE_AT_A_TIME) {
 				if (bgun0f098a44(hand, 1)) {
 					if ((hand->stateflags & HANDSTATEFLAG_00000010) == 0) {
 						s32 value;
@@ -1962,6 +1999,29 @@ static void bgunRuleFunctionOf(struct hand *hand, struct weaponfunc *func, weapo
 	out->flags = graph ? graph->flags : (func ? func->flags : 0);
 	out->ammo_slot = bgunGetAmmoIndexFromGraph(func, graph);
 	out->has_rate = graph && graph->has_max_rpm;
+	if ((functype & 0xff) == INVENTORYFUNCTYPE_SPECIAL) {
+		out->specialfunc = graph && graph->has_specialfunc ? graph->specialfunc
+			: (func ? ((struct weaponfunc_special *) func)->specialfunc : 0);
+	}
+	/* slice 5: a mod function's committed charge, and a throw's activation
+	 * time (a cooked grenade's fuse). */
+	out->has_charge = graph && graph->has_charge;
+	out->charge_ticks60 = graph && graph->has_charge ? graph->charge_time_ticks60 : 0;
+	if ((functype & 0xff) == INVENTORYFUNCTYPE_THROW) {
+		out->activation_time = graph && graph->has_activation_time_ticks60 ? graph->activation_time_ticks60
+			: (func ? ((struct weaponfunc_throw *) func)->activatetime60 : 0);
+	}
+	/* slice 4b: how its clip reloads, as bgunTickIncReload read it (the
+	 * function's own ammo index). */
+	if (func && (func->ammoindex == 0 || func->ammoindex == 1)) {
+		struct weapon *def = weaponFindById(hand->gset.weaponnum);
+		const loader_pool_mod_ammo_t *mod = bgunModAmmo(hand->gset.weaponnum, func->ammoindex);
+
+		out->incremental = def && def->ammos[func->ammoindex]
+			&& (def->ammos[func->ammoindex]->flags & AMMOFLAG_INCREMENTALRELOAD) != 0;
+		out->regrow = mod && mod->regrow;
+		out->regrow_ticks60 = mod ? mod->regrow_ticks60 : 0;
+	}
 
 	if (weaponRulesFunctionAutomatic(out)) {
 		struct weaponfunc_shootauto *autofunc = (functype & 0xff00) == 0x100 && func
@@ -2251,6 +2311,17 @@ static void bgunApplyEntityGraphToWeapon(struct weaponobj *weapon,
 	}
 }
 
+/* held-weapon-events.md slice 4: the plan of the attack the hand is in, for
+ * the shot code (prop.c). */
+const struct weapon_rule_trigger *bgunHandPlan(s32 handnum)
+{
+	struct hand *hand = &g_Vars.currentplayer->hands[handnum];
+	weapon_rule_function_t record;
+
+	bgunRuleFunctionOf(hand, gsetGetWeaponFunction(&hand->gset), &record);
+	return weaponHandTrigger(hand, &record);
+}
+
 /*
  * held-weapon-events.md slice 3: one tick of the attack's trigger. The
  * attack's plan (weaponHandTrigger: the trigger its program chose with its
@@ -2428,8 +2499,8 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 				hand->lastshootframe60 = g_Vars.lvframe60;
 
-				if (hand->gset.weaponnum == WEAPON_MAULER && handle) {
-					s32 matmot = hand->matmot1;
+				if (handle && weaponWeaponCharge(hand->gset.weaponnum, NULL)) {
+					s32 matmot = hand->chargelevel;
 					f32 tmp;
 					f32 frac = matmot / 3.0f;
 
@@ -2700,8 +2771,9 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 			hand->matmot2 = 0;
 		}
 
-		if (hand->gset.weaponnum == WEAPON_MAULER) {
-			hand->matmot1 = 0;
+		/* slice 5: a shot spends the weapon's charge. */
+		if (weaponWeaponCharge(hand->gset.weaponnum, NULL)) {
+			hand->chargelevel = 0;
 		}
 
 		return sp68;
@@ -2714,6 +2786,8 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 {
 	struct weaponfunc_throw *func = (struct weaponfunc_throw *) gsetGetWeaponFunction(&hand->gset);
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	weapon_rule_function_t record;
+	const weapon_rule_trigger_t *plan;
 	u32 funcflags;
 	s32 ammoindex;
 	s32 activationtime60;
@@ -2725,6 +2799,10 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 
 	funcflags = graph ? graph->flags : func->base.flags;
 	ammoindex = bgunGetAmmoIndexFromGraph(&func->base, graph);
+	/* held-weapon-events.md slice 4: a throw takes the plan's rounds
+	 * (og.weapon.use_ammo; 1 for a base throw with a clip). */
+	bgunRuleFunctionOf(hand, &func->base, &record);
+	plan = weaponHandTrigger(hand, &record);
 	activationtime60 = graph && graph->has_activation_time_ticks60 ?
 		graph->activation_time_ticks60 : func->activatetime60;
 	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
@@ -2768,7 +2846,7 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 		hand->firing = true;
 		hand->attacktype = HANDATTACKTYPE_THROWPROJECTILE;
 		if (ammoindex >= 0) {
-			hand->loadedammo[ammoindex]--;
+			weaponRulesSpendRounds(plan->rounds, &hand->loadedammo[ammoindex]);
 		}
 		hand->stateminor = HANDSTATEMINOR_ATTACK_THROW_2;
 		return false;
@@ -2795,7 +2873,9 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	if (hand->stateminor == HANDSTATEMINOR_ATTACK_THROW_GRENADEWAIT) {
 		bgunResetAnim(hand);
 
-		if (hand->stateframes > TICKS(activationtime60 + 240)) {
+		/* slice 5 (review): the wait follows the fuse it went off by. */
+		if (hand->stateframes > TICKS((plan->module == WEAPON_MODULE_COOK ? plan->cook_fuse : activationtime60)
+				+ 240)) {
 			return true;
 		}
 
@@ -2805,13 +2885,13 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	hand->primetimer60 = hand->stateframes;
 
 	// If held a grenade too long, force throw it and enter the wait state
-	if (hand->gset.weaponnum == WEAPON_GRENADE
-			&& hand->gset.weaponfunc == FUNC_PRIMARY
-			&& hand->primetimer60 > TICKS(activationtime60)) {
+	// (held-weapon-events.md slice 5: the plan's og.weapon.cook and its fuse)
+	if (plan->module == WEAPON_MODULE_COOK
+			&& hand->primetimer60 > TICKS(plan->cook_fuse)) {
 		hand->firing = true;
 		hand->attacktype = HANDATTACKTYPE_THROWPROJECTILE;
 		if (ammoindex >= 0) {
-			hand->loadedammo[ammoindex]--;
+			weaponRulesSpendRounds(plan->rounds, &hand->loadedammo[ammoindex]);
 		}
 		hand->stateminor = HANDSTATEMINOR_ATTACK_THROW_GRENADEWAIT;
 
@@ -2842,6 +2922,8 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 {
 	struct weaponfunc *func = gsetGetWeaponFunction(&hand->gset);
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	weapon_rule_function_t record;
+	const weapon_rule_trigger_t *plan;
 	s32 ammoindex;
 
 	if (func == NULL) {
@@ -2849,6 +2931,10 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 	}
 
 	ammoindex = bgunGetAmmoIndexFromGraph(func, graph);
+	/* held-weapon-events.md slice 4: a strike takes the plan's rounds
+	 * (og.weapon.use_ammo; the Tranquilizer's sedative strike 4). */
+	bgunRuleFunctionOf(hand, func, &record);
+	plan = weaponHandTrigger(hand, &record);
 
 	if (hand->gset.weaponnum == WEAPON_REAPER) {
 		if (hand->statecycles == 0) {
@@ -2908,12 +2994,8 @@ bool bgunTickIncAttackingMelee(s32 handnum, struct hand *hand)
 		hand->firing = true;
 		hand->attacktype = HANDATTACKTYPE_MELEE;
 
-		if (hand->gset.weaponnum == WEAPON_TRANQUILIZER && ammoindex >= 0) {
-			if (hand->loadedammo[ammoindex] > bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY)) {
-				hand->loadedammo[ammoindex] -= bgunGetMinClipQty(WEAPON_TRANQUILIZER, FUNC_SECONDARY);
-			} else {
-				hand->loadedammo[ammoindex] = 0;
-			}
+		if (ammoindex >= 0) {
+			weaponRulesSpendRounds(plan->rounds, &hand->loadedammo[ammoindex]);
 		}
 
 		if (func->fire_animation) {
@@ -2954,6 +3036,8 @@ bool bgunTickIncAttackingSpecial(struct hand *hand)
 {
 	struct weaponfunc_special *func = (struct weaponfunc_special *) gsetGetWeaponFunction(&hand->gset);
 	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	weapon_rule_function_t record;
+	const weapon_rule_trigger_t *plan;
 	s32 specialfunc;
 	s32 ammoindex;
 	s32 recoverytime60;
@@ -2964,6 +3048,16 @@ bool bgunTickIncAttackingSpecial(struct hand *hand)
 
 	specialfunc = graph && graph->has_specialfunc ? graph->specialfunc : func->specialfunc;
 	ammoindex = bgunGetAmmoIndexFromGraph(&func->base, graph);
+	/* held-weapon-events.md slice 4: the action is the plan's shot
+	 * (og.weapon.special's action, og.weapon.mode_toggle's cloak), and it
+	 * takes the plan's rounds (1 for a base special with a clip). */
+	bgunRuleFunctionOf(hand, &func->base, &record);
+	plan = weaponHandTrigger(hand, &record);
+	if (plan->shot == WEAPON_MODULE_MODE_TOGGLE && plan->mode == WEAPON_RULE_MODE_CLOAK) {
+		specialfunc = HANDATTACKTYPE_RCP120CLOAK;
+	} else if (plan->shot == WEAPON_MODULE_SPECIAL && plan->action > 0) {
+		specialfunc = plan->action;
+	}
 	recoverytime60 = graph && graph->has_recovery_time_ticks60 ?
 		graph->recovery_time_ticks60 : func->recoverytime60;
 
@@ -2976,7 +3070,7 @@ bool bgunTickIncAttackingSpecial(struct hand *hand)
 		hand->attacktype = specialfunc;
 
 		if (ammoindex >= 0) {
-			hand->loadedammo[ammoindex]--;
+			weaponRulesSpendRounds(plan->rounds, &hand->loadedammo[ammoindex]);
 		}
 
 		hand->stateminor = HANDSTATEMINOR_ATTACK_SPECIAL_RECOVER;
@@ -3200,11 +3294,16 @@ s32 bgunTickIncAttack(struct handweaponinfo *info, s32 handnum, struct hand *han
 		func = gsetGetWeaponFunction(&hand->gset);
 	}
 
-	/* T-MODDING-008: a mod function with charge_time_ticks60 is a committed
-	 * charge launch (crystal pistol secondary), not a single throw or shot. */
-	if (func != NULL && graph != NULL && graph->has_charge
-			&& hand->gset.weaponnum >= WEAPON_CUSTOM_START) {
-		finished = bgunModTickIncAttackCharge(info, handnum, hand, graph);
+	/* T-MODDING-008: a custom weapon's committed charge launch (the crystal
+	 * pistol's secondary), not a single throw or shot. held-weapon-events.md
+	 * slice 5: it is the attack's og.weapon.charge with start on_press (and
+	 * release on_full), for its time. The node alone makes it one (PR 31
+	 * review: no record setting besides); a v1 record's charge_time_ticks60
+	 * is its native plan. */
+	if (func != NULL && graph != NULL && hand->gset.weaponnum >= WEAPON_CUSTOM_START
+			&& bgunHandPlan(handnum)->module == WEAPON_MODULE_CHARGE
+			&& bgunHandPlan(handnum)->charge_start == WEAPON_RULE_CHARGE_ON_PRESS) {
+		finished = bgunModTickIncAttackCharge(info, handnum, hand, graph, bgunHandPlan(handnum)->charge_time);
 	} else if (func != NULL) {
 		functype = bgunGetFunctionTypeFromGraph(func, graph);
 		switch (functype & 0xff) {
@@ -5726,8 +5825,11 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 				// Note this timer is converted to 240 time immediately below
 				weaponobj->timer240 = activatetime60;
 
-				if (weaponobj->timer240 >= 2) {
-					weaponobj->timer240 = TICKS(weaponobj->timer240 * 4);
+				/* PR 31 review: an authored activation time over ~136 s
+				 * saturates, as the graph's other timers do, instead of
+				 * wrapping the s16 timer. */
+				if (activatetime60 >= 2) {
+					weaponobj->timer240 = bgunGraphClampTicks240(TICKS(activatetime60 * 4));
 				}
 
 				if (weaponobj->weaponnum == WEAPON_GRENADE || weaponobj->weaponnum == WEAPON_NBOMB) {
@@ -5947,7 +6049,9 @@ struct defaultobj *bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 		}
 	}
 
-	if (gset->weaponnum == WEAPON_LAPTOPGUN) {
+	/* held-weapon-events.md slice 4: og.weapon.throw's give_up_gun (the
+	 * Laptop gun: the thrown object is the gun). */
+	if (bgunHandPlan(handnum)->give_up_gun) {
 		bgunFreeWeapon(handnum);
 	}
 
@@ -5964,12 +6068,21 @@ struct defaultobj *bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 		if (obj->type == OBJTYPE_WEAPON) {
 			weapon = (struct weaponobj *)obj;
 
-			if (gset->weaponnum == WEAPON_GRENADE && gset->weaponfunc == FUNC_PRIMARY) {
-				if (weapon->timer240 < hand->primetimer60 * 4) {
-					weapon->timer240 = 0;
-				} else {
-					weapon->timer240 -= hand->primetimer60 * 4;
+			/* slice 5: a cooked throw's fuse is the plan's og.weapon.cook fuse
+			 * (PR 31 review: not the record's activation time the object was
+			 * made with), shortened by its prime. */
+			if (bgunHandPlan(handnum)->module == WEAPON_MODULE_COOK) {
+				/* Review: worked out wide and clamped to the s16 timer
+				 * (bgunGraphClampTicks240), so a fuse over 8191 ticks does
+				 * not wrap. */
+				s32 fuse240 = bgunHandPlan(handnum)->cook_fuse;
+
+				if (fuse240 >= 2) {
+					fuse240 = TICKS(fuse240 * 4);
 				}
+
+				fuse240 -= hand->primetimer60 * 4;
+				weapon->timer240 = fuse240 < 0 ? 0 : bgunGraphClampTicks240(fuse240);
 
 				weapon->gunfunc = gset->weaponfunc;
 			} else if (gset->weaponnum == WEAPON_ECMMINE && g_Vars.stagenum == STAGE_CITRAINING) {
@@ -6126,6 +6239,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 	f32 reflectangle;
 	s32 soundnum;
 	const weapon_graph_projectile_runtime_t *projectilegraph;
+	const weapon_rule_trigger_t *shotplan;
 
 	if (g_NetMode == NETMODE_CLIENT) {
 		return;
@@ -6146,6 +6260,7 @@ void bgunCreateFiredProjectile(s32 handnum)
 			funcdef = (struct weaponfunc_shootprojectile *)tmp;
 			graph = bgunGetHeldGraph(&hand->gset);
 			projectilegraph = bgunGetProjectileGraph(graph);
+			shotplan = bgunHandPlan(handnum);
 			funcflags = bgunGetProjectileFlagsFromGraph(
 				funcdef->base.base.flags, graph, projectilegraph);
 			projectilemodelnum = bgunGetProjectileModelnumFromGraph(
@@ -6250,6 +6365,13 @@ void bgunCreateFiredProjectile(s32 handnum)
 			sp210.m[3][1] = 0.0f;
 			sp210.m[3][2] = 0.0f;
 
+			/* held-weapon-events.md slice 4 (review): a launch whose item is
+			 * not the rocket the launcher holds fires its own item; the held
+			 * rocket goes. */
+			if (hand->rocket && shotplan->item != WEAPON_ROCKET && shotplan->item != WEAPON_HOMINGROCKET) {
+				bgunFreeHeldRocket(handnum);
+			}
+
 			if (hand->rocket) {
 				hand->firedrocket = true;
 
@@ -6262,35 +6384,35 @@ void bgunCreateFiredProjectile(s32 handnum)
 				if (funcflags & FUNCFLAG_HOMINGROCKET) {
 					weapon->weaponnum = WEAPON_HOMINGROCKET;
 				}
-			} else if (hand->gset.weaponnum == WEAPON_ROCKETLAUNCHER || hand->gset.weaponnum == WEAPON_SLAYER) {
-				u32 stack;
-				s32 weaponnum = WEAPON_ROCKET;
+			} else if (shotplan->item >= 0) {
+				/* held-weapon-events.md slice 4: the item the launcher fires
+				 * is the plan's (og.weapon.launch's item and item_function: the
+				 * rocket launcher and the Slayer base:rocket, homing by their
+				 * flag, the crossbow base:bolt and the Devastator
+				 * base:grenaderound with the gun's function, the Super Dragon
+				 * base:grenaderound as function 2). */
+				s32 item = shotplan->item;
 
-				if (funcflags & FUNCFLAG_HOMINGROCKET) {
-					weaponnum = WEAPON_HOMINGROCKET;
+				if (item == WEAPON_ROCKET && (funcflags & FUNCFLAG_HOMINGROCKET)) {
+					item = WEAPON_HOMINGROCKET;
 				}
 
-				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, weaponnum, g_Vars.currentplayer->prop->chr);
-			} else if (hand->gset.weaponnum == WEAPON_CROSSBOW) {
-				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_BOLT, g_Vars.currentplayer->prop->chr);
-
-				if (weapon) {
-					weapon->gunfunc = hand->gset.weaponfunc;
-				}
-			} else if (hand->gset.weaponnum == WEAPON_DEVASTATOR) {
-				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);
-
-				if (weapon) {
-					weapon->gunfunc = hand->gset.weaponfunc;
-				}
-			} else if (hand->gset.weaponnum == WEAPON_SUPERDRAGON) {
-				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, WEAPON_GRENADEROUND, g_Vars.currentplayer->prop->chr);
-
-				if (weapon) {
-					weapon->gunfunc = FUNC_2;
-				}
+				weapon = weaponCreateProjectileFromWeaponNum(projectilemodelnum, item, g_Vars.currentplayer->prop->chr);
+			} else if (shotplan->item == WEAPON_RULE_ITEM_UNKNOWN) {
+				/* An item no weapon names: nothing is fired. */
+				weapon = NULL;
+				sysLogPrintf(LOG_WARNING, "WEAPON.SHOT: launch weapon=%d func=%d names an unknown item",
+					hand->gset.weaponnum, hand->gset.weaponfunc);
 			} else {
 				weapon = weaponCreateProjectileFromGset(projectilemodelnum, &hand->gset, g_Vars.currentplayer->prop->chr);
+			}
+
+			/* og.weapon.launch's item_function, whichever object it fires
+			 * (the crossbow's and Devastator's the gun's, the Super Dragon's
+			 * 2; left out, the object keeps the function it was made with). */
+			if (weapon && shotplan->item_function != WEAPON_RULE_ITEM_FUNCTION_KEEP) {
+				weapon->gunfunc = shotplan->item_function == WEAPON_RULE_ITEM_FUNCTION_GUN
+					? hand->gset.weaponfunc : shotplan->item_function;
 			}
 
 			if (weapon) {
@@ -6303,8 +6425,10 @@ void bgunCreateFiredProjectile(s32 handnum)
 				if (weapon->base.model && weapon->base.model->definition) {
 					weapon->timer240 = timer60;
 
-					if (weapon->timer240 != -1) {
-						weapon->timer240 = TICKS(weapon->timer240 * 4);
+					/* PR 31 review: an authored timer over ~136 s saturates
+					 * instead of wrapping the s16 timer. */
+					if (timer60 != -1) {
+						weapon->timer240 = bgunGraphClampTicks240(TICKS(timer60 * 4));
 					}
 
 					weapon->base.hidden &= 0x0fffffff;
@@ -7027,6 +7151,7 @@ void bgunTickSwitch2(void)
 				player->hands[i].matmot1 = 0.0f;
 				player->hands[i].matmot2 = 0.0f;
 				player->hands[i].matmot3 = 0.0f;
+				player->hands[i].chargelevel = 0.0f;
 				player->hands[i].angledamper = 0.0f;
 				player->hands[i].gunsmokepoint = 0.0f;
 				player->hands[i].burstbullets = 0;
@@ -7852,6 +7977,7 @@ void bgunHandlePlayerDead(void)
 			player->hands[i].matmot1 = 0;
 			player->hands[i].matmot2 = 0;
 			player->hands[i].matmot3 = 0;
+			player->hands[i].chargelevel = 0;
 
 			bgunSetState(i, HANDSTATE_IDLE);
 		}
@@ -7925,7 +8051,8 @@ void bgunDisarm(struct prop *attackerprop)
 		drop = true;
 
 		// RC-P120 and cloaking device: turn off cloak if active
-		if (weaponnum == WEAPON_RCP120) {
+		/* (PR 31 review: any weapon with og.weapon.mode_toggle's cloak) */
+		if (weaponCloakToggle(weaponnum, NULL, NULL)) {
 			g_Vars.currentplayer->devicesactive &= ~DEVICE_CLOAKRCP120;
 		}
 
@@ -9902,44 +10029,72 @@ void bgun0f0a5550(s32 handnum)
 #endif
 }
 
+/*
+ * held-weapon-events.md slice 5: the weapon's og.weapon.charge (start
+ * while_selected) builds while its function is selected: steps over time
+ * (the Mauler's five in 100 ticks), each whole step taking ammo_per_step
+ * from the clip while it holds min_clip; while the other function is held it
+ * falls back a step every fall_time ticks (the Mauler's 200). The level is
+ * the hand's chargelevel (the original kept the Mauler's in matmot1, which
+ * the Shotgun, the Laser, the Reaper and a cloak use for their own effects).
+ * PR 31 review: every whole step a frame crosses is paid for, and the charge
+ * stops at the last step its clip could pay (the original crossed at most
+ * one a frame); a step needs min_clip and its whole cost in the clip.
+ */
 void bgunTickMaulerCharge(void)
 {
 	struct player *player = g_Vars.currentplayer;
+	weapon_rule_trigger_t charge;
+	const s32 chargefunc = weaponWeaponCharge(player->gunctrl.weaponnum, &charge) - 1;
+	const f32 steps = (f32)charge.charge_steps;
 	s32 i;
+
+	if (chargefunc < 0) {
+		return;
+	}
 
 	for (i = 0; i < 2; i++) {
 		struct hand *hand = &player->hands[i];
 		u32 charging = false;
 
 		if (hand->inuse) {
+			struct weaponfunc *func = weaponGetFunction(&hand->gset, chargefunc);
+			const s32 slot = func && func->ammoindex >= 0 && func->ammoindex <= 1 ? func->ammoindex : 0;
+
 			if (bgunIsReloading(hand)) {
 				// Reloading - reset charge amount
-				hand->matmot1 = 0;
-			} else if (hand->gset.weaponfunc == FUNC_SECONDARY) {
+				hand->chargelevel = 0;
+			} else if (hand->gset.weaponfunc == chargefunc) {
 				// Charging or fully charged
-				s32 oldvalue = hand->matmot1;
+				s32 oldvalue = hand->chargelevel;
 				s32 newvalue;
+				s32 step;
 
-				if (hand->loadedammo[0] >= 2 && hand->matmot1 < 5) {
+				if (hand->loadedammo[slot] >= weaponRulesChargeStepNeeds(&charge) && hand->chargelevel < steps) {
 					charging = true;
-					hand->matmot1 += g_Vars.lvupdate60freal * 0.05f;
+					hand->chargelevel += g_Vars.lvupdate60freal * (steps / (f32)charge.charge_time);
 				}
 
-				if (hand->matmot1 > 5) {
-					hand->matmot1 = 5;
+				if (hand->chargelevel > steps) {
+					hand->chargelevel = steps;
 				}
 
-				newvalue = hand->matmot1;
+				newvalue = hand->chargelevel;
 
-				if (oldvalue != newvalue && hand->loadedammo[0] >= 2) {
-					hand->loadedammo[0]--;
+				for (step = oldvalue; step < newvalue; step++) {
+					if (hand->loadedammo[slot] < weaponRulesChargeStepNeeds(&charge)) {
+						hand->chargelevel = step;
+						break;
+					}
+
+					weaponRulesSpendRounds(charge.charge_ammo, &hand->loadedammo[slot]);
 				}
-			} else {
+			} else if (charge.charge_fall > 0) {
 				// Using primary function - make the charge wear off slowly
-				hand->matmot1 -= g_Vars.lvupdate60freal * 0.005f;
+				hand->chargelevel -= g_Vars.lvupdate60freal * (1.0f / (f32)charge.charge_fall);
 
-				if (hand->matmot1 < 0) {
-					hand->matmot1 = 0;
+				if (hand->chargelevel < 0) {
+					hand->chargelevel = 0;
 				}
 			}
 
@@ -9960,16 +10115,16 @@ void bgunTickMaulerCharge(void)
 			 * This is not yet confirmed.
 			 */
 			if (hand->audiohandle == NULL
-					&& hand->matmot1 > 0.1f
+					&& hand->chargelevel > 0.1f
 					&& charging
 					&& g_Vars.lvupdate240 != 0) {
 				sndStart(var80095200, SFX_MAULER_CHARGE, &hand->audiohandle, -1, -1, -1, -1, -1);
 			}
 
 			if (hand->audiohandle) {
-				f32 speed = 0.5f + hand->matmot1 / 3.0f + sinf(g_20SecIntervalFrac * M_PI * 32.0f) * 0.03f;
+				f32 speed = 0.5f + hand->chargelevel / 3.0f + sinf(g_20SecIntervalFrac * M_PI * 32.0f) * 0.03f;
 
-				if (hand->matmot1 < 0.1f || !charging) {
+				if (hand->chargelevel < 0.1f || !charging) {
 					audioStop(hand->audiohandle);
 				} else {
 					audioPostEvent(hand->audiohandle, AL_SNDP_PITCH_EVT, *(s32 *)&speed);
@@ -9985,6 +10140,8 @@ void bgunTickGameplay2(void)
 	struct hand *hand;
 	u32 stack[3];
 	s32 i;
+	f32 cloakdrain = WEAPON_RULE_DEFAULT_CLOAK_DRAIN;
+	s32 cloakslot = 0;
 
 #if VERSION >= VERSION_NTSC_1_0
 	if (g_Vars.currentplayernum == 0) {
@@ -10078,7 +10235,9 @@ void bgunTickGameplay2(void)
 		}
 	}
 
-	if (player->gunctrl.weaponnum == WEAPON_MAULER) {
+	/* held-weapon-events.md slice 5: a weapon whose function charges while
+	 * selected (og.weapon.charge; the Mauler's secondary). */
+	if (weaponWeaponCharge(player->gunctrl.weaponnum, NULL)) {
 		bgunTickMaulerCharge();
 	}
 
@@ -10092,31 +10251,34 @@ void bgunTickGameplay2(void)
 		}
 	}
 
+	/* held-weapon-events.md slice 4: the weapon's og.weapon.mode_toggle
+	 * cloak drains its drain setting (rounds a second; the RCP120's 24, the
+	 * original's 0.4 a tick) from its function's clip. */
 	if (g_Vars.currentplayer->devicesactive &
 			~g_Vars.currentplayer->devicesinhibit & DEVICE_CLOAKRCP120) {
-		if (player->gunctrl.weaponnum == WEAPON_RCP120) {
+		if (weaponCloakToggle(player->gunctrl.weaponnum, &cloakdrain, &cloakslot)) {
 			struct chrdata *chr = player->prop->chr;
 
 			// Handle RCP120 cloak ammo usage
 			if ((chr->hidden & CHRHFLAG_CLOAKED) && chr->cloakfadefinished == true) {
 				hand = &player->hands[HAND_RIGHT];
-				hand->matmot1 += LVUPDATE60FREAL() * 0.4f;
+				hand->matmot1 += LVUPDATE60FREAL() * (cloakdrain / 60.0f);
 
 				if (hand->matmot1 > 1.0f) {
 					s32 usedqty = hand->matmot1;
 
-					if (usedqty > hand->loadedammo[0]) {
-						usedqty = hand->loadedammo[0];
+					if (usedqty > hand->loadedammo[cloakslot]) {
+						usedqty = hand->loadedammo[cloakslot];
 					}
 
 					hand->matmot1 -= usedqty;
-					hand->loadedammo[0] -= usedqty;
+					hand->loadedammo[cloakslot] -= usedqty;
 
 					// If out of ammo, turn off cloak
-					if (hand->loadedammo[0] == 0 && hand->state != HANDSTATE_RELOAD) {
+					if (hand->loadedammo[cloakslot] == 0 && hand->state != HANDSTATE_RELOAD) {
 						s32 stilltogo = hand->matmot1;
 
-						if (stilltogo > player->ammoheldarr[player->gunctrl.ammotypes[0]]) {
+						if (stilltogo > player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]]) {
 							g_Vars.currentplayer->devicesactive &= ~DEVICE_CLOAKRCP120;
 						}
 					}
@@ -10126,7 +10288,7 @@ void bgunTickGameplay2(void)
 			// No longer using RCP120, so turn off cloak
 			player->devicesactive &= ~DEVICE_CLOAKRCP120;
 		}
-	} else if (player->gunctrl.weaponnum == WEAPON_RCP120) {
+	} else if (weaponCloakToggle(player->gunctrl.weaponnum, &cloakdrain, &cloakslot)) {
 		hand = &player->hands[HAND_RIGHT];
 
 		// I think this is handling situations where the player has turned off
@@ -10135,21 +10297,21 @@ void bgunTickGameplay2(void)
 		if (hand->matmot1 > 1.0f) {
 			s32 usedqty = hand->matmot1;
 
-			if (usedqty > hand->loadedammo[0]) {
-				usedqty = hand->loadedammo[0];
+			if (usedqty > hand->loadedammo[cloakslot]) {
+				usedqty = hand->loadedammo[cloakslot];
 			}
 
 			hand->matmot1 -= usedqty;
-			hand->loadedammo[0] -= usedqty;
+			hand->loadedammo[cloakslot] -= usedqty;
 
 			if (hand->matmot1 > 1.0f) {
 				s32 usedqty = hand->matmot1;
 
-				if (usedqty > player->ammoheldarr[player->gunctrl.ammotypes[0]]) {
-					usedqty = player->ammoheldarr[player->gunctrl.ammotypes[0]];
+				if (usedqty > player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]]) {
+					usedqty = player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]];
 				}
 
-				player->ammoheldarr[player->gunctrl.ammotypes[0]] -= usedqty;
+				player->ammoheldarr[player->gunctrl.ammotypes[cloakslot]] -= usedqty;
 				hand->matmot1 = 0;
 			}
 		}
@@ -12919,8 +13081,8 @@ void bgunRender(Gfx **gdlptr)
 				colour = renderdata.envcolour;
 
 				// 838
-				if (hand->gset.weaponnum == WEAPON_MAULER) {
-					u32 weight = hand->matmot1 * 50.0f;
+				if (weaponWeaponCharge(hand->gset.weaponnum, NULL)) {
+					u32 weight = hand->chargelevel * 50.0f;
 					renderdata.envcolour = colourBlend(0xff00007f, renderdata.envcolour, weight);
 				}
 			}

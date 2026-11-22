@@ -71,7 +71,7 @@ struct weapon_graph_held_function;
  * slot and starts the charge; the hand then stays busy until the release.
  * Returns true when the attack is finished. */
 bool bgunModTickIncAttackCharge(struct handweaponinfo *info, s32 handnum,
-		struct hand *hand, const struct weapon_graph_held_function *held);
+		struct hand *hand, const struct weapon_graph_held_function *held, s32 chargetime60);
 /* Once per frame for the current player (lv.c, after handsTickAttack), alive
  * or dead: releases a charge whose deadline has passed. Each committed round
  * launches from its own seat part; the rounds fan evenly from -launch_fan_deg
