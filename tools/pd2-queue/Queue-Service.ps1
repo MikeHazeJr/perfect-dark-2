@@ -12,6 +12,8 @@
                      bare repository); only refs/heads/dev is ever pushed
     -Once            run at most one job, then exit (tests)
     -IdleExitSeconds n   exit after n seconds with nothing to do (tests)
+    -JobLimitMinutes n   a job's time for its build and tests (default 20),
+                     counted from the hub's admission to the build slot
 
     Every arrow of a job is written to its journal before the step it leads to
     begins. Startup recovers jobs a crash or reboot interrupted.
@@ -329,7 +331,7 @@ function Complete-Job([string] $JobId, [hashtable] $Request, [string] $Result, [
         Remove-Item -LiteralPath (Join-Path $paths.Requests "cancel-$JobId.json") -Force -ErrorAction SilentlyContinue
     }
     if ($Info.seconds) {
-        Add-Pd2qJsonLine $paths.Builds @{ schema = 'pd2q.build.v1'; job = $JobId; devCommit = $Info.devCommit; clean = $true; result = $Result
+        Add-Pd2qJsonLine $paths.Builds @{ schema = 'pd2q.build.v1'; job = $JobId; devCommit = $Info.devCommit; clean = $true; built = [bool]$Info.built; result = $Result
             seconds = $Info.seconds; total = $Info.seconds.total; slow = [bool]$Info.slow; slowReason = $Info.slowReason; atUtc = Format-Pd2qTime (Get-Pd2qNow) }
         $all = @(Read-Pd2qJsonLines $paths.Builds)
         if ($all.Count -gt 500) { $keep = $all | Select-Object -Last 500; [IO.File]::WriteAllText($paths.Builds, (($keep | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 10 }) -join "`n") + "`n") }
@@ -378,7 +380,6 @@ function Invoke-Job($Job) {
     $jobId = $Job.Id
     $request = $Job.Request
     $attempt = [int]$Job.Attempt
-    $deadline = (Get-Date).AddMinutes($JobLimitMinutes)
     $info = @{ attempt = $attempt; seconds = [ordered]@{}; devCommit = ''; hubId = $null }
     $jobDir = Join-Path $paths.Jobs $jobId
     $src = Join-Path $jobDir 'src'
@@ -458,6 +459,10 @@ function Invoke-Job($Job) {
     }
     if ($script:CancelledWaiting) { $info.detail = 'cancelled while it waited for the build slot'; Complete-Job $jobId $request 'cancelled' $info; return }
     if (Test-CancelRequested $jobId) { $info.detail = 'cancelled before building'; Complete-Job $jobId $request 'cancelled' $info; return }
+    # The time limit is for a hung build or test run (the spec's "A build
+    # hangs"), so it starts at admission: waiting while another session holds
+    # the build slot is not this job's time.
+    $deadline = (Get-Date).AddMinutes($JobLimitMinutes)
 
     # ---- Building (clean, ccache off, the job folder's own scripts)
     Invoke-Pd2qLocked { Add-Pd2qJournal $jobId @{ event = 'building'; attempt = $attempt; devCommit = $devCommit } }
@@ -488,7 +493,10 @@ function Invoke-Job($Job) {
         }
     }
     $info.seconds.build = [math]::Round($buildSeconds, 1)
-    $prior = @(Read-Pd2qJsonLines $paths.Builds | Where-Object { $_.clean -and $_.seconds -and $_.seconds.build } | Select-Object -Last 20 | ForEach-Object { [double]$_.seconds.build } | Sort-Object)
+    $info.built = $true
+    # Only builds that finished set the median: a compile error or a timeout
+    # stops early and would pull it down, flagging normal builds as slow.
+    $prior = @(Read-Pd2qJsonLines $paths.Builds | Where-Object { $_.clean -and $_.built -and $_.seconds -and $_.seconds.build } | Select-Object -Last 20 | ForEach-Object { [double]$_.seconds.build } | Sort-Object)
     $median = if ($prior) { $prior[[int][math]::Floor($prior.Count / 2)] } else { 0 }
     if ($buildSeconds -gt $slowSeconds) { $info.slow = $true; $info.slowReason = "clean build $([math]::Round($buildSeconds)) s is over $slowSeconds s (Mike's 2:32)" }
     elseif ($median -gt 0 -and $buildSeconds -gt 1.5 * $median) { $info.slow = $true; $info.slowReason = "clean build $([math]::Round($buildSeconds)) s is over 1.5 times the median of the last 20 ($median s)" }
