@@ -1028,6 +1028,18 @@ they had built their facts with it off. The inspector's kinds checkboxes
 start from `weaponGraphDesignerKindsMask`, which expands `characters`,
 `things` and `all` as the filter reads them, so an edit keeps a group.
 
+**PR 49 review, casings (2026-11-22):** a program weapon now loads a casing
+model for each casing its two functions name (`bgunQueueCartModels`: the
+selected function's, or the other's when it names none, and a second when
+they differ), and each attack ejects its own type's model
+(`bgunGetCartModeldefForCasing`, never another type's). Before, the model
+was the selected function's at equip only, so a second casing type ejected
+the first's model, and a gun equipped on a function with none ejected no
+casings after a switch. The base guns' own quirk of that kind is fixed with
+it: the Super Dragon equipped in grenade mode now ejects its rifle casings
+once switched to its primary. The profile executor's weapons keep their
+path.
+
 **8b as written (2026-11-22, `week-pd/core-weapons-w8`):** done before 8c,
 since it completes the done-when (8c's value nodes are the advanced
 extra). The rocket example needs only settings on nodes the base rocket

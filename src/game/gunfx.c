@@ -712,7 +712,9 @@ void casingCreateForHand(s32 handnum, f32 ground, Mtxf *mtx)
 
 	mtx4Copy(mtx, &spec);
 
-	modeldef = wgV2RuntimeIsWeapon(weaponnum) ? wgV2RuntimeCasing(&player->hands[handnum].gset) : bgunGetCartModeldef();
+	/* slice 7b (PR 49 review): the model of the attack's own casing. */
+	modeldef = wgV2RuntimeIsWeapon(weaponnum) ? wgV2RuntimeCasing(&player->hands[handnum].gset)
+		: bgunGetCartModeldefForCasing(casingtype);
 
 	if (modeldef != NULL) {
 		casing = casingCreate(modeldef, &spec);

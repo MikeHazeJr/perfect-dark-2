@@ -5371,6 +5371,57 @@ const char var7f1ac0ec[] = "Gun   : TotalUsed %d, Free %d\n";
 const char var7f1ac10c[] = "BriGun: Set Master State: MASTER_GUN_LOADSTATE_LOADED\n";
 const char var7f1ac144[] = "GunLockTimer: %d\n";
 
+/* held-weapon-events.md slice 7b (PR 49 review): the casing models a held
+ * weapon's functions name. cartmodeldef holds the selected function's (or,
+ * when it names none, the other's); a weapon whose two functions name
+ * different casings loads the second here, so each attack ejects its own and
+ * a function that names one has its model whichever function was selected
+ * when the gun was equipped. The types are CASING_* plus one, 0 for none
+ * (as the plan keeps a casing). */
+static struct modeldef *s_BgunCartModeldef2[MAX_PLAYERS];
+static s8 s_BgunCartTypes[MAX_PLAYERS][2];
+
+/* The casing types a held weapon's functions name (its programs'
+ * og.weapon.casing, else their ammo's), the selected function's first, the
+ * second only when it differs. */
+static void bgunCartCasingTypes(struct player *player, s32 types[2])
+{
+	const s32 weaponnum = player->gunctrl.weaponnum;
+	const s32 selected = player->hands[HAND_RIGHT].gset.weaponfunc == FUNC_SECONDARY ? FUNC_SECONDARY : FUNC_PRIMARY;
+	const s32 first = weaponFunctionCasing(weaponnum, selected);
+	const s32 other = weaponFunctionCasing(weaponnum, selected == FUNC_PRIMARY ? FUNC_SECONDARY : FUNC_PRIMARY);
+
+	types[0] = first >= 0 ? first : other;
+	types[1] = first >= 0 && other >= 0 && other != first ? other : -1;
+}
+
+/* Queues the next casing model the weapon still needs; true when one was
+ * queued. */
+static bool bgunQueueCartModels(struct player *player)
+{
+	const s32 p = g_Vars.currentplayernum;
+	s32 types[2];
+
+	if (p < 0 || p >= MAX_PLAYERS) return false;
+	bgunCartCasingTypes(player, types);
+	if (player->gunctrl.cartmodeldef == NULL && types[0] >= 0 && types[0] < ARRAYCOUNT(g_CartFileNums)) {
+		s_BgunCartTypes[p][0] = (s8)(types[0] + 1);
+		player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
+		bgunQueueModelLoad(player, g_CartFileNums[types[0]], &player->gunctrl.cartmodeldef,
+			&player->gunctrl.memloadptr, &player->gunctrl.memloadremaining);
+		return true;
+	}
+	if (player->gunctrl.cartmodeldef != NULL && s_BgunCartModeldef2[p] == NULL
+			&& types[1] >= 0 && types[1] < ARRAYCOUNT(g_CartFileNums)) {
+		s_BgunCartTypes[p][1] = (s8)(types[1] + 1);
+		player->gunctrl.gunloadstate = GUNLOADSTATE_MODEL;
+		bgunQueueModelLoad(player, g_CartFileNums[types[1]], &s_BgunCartModeldef2[p],
+			&player->gunctrl.memloadptr, &player->gunctrl.memloadremaining);
+		return true;
+	}
+	return false;
+}
+
 void bgunTickMasterLoad(void)
 {
 	s32 newweaponnum;
@@ -5468,10 +5519,14 @@ void bgunTickMasterLoad(void)
 					}
 
 					if (player->gunctrl.masterloadstate == MASTERLOADSTATE_FLUX) {
+						struct modeldef *cart2 = g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS
+							? s_BgunCartModeldef2[g_Vars.currentplayernum] : NULL;
+
 						casing = g_Casings;
 
 						while (casing < &g_Casings[ARRAYCOUNT(g_Casings)]) {
-							if (casing->modeldef == player->gunctrl.cartmodeldef) {
+							if (casing->modeldef == player->gunctrl.cartmodeldef
+									|| (cart2 && casing->modeldef == cart2)) {
 								casing->modeldef = NULL;
 							}
 
@@ -5491,6 +5546,12 @@ void bgunTickMasterLoad(void)
 						}
 
 						player->gunctrl.cartmodeldef = NULL;
+						if (g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS) {
+							/* slice 7b (PR 49 review): and the second casing model. */
+							s_BgunCartModeldef2[g_Vars.currentplayernum] = NULL;
+							s_BgunCartTypes[g_Vars.currentplayernum][0] = 0;
+							s_BgunCartTypes[g_Vars.currentplayernum][1] = 0;
+						}
 						player->gunctrl.masterloadstate = MASTERLOADSTATE_HANDS;
 
 						if (g_Vars.currentplayernum == 0) {
@@ -5584,7 +5645,13 @@ void bgunTickMasterLoad(void)
 							player->gunctrl.gunloadstate = GUNLOADSTATE_FLUX;
 						}
 
-						if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX && player->gunctrl.cartmodeldef == NULL && PLAYERCOUNT() == 1) {
+						if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX && PLAYERCOUNT() == 1
+								&& !wgV2RuntimeIsWeapon(player->gunctrl.weaponnum)) {
+							/* held-weapon-events.md slice 7b (PR 49 review): the
+							 * casing models the weapon's functions name, one a
+							 * pass (bgunQueueCartModels). */
+							bgunQueueCartModels(player);
+						} else if (player->gunctrl.gunloadstate == GUNLOADSTATE_FLUX && player->gunctrl.cartmodeldef == NULL && PLAYERCOUNT() == 1) {
 							for (i = 0; i < 2; i++) {
 								hand = player->hands + i;
 								func = gsetGetWeaponFunction2(&hand->gset);
@@ -5597,13 +5664,9 @@ void bgunTickMasterLoad(void)
 										shootfunc = func;
 									}
 
-									if (!wgV2RuntimeIsWeapon(player->gunctrl.weaponnum)) {
-										/* held-weapon-events.md slice 7b: the casing the
-										 * function's program plans (og.weapon.casing),
-										 * else its ammo's. */
-										casingindex = shootfunc
-											? weaponFunctionCasing(hand->gset.weaponnum, hand->gset.weaponfunc) : -1;
-									} else if (weapondef && shootfunc) {
+									/* The profile executor's weapons: the
+									 * selected function's ammo's casing. */
+									if (weapondef && shootfunc) {
 										ammodef = func->ammoindex >= 0 ? weapondef->ammos[func->ammoindex] : NULL;
 
 										if (ammodef) {
@@ -5801,6 +5864,22 @@ bool bgunLoadAll(void)
 struct modeldef *bgunGetCartModeldef(void)
 {
 	return g_Vars.currentplayer->gunctrl.cartmodeldef;
+}
+
+/* slice 7b (PR 49 review): the loaded model of a casing type (CASING_*),
+ * NULL when none is loaded for it: never another type's. */
+struct modeldef *bgunGetCartModeldefForCasing(s32 casingtype)
+{
+	const s32 p = g_Vars.currentplayernum;
+
+	if (p < 0 || p >= MAX_PLAYERS || casingtype < 0) return NULL;
+	if (g_Vars.currentplayer->gunctrl.cartmodeldef && s_BgunCartTypes[p][0] == casingtype + 1) {
+		return g_Vars.currentplayer->gunctrl.cartmodeldef;
+	}
+	if (s_BgunCartModeldef2[p] && s_BgunCartTypes[p][1] == casingtype + 1) {
+		return s_BgunCartModeldef2[p];
+	}
+	return NULL;
 }
 
 void bgun0f09ebcc(struct defaultobj *obj, struct coord *coord, RoomNum *rooms, Mtxf *matrix1, struct coord *velocity, Mtxf *matrix2, struct prop *prop, struct coord *pos)

@@ -4697,10 +4697,18 @@ TEST_CASE("a shot's casing and flash are its function's own unless its program n
 	const std::string bondgun = readSource("src/game/bondgun.c");
 	REQUIRE(bondgun.find("if (!plan->flash) {\n\t\thand->flashon = false;") != std::string::npos);
 	CHECK(bondgun.find("if (funcflags & FUNCFLAG_NOMUZZLEFLASH) {") == std::string::npos);
-	REQUIRE(bondgun.find("? weaponFunctionCasing(hand->gset.weaponnum, hand->gset.weaponfunc) : -1;") != std::string::npos);
+	// PR 49 review: a model for each casing the weapon's functions name, the
+	// selected function's first, and each attack ejects its own type's.
+	REQUIRE(bondgun.find("const s32 first = weaponFunctionCasing(weaponnum, selected);") != std::string::npos);
+	REQUIRE(bondgun.find("types[1] = first >= 0 && other >= 0 && other != first ? other : -1;") != std::string::npos);
+	REQUIRE(bondgun.find("bgunQueueModelLoad(player, g_CartFileNums[types[1]], &s_BgunCartModeldef2[p],")
+		!= std::string::npos);
+	REQUIRE(bondgun.find("s_BgunCartModeldef2[g_Vars.currentplayernum] = NULL;") != std::string::npos);
+	CHECK(bondgun.find("? weaponFunctionCasing(hand->gset.weaponnum, hand->gset.weaponfunc) : -1;") == std::string::npos);
 	REQUIRE(bondgun.find("out->casing = (s32) def->ammos[out->ammo_slot]->casingeject + 1;") != std::string::npos);
 	const std::string gunfx = readSource("src/game/gunfx.c");
 	REQUIRE(gunfx.find("casingtype = weaponRulesCasingEject(bgunHandPlan(handnum));") != std::string::npos);
+	REQUIRE(gunfx.find(": bgunGetCartModeldefForCasing(casingtype);") != std::string::npos);
 	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
 	REQUIRE(extractor.find("\"use_ammo\", \"shot\", \"recoil\", \"casing\", \"flash\",") != std::string::npos);
 	REQUIRE(extractor.find("s_emitHeldCasingNode(w, ids[i], plan, last);") != std::string::npos);
