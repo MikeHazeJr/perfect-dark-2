@@ -92,6 +92,17 @@ try {
     $r = Q @('submit', 'T-M3-004', '-Lease', $l4, '-Title', 'Tooling - T-M3-004: A patch cancelled during its tests')
     Check ($r.Code -eq 0) 'job 4 submitted'; $j4 = JobOf $r.Out
 
+    # 5. A patch that moves the bx submodule to a revision that does not exist:
+    # the worker must check out what the patch names before building, and fail
+    # without building when it cannot (else it builds the old bx, publishes the new).
+    $r = Q @('claim', 'T-M3-005', '-Session', 'm3-f', '-OwnerPid', $sleeper.Id); $l5 = LeaseOf $r.Out
+    $pin = ((& $git -C (Join-Path $root 'dev') ls-tree HEAD -- third_party/bgfx/bx) -split '\s+')[2]
+    $bogus = 'b' * 40
+    $movePatch = Join-Path $root 'move-bx.patch'
+    [IO.File]::WriteAllText($movePatch, "diff --git a/third_party/bgfx/bx b/third_party/bgfx/bx`nindex $pin..$bogus 160000`n--- a/third_party/bgfx/bx`n+++ b/third_party/bgfx/bx`n@@ -1 +1 @@`n-Subproject commit $pin`n+Subproject commit $bogus`n")
+    $r = Q @('submit', 'T-M3-005', '-Lease', $l5, '-Title', 'Tooling - T-M3-005: Move bx to a revision that does not exist', '-Patch', $movePatch)
+    Check ($r.Code -eq 0) "job 5 submitted`n$($r.Out)"; $j5 = JobOf $r.Out
+
     # Run the worker until the queue is empty.
     $t1 = Get-Date
     $log = Join-Path $root 'service-run.log'
@@ -121,6 +132,9 @@ try {
     $report4 = Get-Content -LiteralPath (Join-Path $root "reports\$j4.md") -Raw
     Check ((LastEvent $j4) -eq 'cancelled' -and $report4 -match 'cancelled before pushing') "job 4, cancelled during its tests, ended cancelled before pushing`n$report4"
     Check (@(& $git -C $remote log dev --grep "PD2-Queue-Job: $j4" --format=%H).Count -eq 0) 'and nothing of it reached the remote'
+    $report5 = Get-Content -LiteralPath (Join-Path $root "reports\$j5.md") -Raw
+    $events5 = @(Get-Content -LiteralPath (Join-Path $root "queue\journal\$j5.jsonl") | ForEach-Object { ($_ | ConvertFrom-Json).event })
+    Check ((LastEvent $j5) -eq 'failed' -and $report5 -match 'third_party/bgfx/bx to a revision that could not be checked out' -and $events5 -notcontains 'building') "job 5, moving bx to a missing revision, failed before building`n$report5"
     $serviceLog = Get-Content -LiteralPath (Join-Path $root 'queue\service.log') -Raw
     Check ($serviceLog -match "job $j1`: the staged asset guard passed") "the staged asset guard ran before job 1's commit"
     $hubState = Get-Content -LiteralPath (Join-Path $Source '.codex-coordination\state.json') -Raw -Encoding utf8 | ConvertFrom-Json

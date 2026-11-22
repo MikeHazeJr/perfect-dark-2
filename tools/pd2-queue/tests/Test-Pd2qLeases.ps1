@@ -255,6 +255,13 @@ try {
         [void](Q @('release', 'T-UNIT-011', '-Lease', $nm))
     } else { $checks.Add("commit-msg check at submit skipped: no main checkout or Python here") }
 
+    # The worker's -Root wins over PD2Q_ROOT (set for this whole test), so an
+    # installed worker serves the root it was installed for; the installer passes it.
+    $rootX = Join-Path $root 'other-root'
+    $out = & $pwsh -NoProfile -File (Join-Path $PSScriptRoot '..\Queue-Service.ps1') -Setup -Root $rootX -Remote (Join-Path $root 'no-such-remote.git') 2>&1 | Out-String
+    Check ((Test-Path -LiteralPath (Join-Path $rootX 'queue\service.log')) -and (Get-Content -LiteralPath (Join-Path $rootX 'queue\service.log') -Raw) -match 'setup: cloning dev') "Queue-Service.ps1 -Root lays out and logs under that root`n$out"
+    Check ((Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\Install-QueueService.ps1') -Raw) -match '-Foreground -Root `"\$Root`"') 'Install-QueueService.ps1 passes its -Root to the scheduled worker'
+
     # Milestone 4: the push target is dev and nothing else.
     Import-Module (Join-Path $PSScriptRoot '..\Pd2Queue.psm1') -Force
     $msg = Get-Pd2qCommitMessage @{ title = 'Networking - T-NETWORKING-007: Fix rejoin'; issue = 'B-1277'; session = 's'; agent = 'claude'; body = 'Why.'; coAuthor = 'A <a@b.c>' } 'q9-20261122' 'Built.'

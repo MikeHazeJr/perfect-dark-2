@@ -49,6 +49,16 @@ function Start-Worker([hashtable] $Env = @{}) {
             -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root "worker-$([guid]::NewGuid().ToString('N').Substring(0,6)).log") -RedirectStandardError (Join-Path $root "worker-$([guid]::NewGuid().ToString('N').Substring(0,6)).err")
     } finally { foreach ($k in $Env.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) } }
 }
+function Get-Descendants([int] $RootPid) {
+    $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, CreationDate, Name)
+    $found = @(); $frontier = @($RootPid)
+    while ($frontier) {
+        $next = @()
+        foreach ($p in $frontier) { foreach ($c in @($all | Where-Object { $_.ParentProcessId -eq $p })) { $found += $c; $next += $c.ProcessId } }
+        $frontier = $next
+    }
+    return $found
+}
 function Wait-Event([string] $Job, [string] $Event, [int] $Seconds) {
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline) { if ((Events $Job) -contains $Event) { return $true }; Start-Sleep -Milliseconds 500 }
@@ -70,7 +80,14 @@ try {
     $w = Start-Worker
     Check (Wait-Event $jA 'building' 900) 'the job reached Building'
     Start-Sleep -Seconds 20  # well into the compile
-    $w.Kill($true); $w.WaitForExit()
+    # Stop the worker alone, not its tree, as a crash would: its job object
+    # must end the build it started before recovery touches the folder.
+    $kids = @(Get-Descendants $w.Id)
+    Check ($kids.Count -ge 2) "the build runs as the worker's child processes ($(($kids | ForEach-Object Name | Select-Object -Unique) -join ', '))"
+    Stop-Process -Id $w.Id -Force; $w.WaitForExit()
+    Start-Sleep -Seconds 3
+    $alive = @($kids | Where-Object { $p = Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue; $p -and [math]::Abs(($p.StartTime - $_.CreationDate).TotalSeconds) -lt 2 })
+    Check ($alive.Count -eq 0) "stopping the worker alone ends its build processes too ($($alive.Count) left: $(($alive | ForEach-Object Name) -join ', '))"
     Check (Test-Path -LiteralPath (Join-Path $root "jobs\$jA")) 'a killed worker leaves the job folder behind'
     $w = Start-Worker
     $w.WaitForExit()

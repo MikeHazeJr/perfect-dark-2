@@ -35,7 +35,8 @@ if ($Uninstall) {
 if (-not (Test-Path -LiteralPath $pwsh)) { throw "PowerShell 7 is required at $pwsh." }
 if (-not (Test-Path -LiteralPath $worker)) { throw "The worker is not in the dev clone yet ($worker); run Queue-Service.ps1 -Setup after tools/pd2-queue is on dev." }
 $user = "$env:USERDOMAIN\$env:USERNAME"
-$action = New-ScheduledTaskAction -Execute $pwsh -Argument "-NoProfile -WindowStyle Hidden -File `"$worker`" -Foreground" -WorkingDirectory $Root
+# -Root reaches the worker itself: the working directory alone does not choose its queue.
+$action = New-ScheduledTaskAction -Execute $pwsh -Argument "-NoProfile -WindowStyle Hidden -File `"$worker`" -Foreground -Root `"$Root`"" -WorkingDirectory $Root
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
 $settings = New-ScheduledTaskSettingsSet -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1) `
     -ExecutionTimeLimit ([TimeSpan]::Zero) -MultipleInstances IgnoreNew -StartWhenAvailable `

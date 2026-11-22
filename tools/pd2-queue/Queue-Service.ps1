@@ -23,9 +23,11 @@ param(
     [switch] $Once,
     [int] $IdleExitSeconds = 0,
     [int] $JobLimitMinutes = 20,
-    [string] $HubSession = 'pd2-queue'
+    [string] $HubSession = 'pd2-queue',
+    [string] $Root = ''  # the queue root; otherwise PD2Q_ROOT, else C:\PD2
 )
 $ErrorActionPreference = 'Stop'
+if ($Root) { $env:PD2Q_ROOT = $Root }
 Import-Module (Join-Path $PSScriptRoot 'Pd2Queue.psm1') -Force
 $paths = Initialize-Pd2qLayout
 $git = Get-Pd2qGitExe
@@ -369,6 +371,26 @@ function Invoke-Job($Job) {
         $info.errors = @($r.Out -split "`n" | Select-Object -First 40)
         Complete-Job $jobId $request 'rejected' $info; return
     }
+    # A patch may move a bgfx submodule's pointer. git apply --3way stages the
+    # new gitlink but leaves the old files checked out, so the job would build
+    # the old dependency and publish the new one. Check out what the index now
+    # names, from the submodule's own remote, or fail before building.
+    $indexSha = { param($s) (((Git $src @('ls-files', '-s', '--', $s)).Out) -split '\s+')[1] }
+    $moved = @($subs | Where-Object { (((Git $src @('ls-tree', 'HEAD', '--', $_)).Out) -split '\s+')[2] -ne (& $indexSha $_) })
+    if ($moved) {
+        foreach ($s in $moved) {
+            $url = (Git $src @('config', '-f', '.gitmodules', "submodule.$s.url") -AllowFailure).Out
+            if ($url) { [void](Git $src @('config', "submodule.$s.url", $url)) }
+        }
+        $r = Git $src (@('submodule', 'update', '--init', '--depth', '1', '--') + $moved) -AllowFailure
+        $notAt = @($moved | Where-Object { (Git $src @('-C', $_, 'rev-parse', 'HEAD') -AllowFailure).Out -ne (& $indexSha $_) })
+        if ($r.Code -ne 0 -or $notAt) {
+            $info.detail = "the patch moves submodule(s) $($moved -join ', ') to a revision that could not be checked out, so it was not built"
+            $info.errors = @($r.Out -split "`n" | Select-Object -First 40)
+            Complete-Job $jobId $request 'failed' $info; return
+        }
+        Write-Pd2qLog "job $jobId`: submodule(s) $($moved -join ', ') checked out at the patch's revisions"
+    }
     $info.seconds.prepare = [math]::Round($prep.Elapsed.TotalSeconds, 1)
     try { $info.hubId = Enter-HubBuildSlot $jobId $request.title }
     catch {
@@ -578,6 +600,43 @@ $instance = [Threading.Mutex]::new($false, ((Get-Pd2qMutexName) + '-Service'))
 $haveInstance = $false
 try { $haveInstance = $instance.WaitOne(0) } catch [Threading.AbandonedMutexException] { $haveInstance = $true }
 if (-not $haveInstance) { throw 'Another queue service is already running for this root.' }
+
+# Every process a job starts (the build wrapper, ninja, the compilers, git)
+# dies with the worker. The worker puts itself in a kill-on-close job object
+# whose only handle it holds, and children join their parent's job, so when the
+# worker exits, crashes or is stopped alone, Windows ends them all. Without
+# this, recovery would delete a job folder and free its hub slot under a build
+# that was still running.
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class Pd2qJobObject {
+    [StructLayout(LayoutKind.Sequential)] struct Basic {
+        public long PerProcessUserTimeLimit; public long PerJobUserTimeLimit; public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize; public UIntPtr MaximumWorkingSetSize; public uint ActiveProcessLimit;
+        public UIntPtr Affinity; public uint PriorityClass; public uint SchedulingClass; }
+    [StructLayout(LayoutKind.Sequential)] struct Io { public ulong R, W, O, RB, WB, OB; }
+    [StructLayout(LayoutKind.Sequential)] struct Extended {
+        public Basic BasicLimit; public Io IoInfo; public UIntPtr ProcessMemoryLimit; public UIntPtr JobMemoryLimit;
+        public UIntPtr PeakProcessMemoryUsed; public UIntPtr PeakJobMemoryUsed; }
+    [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)] static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetInformationJobObject(IntPtr job, int infoClass, ref Extended info, uint length);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+    [DllImport("kernel32.dll")] static extern IntPtr GetCurrentProcess();
+    static IntPtr job;  // never closed while the worker lives; its close at exit ends the job
+    public static int Bind() {
+        job = CreateJobObject(IntPtr.Zero, null);
+        if (job == IntPtr.Zero) return Marshal.GetLastWin32Error();
+        Extended info = new Extended();
+        info.BasicLimit.LimitFlags = 0x2000;  // JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        if (!SetInformationJobObject(job, 9, ref info, (uint)Marshal.SizeOf(typeof(Extended)))) return Marshal.GetLastWin32Error();  // 9: extended limits
+        if (!AssignProcessToJobObject(job, GetCurrentProcess())) return Marshal.GetLastWin32Error();
+        return 0;
+    }
+}
+'@
+$jobBind = [Pd2qJobObject]::Bind()
+if ($jobBind -ne 0) { Write-Pd2qLog "warning: no kill-on-close job object (Win32 error $jobBind); a worker stopped alone may leave its build running" }
 $wake = [Threading.EventWaitHandle]::new($false, 'AutoReset', ((Get-Pd2qMutexName) + '-Wake'))
 try {
     Initialize-DevCheckout
