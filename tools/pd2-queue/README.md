@@ -28,10 +28,10 @@ pwsh -File $q submit B-1277 -Lease 418 -Title "Networking - T-NETWORKING-007: Fi
 pwsh -File $q wait q97-20261122                    # report path and result
 ```
 
-- **Owning a lease.** `claim` records the long-lived agent host above the shell: the session's own `claude.exe`, or `codex.exe` or `node.exe` (see `agent-hosts.txt`). It records the host's PID and start time, plus the PC's boot time.
-- **When a lease frees.** It frees the moment its owner exits, the PC reboots, or 10 minutes pass without a renew. If the task has edits, they are saved under `queue\tasks` first.
+- **Owning a lease.** `claim` records the long-lived agent host above the shell: the session's own `claude.exe`, or `codex.exe` or `node.exe` (see `agent-hosts.txt`). It records the host's PID and start time, plus the PC's boot time. A session holds one lease at a time, because it has one scratch folder; a submitted lease does not count.
+- **When a lease frees.** It frees the moment its owner exits, the PC reboots, or 10 minutes pass without a renew. If the task has edits, they are saved under `queue\tasks` first. If that save fails, the scratch stays and a `checkpoint-failed` alarm says where. A scratch reverted to its base clears the saved patch.
 - **Picking up another session's work.** Another session, or the other agent, can claim the task to get the saved work back. It runs `validate -Result keep|redo -Note ...` before it may submit.
-- **Submit checks.** The title must follow the commit standard ("<Area> - <WorkbenchItemID>: <summary>"). The patch must apply to the current dev. A stale lease number is rejected.
+- **Submit checks.** The title must follow the commit standard ("<Area> - <WorkbenchItemID>: <summary>"), and the message must pass `.githooks/commit-msg.py` against the live Workbench. The patch must apply to the current dev. A stale lease number is rejected.
 - **The commit message.** `-Body` names a text file that says what changed and why, as every commit here does. It may not carry trailer lines; the queue writes `Refs` and the `PD2-*` trailers itself, and `-CoAuthor` adds a `Co-Authored-By` line last.
 - **The board.** `board` lists landed fixes. `claim` refuses an issue that already landed unless it is given `-Reopen "why"`.
 - **Other commands.** `break`, `cancel`, `agent codex off -Until <time>`, `resume` and `status` work as the spec describes. `status` shows the running job, the queue, every lease with its age and time left, slow builds, alarms, and the size of the jobs folder, which is an alarm if anything is left there with no job running.
@@ -45,11 +45,11 @@ pwsh -File tools\pd2-queue\Queue-Service.ps1 -Foreground   # the worker
 
 A job runs through five states. Each step is written to the job's journal before it starts.
 
-1. **Preparing.** The dev clone must be clean; if it is not, the queue pauses, raises an alarm and resets nothing. The worker fetches and resets dev to origin/dev, then checks the lease is still the job's. It makes `jobs\<job>\src` as a `git clone --shared`, with the bgfx submodules taken from dev's copies, and runs `git apply --3way` on the patch. Then it waits for the hub's `build` slot.
+1. **Preparing.** The dev clone must be clean; if it is not, the queue pauses, raises an alarm and resets nothing. The worker fetches and resets dev to origin/dev, then checks the lease is still the job's. It makes `jobs\<job>\src` as a `git clone --shared`, with the bgfx submodules taken from dev's copies, and runs `git apply --3way` on the patch. Then it waits for the hub's `build` slot. A hub that answers but does not admit the job (its item gone three times, the wait timed out, or `start` refused) sends the job back to the front with the same attempt, and the worker waits a minute. An unreachable hub is only a warning, as the spec says.
 2. **Building.** The job folder's own `build-session.ps1 -Target full -Clean` runs with ccache off, so a patch to the build scripts is built with its own changes.
 3. **Testing.** `run-pd-tests.ps1 -NoBuild` runs, with `-Scope` if the submit named one.
-4. **Pushing.** The worker commits exactly the staged patch: the title, the submitted body, then the trailers `Refs`, `PD2-Issue`, `PD2-Queue-Job`, `PD2-Session`, `PD2-Agent` and any `Co-Authored-By`. It fetches again. If dev moved, the job goes back to the front of the queue, up to three attempts. Otherwise it pushes `HEAD:refs/heads/dev`; any other target is refused.
-5. **Endings.** The job folder is deleted, the hub slot finished, the lease freed and the report written. When a job lands, the worker resets dev to the new tip, adds a board line and notes it in the Workbench.
+4. **Pushing.** A cancel that came during the tests stops the job here. The worker runs what a normal commit's hooks run: the staged asset guard in the job folder, and `commit-msg.py` on the message. Then it commits exactly the staged patch: the title, the submitted body, then the trailers `Refs` (the title's item, plus the issue when it differs), `PD2-Issue`, `PD2-Queue-Job`, `PD2-Session`, `PD2-Agent` and any `Co-Authored-By`. It fetches again. If dev moved, the job goes back to the front of the queue, up to three attempts. Otherwise it pushes `HEAD:refs/heads/dev`; any other target is refused.
+5. **Endings.** The job folder is deleted, the hub slot finished (on an unexpected error too), the lease freed and the report written. When a job lands, the worker resets dev to the new tip, adds a board line and notes it in the Workbench.
 
 When the worker starts, it recovers interrupted jobs:
 - A job stopped in Preparing, Building or Testing is requeued at the front. After two interruptions it fails.

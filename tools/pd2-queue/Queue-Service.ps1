@@ -42,6 +42,8 @@ $githubUrl = 'https://github.com/MikeHazeJr/perfect-dark-2.git'
 $canonical = 'C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike'
 $hub = Join-Path $canonical 'Tools\CodexCoordination\CodexCoordination.ps1'
 $slowSeconds = 152  # Mike's 2:32 for a cold, clean, full build of client, updater and tests
+$script:JobHubId = $null     # the hub item a running job holds, so every exit path finishes it
+$script:NotAdmitted = $false # the hub refused the last job; wait before the next try
 
 function Git([string] $Dir, [string[]] $GitArgs, [switch] $AllowFailure) {
     $out = & $git -C $Dir @GitArgs 2>&1
@@ -106,24 +108,41 @@ function Set-ServiceState([hashtable] $Change) {
 }
 
 function Invoke-Hub([string[]] $HubArgs) {
+    # Code -1: the hub could not be run at all.
     try {
         $out = & $ps51 -NoProfile -ExecutionPolicy Bypass -File $hub @HubArgs 2>&1 | Out-String
-        return $out.Trim()
+        return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out.Trim() }
     } catch {
         Write-Pd2qLog "hub warning: $($_.Exception.Message)"
-        return ''
+        return [pscustomobject]@{ Code = -1; Out = '' }
     }
 }
 
 function Enter-HubBuildSlot([string] $JobId, [string] $Title) {
     # Anything still using the hub sees the build slot as busy while a job runs.
+    # An unreachable hub is a warning and the job goes on (spec: the queue is
+    # the PC's builder). A hub that answers but does not admit the job stops
+    # it: building then would overlap a build the hub gave someone else.
     if (-not (Test-Path -LiteralPath $hub)) { Write-Pd2qLog 'hub warning: coordination script not found; going on'; return $null }
-    $out = Invoke-Hub @('queue', '-SessionId', $HubSession, '-Type', 'build', '-Resource', 'build', '-Title', "pd2q $JobId`: $Title", '-Eta', '5m', '-Details', 'build queue job')
-    $id = ([regex]::Match($out, 'q_[0-9a-f_]+')).Value
-    if (-not $id) { Write-Pd2qLog "hub warning: no queue id ($out); going on"; return $null }
-    [void](Invoke-Hub @('wait-turn', '-SessionId', $HubSession, '-QueueId', $id, '-WaitTimeoutSeconds', '7200'))
-    [void](Invoke-Hub @('start', '-SessionId', $HubSession, '-QueueId', $id))
-    return $id
+    for ($try = 1; $try -le 3; $try++) {
+        $q = Invoke-Hub @('queue', '-SessionId', $HubSession, '-Type', 'build', '-Resource', 'build', '-Title', "pd2q $JobId`: $Title", '-Eta', '5m', '-Details', 'build queue job')
+        $id = ([regex]::Match($q.Out, 'q_[0-9a-f_]+')).Value
+        if ($q.Code -ne 0 -or -not $id) { Write-Pd2qLog "hub warning: no queue id (exit $($q.Code): $($q.Out)); going on"; return $null }
+        $w = Invoke-Hub @('wait-turn', '-SessionId', $HubSession, '-QueueId', $id, '-WaitTimeoutSeconds', '7200')
+        if ($w.Code -eq 2) { Write-Pd2qLog "hub: item $id was removed before its turn; queueing again"; continue }
+        if ($w.Code -ne 0) {
+            [void](Invoke-Hub @('finish', '-SessionId', $HubSession, '-QueueId', $id, '-Result', 'cancelled', '-Summary', "pd2q $JobId was not admitted", '-Evidence', $paths.Reports))
+            throw "the hub did not admit the build: wait-turn exit $($w.Code): $($w.Out)"
+        }
+        $s = Invoke-Hub @('start', '-SessionId', $HubSession, '-QueueId', $id)
+        if ($s.Code -ne 0) {
+            [void](Invoke-Hub @('finish', '-SessionId', $HubSession, '-QueueId', $id, '-Result', 'cancelled', '-Summary', "pd2q $JobId was not admitted", '-Evidence', $paths.Reports))
+            throw "the hub did not admit the build: start exit $($s.Code): $($s.Out)"
+        }
+        $script:JobHubId = $id
+        return $id
+    }
+    throw 'the hub did not admit the build: its item was removed three times'
 }
 
 function Clear-HubStaleSlots {
@@ -142,6 +161,7 @@ function Clear-HubStaleSlots {
 function Exit-HubBuildSlot([string] $QueueId, [string] $Summary) {
     if (-not $QueueId) { return }
     [void](Invoke-Hub @('finish', '-SessionId', $HubSession, '-QueueId', $QueueId, '-Result', 'done', '-Summary', $Summary, '-Evidence', 'C:\PD2\reports'))
+    if ($script:JobHubId -eq $QueueId) { $script:JobHubId = $null }
 }
 
 function Test-CancelRequested([string] $JobId) {
@@ -200,7 +220,16 @@ function Get-FirstErrors([string[]] $Files, [int] $Max = 40) {
         # Nothing looked like an error: the step's own last lines say what happened.
         foreach ($f in $Files) { if (Test-Path -LiteralPath $f) { $lines += @(Get-Content -LiteralPath $f -Tail 30); break } }
     }
-    return @($lines | Select-Object -First $Max)
+    $lines = @($lines | Select-Object -First $Max)
+    if (-not @($lines | Where-Object { $_ -match '(?i)error|cannot|denied|memory|terminated' })) {
+        # Only ninja's FAILED line matched: the compiler's own words are in the
+        # wrapper's error log, and the job folder is deleted, so keep its tail.
+        foreach ($f in @($Files | Where-Object { $_ -like '*.err.log' -and (Test-Path -LiteralPath $_) })) {
+            $tail = @(Get-Content -LiteralPath $f -Tail 25 | Where-Object { $_.Trim() })
+            if ($tail) { $lines += @("--- last lines of $(Split-Path -Leaf $f) ---") + $tail }
+        }
+    }
+    return $lines
 }
 
 function Write-JobReport([string] $JobId, [hashtable] $Request, [string] $Result, [hashtable] $Info) {
@@ -335,7 +364,16 @@ function Invoke-Job($Job) {
         Complete-Job $jobId $request 'rejected' $info; return
     }
     $info.seconds.prepare = [math]::Round($prep.Elapsed.TotalSeconds, 1)
-    $info.hubId = Enter-HubBuildSlot $jobId $request.title
+    try { $info.hubId = Enter-HubBuildSlot $jobId $request.title }
+    catch {
+        # Not the patch's fault: the job keeps its place and attempt, and the
+        # worker waits before trying again.
+        Remove-Pd2qTree $jobDir @($paths.Jobs)
+        Requeue-Front $jobId $attempt "not built: $($_.Exception.Message)"
+        $script:NotAdmitted = $true
+        return
+    }
+    if (Test-CancelRequested $jobId) { $info.detail = 'cancelled before building'; Complete-Job $jobId $request 'cancelled' $info; return }
 
     # ---- Building (clean, ccache off, the job folder's own scripts)
     Invoke-Pd2qLocked { Add-Pd2qJournal $jobId @{ event = 'building'; attempt = $attempt; devCommit = $devCommit } }
@@ -395,6 +433,42 @@ function Invoke-Job($Job) {
         $info.detail = 'built and tested; -Smoke is for milestone finalization and is run with tools/smoke-verify/run.ps1 -Prepare/-Execute, not by the queue yet'
     }
 
+    # Milestone 3 and 5 tests only: a cancel that arrives while the tests run,
+    # and an unexpected error while the job holds its hub slot.
+    if ($env:PD2Q_TEST_CANCEL_JOB -and $env:PD2Q_TEST_CANCEL_JOB -eq $jobId) { [IO.File]::WriteAllText((Join-Path $paths.Requests "cancel-$jobId.json"), '{"schema":"pd2q.cancel.v1","reason":"test hook"}') }
+    if ($env:PD2Q_TEST_THROW_JOB -and $env:PD2Q_TEST_THROW_JOB -eq $jobId) { throw 'test hook: an unexpected error after testing' }
+    # A cancel that came during the last step still stops the job before it
+    # publishes anything.
+    if (Test-CancelRequested $jobId) {
+        $info.detail = 'cancelled before pushing'; $info.seconds.total = [math]::Round($total.Elapsed.TotalSeconds, 1)
+        Complete-Job $jobId $request 'cancelled' $info; return
+    }
+
+    # The checks a normal commit's hooks run. The job folder has no hooks, so
+    # the queue runs them itself: the staged asset guard (.githooks/pre-commit)
+    # and the message standard against the live Workbench (.githooks/commit-msg).
+    $guard = Join-Path $src 'tools\asset_native_source_guard.py'
+    if (Test-Path -LiteralPath $guard) {
+        $python = Get-Pd2qPythonExe
+        if (-not $python) { $info.detail = 'Python was not found, so the staged asset guard could not run'; Complete-Job $jobId $request 'failed' $info; return }
+        Push-Location -LiteralPath $src
+        try { $guardOut = & $python -B 'tools\asset_native_source_guard.py' --staged 2>&1 | ForEach-Object { "$_" }; $guardCode = $LASTEXITCODE } finally { Pop-Location }
+        if ($guardCode -ne 0) {
+            $info.detail = "the staged asset guard (.githooks/pre-commit) refused the patch (exit $guardCode)"
+            $info.errors = @($guardOut | Select-Object -Last 40); $info.seconds.total = [math]::Round($total.Elapsed.TotalSeconds, 1)
+            Complete-Job $jobId $request 'failed' $info; return
+        }
+        Write-Pd2qLog "job $jobId`: the staged asset guard passed"
+    }
+    $message = Get-Pd2qCommitMessage $request $jobId "Built and tested by the PD2 build queue: job $jobId on dev $($devCommit.Substring(0, 12)), clean build $($info.seconds.build) s, pd-tests $($info.seconds.tests) s."
+    $msgProblem = Test-Pd2qCommitMessage $message
+    if ($msgProblem) {
+        $info.detail = 'the commit message fails the repository standard (.githooks/commit-msg.py)'
+        $info.errors = @($msgProblem -split "`n" | Select-Object -First 40); $info.seconds.total = [math]::Round($total.Elapsed.TotalSeconds, 1)
+        Complete-Job $jobId $request 'failed' $info; return
+    }
+    Write-Pd2qLog "job $jobId`: the commit message check $(if (Test-Path -LiteralPath (Join-Path (Get-Pd2qCanonical) 'Tools\Workbench\data\roadmap.json')) { 'passed' } else { 'was skipped (no main checkout roadmap here)' })"
+
     # ---- Pushing
     Invoke-Pd2qLocked { Add-Pd2qJournal $jobId @{ event = 'pushing'; attempt = $attempt; devCommit = $devCommit; seconds = $info.seconds.tests } }
     Set-ServiceState @{ state = 'pushing'; job = $jobId }
@@ -403,16 +477,10 @@ function Invoke-Job($Job) {
     if (-not $name) { $name = (& $git -C $canonical config user.name) }
     if (-not $email) { $email = (& $git -C $canonical config user.email) }
     $msgFile = Join-Path $jobDir 'message.txt'
-    $lines = [Collections.Generic.List[string]]::new()
-    $lines.Add([string]$request.title); $lines.Add('')
-    if ($request.ContainsKey('body') -and $request.body) { $lines.Add([string]$request.body); $lines.Add('') }
-    $lines.Add("Built and tested by the PD2 build queue: job $jobId on dev $($devCommit.Substring(0, 12)), clean build $($info.seconds.build) s, pd-tests $($info.seconds.tests) s."); $lines.Add('')
-    foreach ($t in @("Refs: $($request.issue)", "PD2-Issue: $($request.issue)", "PD2-Queue-Job: $jobId", "PD2-Session: $($request.session)", "PD2-Agent: $($request.agent)")) { $lines.Add($t) }
-    if ($request.ContainsKey('coAuthor') -and $request.coAuthor) { $lines.Add("Co-Authored-By: $($request.coAuthor)") }
-    $message = $lines -join "`n"
-    [IO.File]::WriteAllText($msgFile, $message + "`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText($msgFile, $message, [Text.UTF8Encoding]::new($false))
     # Commit exactly what `git apply --3way` staged: the patch. Anything the
-    # build changed in the work tree (generated files) never goes in.
+    # build changed in the work tree (generated files) never goes in. The hook
+    # checks ran just above.
     [void](Git $src @('-c', "user.name=$name", '-c', "user.email=$email", 'commit', '-q', '--no-verify', '-F', $msgFile))
     $commit = (Git $src @('rev-parse', 'HEAD')).Out
     $touched = @((Git $src @('diff', '--name-only', $devCommit, $commit)).Out -split "`n" | Where-Object { $_ })
@@ -523,15 +591,20 @@ try {
         $next = if ($service.ContainsKey('paused') -and $service.paused) { $null } else { Invoke-Pd2qLocked { Get-Pd2qNextJob } }
         if ($next) {
             Set-ServiceState @{ state = 'running'; job = $next.Id }
+            $script:JobHubId = $null
+            $script:NotAdmitted = $false
             try { Invoke-Job $next }
             catch {
                 $err = $_.Exception.Message
                 Write-Pd2qLog "job $($next.Id) error: $err"
-                try { Complete-Job $next.Id $next.Request 'failed' @{ attempt = $next.Attempt; devCommit = ''; detail = "queue error: $err"; hubId = $null } } catch { Write-Pd2qLog "could not close $($next.Id): $($_.Exception.Message)" }
+                # The hub slot it took, if any, is finished with it (never leaked).
+                try { Complete-Job $next.Id $next.Request 'failed' @{ attempt = $next.Attempt; devCommit = ''; detail = "queue error: $err"; hubId = $script:JobHubId } } catch { Write-Pd2qLog "could not close $($next.Id): $($_.Exception.Message)" }
             }
             Set-ServiceState @{ state = 'idle'; job = $null }
             $idleSince = Get-Date
             if ($Once) { break }
+            # The hub refused the build: give it a minute before asking again.
+            if ($script:NotAdmitted) { [void]$wake.WaitOne([TimeSpan]::FromSeconds(60)) }
             continue
         }
         Set-ServiceState @{ state = $(if ($service.ContainsKey('paused') -and $service.paused) { 'paused' } else { 'idle' }); job = $null }

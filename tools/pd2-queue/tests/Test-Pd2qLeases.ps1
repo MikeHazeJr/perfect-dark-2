@@ -41,6 +41,9 @@ function LeaseNumber([string] $Text) { if ($Text -match 'lease (\d+) on') { retu
 
 $owners = @()
 $env:PD2Q_ROOT = $root
+# The test's items (T-UNIT-*) are not in the Workbench, so the repository's
+# commit-msg check is off except where a check turns it on.
+$env:PD2Q_CANONICAL = Join-Path $root 'no-main-checkout'
 try {
     # A tiny dev repository standing in for the clean dev clone.
     $dev = Join-Path $root 'dev'
@@ -60,6 +63,8 @@ try {
     Check ($r.Code -eq 0 -and $r.Out -match 'renewed') 'renew keeps the lease'
     $r = Q @('claim', 'T-UNIT-001', '-Session', 's2', '-OwnerPid', $o1.Id)
     Check ($r.Code -ne 0 -and $r.Out -match 'held by s1|is held by s1') 'a held issue refuses another claim'
+    $r = Q @('claim', 'T-UNIT-009', '-Session', 's1', '-OwnerPid', $o1.Id)
+    Check ($r.Code -ne 0 -and $r.Out -match 's1 already holds lease \d+ on T-UNIT-001') "a session holding a lease cannot claim a second issue (one scratch folder)`n$($r.Out)"
 
     # No renew for 10 minutes frees it.
     $r = Q @('check', 'T-UNIT-001') @{ PD2Q_TEST_NOW_UTC = $start.AddMinutes(11).ToString('o') }
@@ -172,8 +177,48 @@ try {
     $r = Q @('claim', 'T-UNIT-008', '-Session', 'codex-b', '-OwnerPid', $o4.Id, '-Agent', 'codex') @{ PD2Q_TEST_NOW_UTC = $start.AddMinutes(6).ToString('o') }
     Check ($r.Code -eq 0) 'the -Until time turns codex back on by itself'
 
+    # Reverting every edit clears the saved patch, so the next holder does not
+    # get back work this session undid.
+    $o5 = Owner; $owners += $o5
+    $r = Q @('claim', 'T-UNIT-010', '-Session', 'claude-r', '-OwnerPid', $o5.Id); $nr = LeaseNumber $r.Out
+    $fileR = (Q @('edit', 'src/a.c', '-Session', 'claude-r')).Out.Trim()
+    [IO.File]::WriteAllText($fileR, "int a(void) { return 10; }`n")
+    [void](Q @('checkpoint', 'T-UNIT-010', '-Lease', $nr, '-Note', 'a returns 10'))
+    $patchR = Join-Path $root 'queue\tasks\T-UNIT-010.patch'
+    Check (Test-Path -LiteralPath $patchR -PathType Leaf) 'a checkpoint saves the patch'
+    [IO.File]::WriteAllText($fileR, "int a(void) { return 1; }`n")
+    [void](Q @('renew', 'T-UNIT-010', '-Lease', $nr))
+    $taskR = Get-Content -LiteralPath (Join-Path $root 'queue\tasks\T-UNIT-010.json') -Raw | ConvertFrom-Json -AsHashtable
+    Check (-not (Test-Path -LiteralPath $patchR) -and -not $taskR.ContainsKey('patch') -and @($taskR.files).Count -eq 0) 'reverting every edit clears the saved patch at the next save'
+
+    # A checkpoint that fails as a lease frees keeps the scratch, then the only
+    # copy of the edits, and raises an alarm naming it.
+    [IO.File]::WriteAllText($fileR, "int a(void) { return 11; }`n")
+    [IO.Directory]::CreateDirectory($patchR) | Out-Null  # the patch's path is a folder, so saving it fails
+    Stop-Process -Id $o5.Id -Force; $o5.WaitForExit()
+    [void](Q @('check', 'T-UNIT-010'))
+    Check (-not (Leases).leases['T-UNIT-010']) "the dead owner's lease is freed"
+    Check ((Test-Path -LiteralPath $fileR) -and (Get-Content -LiteralPath $fileR -Raw) -match 'return 11') 'its scratch is kept when the checkpoint fails'
+    Check ((Get-Content -LiteralPath (Join-Path $root 'queue\alarms.json') -Raw) -match 'checkpoint-failed' ) 'and an alarm says where the edits are'
+    Remove-Item -LiteralPath $patchR -Force
+
+    # The repository's commit-msg check runs at submit where the main
+    # checkout's Workbench is (not on CI): an item it does not know is refused.
+    $real = 'C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike'
+    if ((Test-Path -LiteralPath (Join-Path $real 'Tools\Workbench\data\roadmap.json')) -and (Get-Pd2qPythonExe)) {
+        $o6 = Owner; $owners += $o6
+        $r = Q @('claim', 'T-UNIT-011', '-Session', 'claude-m', '-OwnerPid', $o6.Id); $nm = LeaseNumber $r.Out
+        $fileM = (Q @('edit', 'src/a.c', '-Session', 'claude-m')).Out.Trim()
+        [IO.File]::WriteAllText($fileM, "int a(void) { return 12; }`n")
+        $r = Q @('submit', 'T-UNIT-011', '-Lease', $nm, '-Title', 'Tooling - T-UNIT-011: Return twelve') @{ PD2Q_CANONICAL = $real }
+        Check ($r.Code -ne 0 -and $r.Out -match "commit-msg check" -and $r.Out -match 'does not exist in the Workbench roadmap') "submit runs the repository's commit-msg check (an unknown item is refused)`n$($r.Out)"
+        [void](Q @('release', 'T-UNIT-011', '-Lease', $nm))
+    } else { $checks.Add("commit-msg check at submit skipped: no main checkout or Python here") }
+
     # Milestone 4: the push target is dev and nothing else.
     Import-Module (Join-Path $PSScriptRoot '..\Pd2Queue.psm1') -Force
+    $msg = Get-Pd2qCommitMessage @{ title = 'Networking - T-NETWORKING-007: Fix rejoin'; issue = 'B-1277'; session = 's'; agent = 'claude'; body = 'Why.'; coAuthor = 'A <a@b.c>' } 'q9-20261122' 'Built.'
+    Check ($msg -match '(?m)^Refs: T-NETWORKING-007, B-1277$' -and $msg -match '(?m)^PD2-Issue: B-1277$' -and ($msg.TrimEnd() -split "`n")[-1] -eq 'Co-Authored-By: A <a@b.c>') "Refs names the title's item and the bug id`n$msg"
     Assert-Pd2qPushTarget 'refs/heads/dev'
     foreach ($bad in @('refs/heads/main', 'refs/heads/Dev', 'dev', 'refs/heads/dev2', 'refs/tags/dev', 'HEAD:refs/heads/main')) {
         $refused = $false
@@ -190,7 +235,7 @@ try {
     }
 } finally {
     foreach ($o in $owners) { try { if (-not $o.HasExited) { Stop-Process -Id $o.Id -Force } } catch { } }
-    Remove-Item Env:PD2Q_ROOT -ErrorAction SilentlyContinue
+    Remove-Item Env:PD2Q_ROOT, Env:PD2Q_CANONICAL -ErrorAction SilentlyContinue
     if (-not $KeepFixture -and (Test-Path -LiteralPath $root)) {
         Get-ChildItem -LiteralPath $root -Recurse -Force -File | ForEach-Object { $_.Attributes = 'Normal' }
         Remove-Item -LiteralPath $root -Recurse -Force

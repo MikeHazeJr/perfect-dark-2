@@ -40,6 +40,9 @@ function Edit-Line([string] $File, [scriptblock] $Change) {
 $sleeper = $null
 $env:PD2Q_ROOT = $root
 $env:PD2Q_SUBMODULE_SOURCE = Join-Path $Source '.git\modules'
+# The test's items (T-M3-*) are not in the Workbench, so the commit-msg check
+# against the live roadmap is off here; Test-Pd2qLeases.ps1 covers it.
+$env:PD2Q_CANONICAL = Join-Path $root 'no-main-checkout'
 try {
     $t0 = Get-Date
     & $git clone --quiet --bare --no-hardlinks --branch dev --single-branch $Source $remote
@@ -81,10 +84,20 @@ try {
     & $git -C $other push -q origin dev
     Check ($LASTEXITCODE -eq 0) 'a conflicting change reached the remote after submit'
 
+    # 4. A good patch whose cancel arrives while its tests run (a test hook
+    # writes the request then): it must not be pushed.
+    $r = Q @('claim', 'T-M3-004', '-Session', 'm3-e', '-OwnerPid', $sleeper.Id); $l4 = LeaseOf $r.Out
+    $f = (Q @('edit', 'port/src/fs_path.c', '-Session', 'm3-e')).Out.Trim()
+    Edit-Line $f { param($t) "/* pd2q Milestone 3 cancelled patch */`n" + $t }
+    $r = Q @('submit', 'T-M3-004', '-Lease', $l4, '-Title', 'Tooling - T-M3-004: A patch cancelled during its tests')
+    Check ($r.Code -eq 0) 'job 4 submitted'; $j4 = JobOf $r.Out
+
     # Run the worker until the queue is empty.
     $t1 = Get-Date
     $log = Join-Path $root 'service-run.log'
-    & $pwsh -NoProfile -File $service -Foreground -Remote $remote -IdleExitSeconds 3 -HubSession 'pd2-queue-m3test' *> $log
+    $env:PD2Q_TEST_CANCEL_JOB = $j4
+    try { & $pwsh -NoProfile -File $service -Foreground -Remote $remote -IdleExitSeconds 3 -HubSession 'pd2-queue-m3test' *> $log }
+    finally { Remove-Item Env:PD2Q_TEST_CANCEL_JOB -ErrorAction SilentlyContinue }
     "worker ran $([int]((Get-Date) - $t1).TotalSeconds) s"
 
     $why1 = "`n--- report ---`n" + (Get-Content -LiteralPath (Join-Path $root "reports\$j1.md") -Raw -ErrorAction SilentlyContinue) +
@@ -105,6 +118,14 @@ try {
     Check ($report2 -match 'gdl_span\.c' -and $report2 -match 'error') "job 2's report holds the compile error line`n$report2"
     Check ((LastEvent $j3) -eq 'rejected') 'job 3 was rejected: its patch no longer applies'
     Check ((Get-Content -LiteralPath (Join-Path $root "reports\$j3.md") -Raw) -match 'README\.md') "job 3's report names the conflicting file"
+    $report4 = Get-Content -LiteralPath (Join-Path $root "reports\$j4.md") -Raw
+    Check ((LastEvent $j4) -eq 'cancelled' -and $report4 -match 'cancelled before pushing') "job 4, cancelled during its tests, ended cancelled before pushing`n$report4"
+    Check (@(& $git -C $remote log dev --grep "PD2-Queue-Job: $j4" --format=%H).Count -eq 0) 'and nothing of it reached the remote'
+    $serviceLog = Get-Content -LiteralPath (Join-Path $root 'queue\service.log') -Raw
+    Check ($serviceLog -match "job $j1`: the staged asset guard passed") "the staged asset guard ran before job 1's commit"
+    $hubState = Get-Content -LiteralPath (Join-Path $Source '.codex-coordination\state.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    $running = @($hubState.queue | Where-Object { $_.sessionId -eq 'pd2-queue-m3test' -and $_.status -eq 'running' })
+    Check ($running.Count -eq 0) "no hub slot of the test worker is left running ($($running.Count))"
     Check (@(Get-ChildItem -LiteralPath (Join-Path $root 'jobs') -Force).Count -eq 0) 'the jobs folder is empty after the jobs'
     $builds = @(Get-Content -LiteralPath (Join-Path $root 'queue\builds.jsonl') | ForEach-Object { $_ | ConvertFrom-Json })
     Check ($builds.Count -ge 2 -and $builds[0].seconds.build -gt 0 -and $builds[0].seconds.tests -gt 0) ('builds.jsonl has step times: ' + ($builds | ForEach-Object { "$($_.job) $($_.result) build $($_.seconds.build) s tests $($_.seconds.tests) s total $($_.total) s slow $($_.slow)" }) -join '; ')
@@ -115,7 +136,7 @@ try {
     Check ((& $git -C (Join-Path $root 'dev') rev-parse HEAD) -eq (& $git -C $remote rev-parse dev)) 'the dev clone was reset to the new tip'
 } finally {
     if ($sleeper) { try { Stop-Process -Id $sleeper.Id -Force } catch { } }
-    Remove-Item Env:PD2Q_ROOT, Env:PD2Q_SUBMODULE_SOURCE -ErrorAction SilentlyContinue
+    Remove-Item Env:PD2Q_ROOT, Env:PD2Q_SUBMODULE_SOURCE, Env:PD2Q_CANONICAL, Env:PD2Q_TEST_CANCEL_JOB -ErrorAction SilentlyContinue
     if (-not $KeepFixture -and (Test-Path -LiteralPath $root)) {
         Get-ChildItem -LiteralPath $root -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object { $_.Attributes = 'Normal' }
         Remove-Item -LiteralPath $root -Recurse -Force

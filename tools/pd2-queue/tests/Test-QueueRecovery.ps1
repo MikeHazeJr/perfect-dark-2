@@ -58,6 +58,7 @@ function Wait-Event([string] $Job, [string] $Event, [int] $Seconds) {
 $sleeper = $null
 $env:PD2Q_ROOT = $root
 $env:PD2Q_SUBMODULE_SOURCE = Join-Path $Source '.git\modules'
+$env:PD2Q_CANONICAL = Join-Path $root 'no-main-checkout'  # T-M5-* are not Workbench items
 try {
     & $git clone --quiet --bare --no-hardlinks --branch dev --single-branch $Source $remote
     $r = & $pwsh -NoProfile -File $service -Setup -Remote $remote 2>&1 | Out-String
@@ -91,9 +92,23 @@ try {
     Check ((Events $jB)[-1] -eq 'landed') 'on restart the job is marked Landed'
     Check (@(& $git -C $remote log dev --grep "PD2-Queue-Job: $jB" --format=%H).Count -eq 1) 'and it was not pushed twice'
     Check ((Get-Content -LiteralPath (Join-Path $root 'queue\service.log') -Raw) -match "recovery: $jB was pushed before the restart") 'the recovery is logged'
+
+    # 3. An unexpected error while the job holds its hub slot (a test hook
+    # throws after testing): the job fails, nothing is pushed, and the slot is
+    # finished, not left running for everyone behind it.
+    $jC = Submit 'T-M5-003' 'm5-c' $sleeper.Id 'pd2q Milestone 5 error after testing'
+    $w = Start-Worker @{ PD2Q_TEST_THROW_JOB = $jC }
+    $w.WaitForExit()
+    $lastC = Get-Content -LiteralPath (Join-Path $root "queue\journal\$jC.jsonl") | Select-Object -Last 1 | ConvertFrom-Json
+    Check ($lastC.event -eq 'failed' -and $lastC.detail -match 'test hook: an unexpected error') "an unexpected error fails the job: $($lastC.detail)"
+    Check (@(& $git -C $remote log dev --grep "PD2-Queue-Job: $jC" --format=%H).Count -eq 0) 'and nothing of it was pushed'
+    $hubState = Get-Content -LiteralPath (Join-Path $Source '.codex-coordination\state.json') -Raw -Encoding utf8 | ConvertFrom-Json
+    $running = @($hubState.queue | Where-Object { $_.sessionId -eq 'pd2-queue-m5test' -and $_.status -eq 'running' })
+    Check ($running.Count -eq 0) "its hub slot was finished, not leaked ($($running.Count) running)"
+    Check (@(Get-ChildItem -LiteralPath (Join-Path $root 'jobs') -Force).Count -eq 0) 'the jobs folder is empty'
 } finally {
     if ($sleeper) { try { Stop-Process -Id $sleeper.Id -Force } catch { } }
-    Remove-Item Env:PD2Q_ROOT, Env:PD2Q_SUBMODULE_SOURCE -ErrorAction SilentlyContinue
+    Remove-Item Env:PD2Q_ROOT, Env:PD2Q_SUBMODULE_SOURCE, Env:PD2Q_CANONICAL -ErrorAction SilentlyContinue
     if (-not $KeepFixture -and (Test-Path -LiteralPath $root)) {
         Start-Sleep -Seconds 2
         Get-ChildItem -LiteralPath $root -Recurse -Force -File -ErrorAction SilentlyContinue | ForEach-Object { $_.Attributes = 'Normal' }

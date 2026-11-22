@@ -139,6 +139,11 @@ switch ($Command) {
                 $h = $l.leases[$issueId]
                 throw "$issueId is $($h.state) by $($h.holder.session) (lease $($h.lease)$(if ($h.job) { ', job ' + $h.job }))."
             }
+            # A session has one scratch folder, so one held lease at a time: a
+            # second would share it, and either submit would carry both issues'
+            # edits. A submitted (queued) lease has already cleared its scratch.
+            $mine = @($l.leases.Values | Where-Object { $_.holder.session -ceq $Session -and $_.state -eq 'held' })
+            if ($mine) { throw "$Session already holds lease $($mine[0].lease) on $($mine[0].issue), and a session has one scratch folder. Submit or release it before claiming $issueId." }
             $number = New-Pd2qNumber lease
             $now = Get-Pd2qNow
             $l.leases[$issueId] = @{
@@ -260,6 +265,11 @@ switch ($Command) {
             if ($bodyText -match '(?im)^\s*(Refs|PD2-[A-Za-z-]+|Co-Authored-By)\s*:') { throw 'The body may not carry trailer lines (Refs, PD2-*, Co-Authored-By); the queue writes them.' }
         }
         if ($CoAuthor -and $CoAuthor -notmatch '^[^<>\r\n]+ <[^<>\s@]+@[^<>\s]+>$') { throw "-CoAuthor must look like 'Name <email>'." }
+        # The repository's commit-msg check, now rather than after a build: the
+        # item must exist in the Workbench and match the title's area.
+        $preview = Get-Pd2qCommitMessage @{ title = $Title; body = $bodyText; coAuthor = $CoAuthor; issue = $issueId; session = $Session; agent = 'claude' } 'q0-preview' 'Built and tested by the PD2 build queue.'
+        $msgProblem = Test-Pd2qCommitMessage $preview
+        if ($msgProblem) { throw "The commit message would fail the repository's commit-msg check:`n$msgProblem" }
         Invoke-Pd2qLocked {
             [void](Update-Pd2qLeases)
             $h = Get-HeldLease $issueId $Lease

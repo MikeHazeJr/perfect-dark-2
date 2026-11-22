@@ -366,7 +366,14 @@ function Save-Pd2qCheckpoint([string] $Issue, [string] $Session, [string] $Note 
         $task.files = @($made.Files)
         $task.patch = "$Issue.patch"
     } catch {
-        if ($_.Exception.Message -notmatch 'holds no edits|nothing to submit|has no base.txt') { throw }
+        $why = $_.Exception.Message
+        if ($why -match 'holds no edits|nothing to submit') {
+            # The scratch is back at its base: no work is in progress now, so an
+            # older saved patch must not come back for the next holder.
+            Remove-Item -LiteralPath (Join-Path $p.Tasks "$Issue.patch") -Force -ErrorAction SilentlyContinue
+            if ($task.ContainsKey('patch')) { $task.Remove('patch') }
+            $task.files = @()
+        } elseif ($why -notmatch 'has no base.txt') { throw }
     }
     $task.state = 'started'
     $task.agent = $Agent
@@ -456,6 +463,7 @@ function Update-Pd2qLeases {
         $lease = $l.leases[$issue]
         $check = Test-Pd2qLeaseLive $lease
         if ($check.Live) { continue }
+        $saved = $false
         try {
             $task = Save-Pd2qCheckpoint $issue $lease.holder.session ('lease freed: ' + $check.Reason) $lease.holder.agent
             if (-not ($task.ContainsKey('patch') -and $task.patch)) {
@@ -463,8 +471,15 @@ function Update-Pd2qLeases {
                 $task.state = 'released'
                 Save-Pd2qTask $task
             }
-        } catch { Write-Pd2qLog "checkpoint of $issue before freeing failed: $($_.Exception.Message)" }
-        try { Clear-Pd2qScratch $lease.holder.session } catch { Write-Pd2qLog "scratch of $($lease.holder.session) not cleared: $($_.Exception.Message)" }
+            $saved = $true
+        } catch {
+            # The scratch is then the only copy of the edits: keep it and say where.
+            $kept = Get-Pd2qScratchDir $lease.holder.session
+            Add-Pd2qAlarm 'checkpoint-failed' "lease $($lease.lease) on $issue freed ($($check.Reason)), but its edits could not be saved: $($_.Exception.Message). Scratch kept at $kept."
+        }
+        if ($saved) {
+            try { Clear-Pd2qScratch $lease.holder.session } catch { Write-Pd2qLog "scratch of $($lease.holder.session) not cleared: $($_.Exception.Message)" }
+        }
         $l.leases.Remove($issue)
         $freed += @{ issue = $issue; lease = $lease.lease; session = $lease.holder.session; reason = $check.Reason }
         Write-Pd2qLog "lease $($lease.lease) on $issue freed: $($check.Reason)"
@@ -551,6 +566,68 @@ function Test-Pd2qCommitTitle([string] $Title) {
     if ($Title -notmatch '^[A-Za-z][A-Za-z0-9 _\-]*?\s+-\s+[A-Za-z][A-Za-z0-9_-]*(?:-[A-Za-z0-9_-]+)*\s*:\s+\S') {
         return "Title must be '<Area> - <WorkbenchItemID>: <summary>' (context/designs/commit-message-standard.md)."
     }
+    return $null
+}
+
+function Get-Pd2qCanonical {
+    # The main checkout: the hub, the live Workbench roadmap and the commit hooks.
+    if ($env:PD2Q_CANONICAL) { return $env:PD2Q_CANONICAL }
+    return 'C:\Users\mikeh\Perfect-Dark-2\perfect_dark-mike'
+}
+
+function Get-Pd2qPythonExe {
+    # Python for the repository's commit checks, by full path. The Store's
+    # python.exe alias under WindowsApps opens the Store, so it is never used.
+    foreach ($p in @('C:\Python312\python.exe', 'C:\Python313\python.exe', 'C:\Python311\python.exe')) {
+        if (Test-Path -LiteralPath $p -PathType Leaf) { return $p }
+    }
+    $found = @(Get-Command -Name 'python.exe', 'py.exe' -CommandType Application -ErrorAction SilentlyContinue |
+        Where-Object { $_.Source -like '*.exe' -and $_.Source -notlike '*\WindowsApps\*' })
+    if ($found) { return $found[0].Source }
+    return $null
+}
+
+function Get-Pd2qTitleItem([string] $Title) {
+    # The Workbench item in "<Area> - <ItemID>: <summary>".
+    if ($Title -match '^[A-Za-z][A-Za-z0-9 _\-]*?\s+-\s+(?<item>[A-Za-z][A-Za-z0-9_-]*(?:-[A-Za-z0-9_-]+)*)\s*:') { return $Matches['item'].ToUpperInvariant() }
+    return $null
+}
+
+function Get-Pd2qCommitMessage([hashtable] $Request, [string] $JobId, [string] $BuiltLine) {
+    # Title, the submitted body, the queue's line, then the trailers. Refs names
+    # the title's item and, when it differs, the issue (a bug id such as B-1277),
+    # as .githooks/commit-msg.py asks.
+    $lines = [Collections.Generic.List[string]]::new()
+    $lines.Add([string]$Request.title); $lines.Add('')
+    if ($Request.ContainsKey('body') -and $Request.body) { $lines.Add([string]$Request.body); $lines.Add('') }
+    $lines.Add($BuiltLine); $lines.Add('')
+    $item = Get-Pd2qTitleItem $Request.title
+    $refs = if (-not $item -or $item -ceq $Request.issue) { $Request.issue } else { "$item, $($Request.issue)" }
+    foreach ($t in @("Refs: $refs", "PD2-Issue: $($Request.issue)", "PD2-Queue-Job: $JobId", "PD2-Session: $($Request.session)", "PD2-Agent: $($Request.agent)")) { $lines.Add($t) }
+    if ($Request.ContainsKey('coAuthor') -and $Request.coAuthor) { $lines.Add("Co-Authored-By: $($Request.coAuthor)") }
+    return ($lines -join "`n") + "`n"
+}
+
+function Test-Pd2qCommitMessage([string] $Message) {
+    # The repository's own commit-msg check against the live Workbench roadmap,
+    # which only the main checkout holds (roadmap.json is not in git). Returns
+    # $null when it passes, or when it cannot run here (no main checkout or
+    # Python, as on CI); otherwise its complaint.
+    $canonical = Get-Pd2qCanonical
+    $hook = Join-Path $canonical '.githooks\commit-msg.py'
+    $python = Get-Pd2qPythonExe
+    if (-not (Test-Path -LiteralPath $hook -PathType Leaf) -or -not (Test-Path -LiteralPath (Join-Path $canonical 'Tools\Workbench\data\roadmap.json')) -or -not $python) { return $null }
+    $file = Join-Path ([IO.Path]::GetTempPath()) ('pd2q-msg-' + [guid]::NewGuid().ToString('N') + '.txt')
+    [IO.File]::WriteAllText($file, $Message, [Text.UTF8Encoding]::new($false))
+    Push-Location -LiteralPath $canonical
+    try {
+        $out = & $python -B $hook $file 2>&1 | ForEach-Object { "$_" } | Out-String
+        $code = $LASTEXITCODE
+    } finally {
+        Pop-Location
+        Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue
+    }
+    if ($code -ne 0) { return $out.Trim() }
     return $null
 }
 
