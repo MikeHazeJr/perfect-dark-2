@@ -3841,8 +3841,8 @@ TEST_CASE("a homing rocket's target filter is its home node's settings",
 	// flies, with the facts as the rocket's owner reads them.
 	const std::string propobj = readSource("src/game/propobj.c");
 	REQUIRE(propobj.find("if (projectile->targetprop && flightset->home_filtered) {") != std::string::npos);
-	REQUIRE(propobj.find("sightTargetFactsFor(projectile->targetprop, projectile->ownerprop, 0, &homefacts);")
-		!= std::string::npos);
+	REQUIRE(propobj.find("sightTargetFactsFor(projectile->targetprop, projectile->ownerprop,\n"
+		"\t\t\t\t\t\t\tsightOwnerUsesIr(projectile->ownerprop), &homefacts);") != std::string::npos);
 	REQUIRE(propobj.find("if (!targetFilterAccepts(&flightset->home_filter, &homefacts)) {\n"
 		"\t\t\t\t\t\t\tprojectile->targetprop = NULL;") != std::string::npos);
 	const std::string sight = readSource("src/game/sight.c");
@@ -4213,8 +4213,13 @@ TEST_CASE("a mine's arm names what sets it off, and a mod mine's record is its n
 	// mine's owner sees it, and a mod mine's record by its native filter.
 	const std::string propobj = readSource("src/game/propobj.c");
 	REQUIRE(propobj.find("const target_filter_t *armfilter = projectileArmProximityFilter(&weapon->base);") != std::string::npos);
-	REQUIRE(propobj.find("sightTargetFactsFor(candidate, weaponProxyOwnerProp(weapon), 0, &facts);\n"
+	REQUIRE(propobj.find("sightTargetFactsFor(candidate, owner, sightOwnerUsesIr(owner), &facts);\n"
 		"\t\t\t\tfiltered = candidate && targetFilterAccepts(armfilter, &facts) ? 1 : 0;") != std::string::npos);
+	// PR 49 review: "with_ir" there reads the owner's IR scanner, as the
+	// sight reads the current player's.
+	REQUIRE(readSource("src/game/sight.c").find("return (player->devicesactive & ~player->devicesinhibit & DEVICE_IRSCANNER) ? 1 : 0;")
+		!= std::string::npos);
+	CHECK(propobj.find("weaponProxyOwnerProp(weapon), 0, &facts)") == std::string::npos);
 	REQUIRE(propobj.find("s32 decision = bgunModProxyDecision(weapon, chr, pos, filtered);") != std::string::npos);
 	REQUIRE(propobj.find("\t\t\tif (filtered == 0) {\n\t\t\t\t/* Slice 6b: its arm does not listen for this. */\n"
 		"\t\t\t\tcontinue;") != std::string::npos);

@@ -187,6 +187,26 @@ struct prop *sightRiderVehicle(struct prop *prop)
  * it is one of the CI training stage's targets, and whether it is cloaked
  * and the player sees through cloaks.
  */
+/* held-weapon-events.md slice 6b (PR 49 review): whether a filter's owner
+ * sees through cloaks, as USINGDEVICE(DEVICE_IRSCANNER) reads it for the
+ * current player: a living player, not in a cutscene, not flying an eyespy,
+ * using the IR scanner. Anyone else (a simulant, a guard, no owner) uses no
+ * scanner. A homing rocket's and a proximity mine's filters read it for the
+ * one who fired or laid them, so "cloaked": "with_ir" there means what it
+ * means for the sight. */
+s32 sightOwnerUsesIr(struct prop *ownerprop)
+{
+	const s32 playernum = ownerprop && ownerprop->type == PROPTYPE_PLAYER
+		? playermgrGetPlayerNumByProp(ownerprop) : -1;
+	const struct player *player = playernum >= 0 && playernum < MAX_PLAYERS ? g_Vars.players[playernum] : NULL;
+
+	if (!player || player->isdead || playerInCutscene(playernum)
+			|| (player->eyespy && player->eyespy->active)) {
+		return 0;
+	}
+	return (player->devicesactive & ~player->devicesinhibit & DEVICE_IRSCANNER) ? 1 : 0;
+}
+
 void sightTargetFactsFor(struct prop *prop, struct prop *ownerprop, s32 owner_ir, struct target_facts *out)
 {
 	out->kind = 0;

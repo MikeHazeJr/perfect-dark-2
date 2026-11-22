@@ -1465,3 +1465,32 @@ TEST_CASE("the creator sets a projectile node's settings in its program's text",
 	REQUIRE(hub.find("return weaponSaveFail(\"PROJECTILE_FAIL\", msg);") != std::string::npos);
 	REQUIRE(hub.find("weaponLoadProjectilePrograms(s_WeaponEditTemplateArchive); /* slice 8b */") != std::string::npos);
 }
+
+// PR 49 review: a target filter's kinds group checks the kinds it names, so
+// an edit in the inspector keeps them.
+TEST_CASE("the creator's kinds checkboxes expand a filter's kind groups", "[weapon-graph][editor][held-weapon]")
+{
+	const char *const choices = "player|simulant|guard|vehicle|sentry|object";
+	CHECK(weaponGraphDesignerKindsMask("characters", choices) == 0x07u);
+	CHECK(weaponGraphDesignerKindsMask("things", choices) == 0x38u);
+	CHECK(weaponGraphDesignerKindsMask("all", choices) == 0x3fu);
+	CHECK(weaponGraphDesignerKindsMask("player,vehicle", choices) == 0x09u);
+	CHECK(weaponGraphDesignerKindsMask("characters, vehicle", choices) == 0x0fu);
+	CHECK(weaponGraphDesignerKindsMask("bogus", choices) == 0u);
+	CHECK(weaponGraphDesignerKindsMask(nullptr, choices) == 0u);
+	// The lock's and the home's kinds setting offers these choices.
+	weapon_graph_designer_setting_t settings[32];
+	const s32 count = weaponGraphDesignerSettings("og.weapon.lock_on", settings, 32);
+	bool found = false;
+	for (s32 i = 0; i < count; i++) {
+		if (std::string(settings[i].key) == "kinds") {
+			CHECK(std::string(settings[i].choices) == choices);
+			found = true;
+		}
+	}
+	CHECK(found);
+	const std::string canvas = ioReadFile(fs::path(PD_SOURCE_DIR) / "port/fast3d/pdgui_weapon_graph_node_editor.cpp");
+	REQUIRE(canvas.find("const u32 checked = weaponGraphDesignerKindsMask(current.c_str(), setting.choices);")
+		!= std::string::npos);
+	CHECK(canvas.find("const bool all = current == \"all\";") == std::string::npos);
+}

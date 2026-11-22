@@ -16,6 +16,9 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out);
 /* slice 6b: the same facts as another owner reads them (a rocket's owner);
  * owner_ir is whether that owner sees through cloaks. */
 void sightTargetFactsFor(struct prop *prop, struct prop *ownerprop, s32 owner_ir, struct target_facts *out);
+/* Whether a filter's owner sees through cloaks (a player using the IR
+ * scanner, as USINGDEVICE reads it); 0 for anyone else. */
+s32 sightOwnerUsesIr(struct prop *ownerprop);
 /* slice 6c: the player riding a vehicle (its driver, else its gunner), and
  * the vehicle a player rides; NULL for none. */
 struct prop *sightVehicleRider(struct prop *vehicle);

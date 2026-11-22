@@ -8783,7 +8783,8 @@ s32 projectileTick(struct defaultobj *obj, bool *embedded)
 					if (projectile->targetprop && flightset->home_filtered) {
 						target_facts_t homefacts;
 
-						sightTargetFactsFor(projectile->targetprop, projectile->ownerprop, 0, &homefacts);
+						sightTargetFactsFor(projectile->targetprop, projectile->ownerprop,
+							sightOwnerUsesIr(projectile->ownerprop), &homefacts);
 
 						if (!targetFilterAccepts(&flightset->home_filter, &homefacts)) {
 							projectile->targetprop = NULL;
@@ -21922,8 +21923,9 @@ static void coordTriggerProxiesFor(struct chrdata *chr, struct prop *candidate, 
 
 			if (armfilter) {
 				target_facts_t facts;
+				struct prop *owner = weaponProxyOwnerProp(weapon);
 
-				sightTargetFactsFor(candidate, weaponProxyOwnerProp(weapon), 0, &facts);
+				sightTargetFactsFor(candidate, owner, sightOwnerUsesIr(owner), &facts);
 				filtered = candidate && targetFilterAccepts(armfilter, &facts) ? 1 : 0;
 			}
 

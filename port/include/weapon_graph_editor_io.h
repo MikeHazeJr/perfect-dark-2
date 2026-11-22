@@ -134,6 +134,12 @@ typedef struct weapon_graph_designer_setting {
  */
 s32 weaponGraphDesignerSettings(const char *kind, weapon_graph_designer_setting_t *out, s32 cap);
 
+/* A target filter's "kinds" text (PR 49 review) as the inspector's
+ * checkboxes take it: bit i set when it names `choices`' i-th kind, its groups
+ * expanded as the filter reads them ("characters" names player, simulant and
+ * guard; "all" every kind). 0 when the text is not a kinds list. */
+u32 weaponGraphDesignerKindsMask(const char *text, const char *choices);
+
 /*
  * held-weapon-events.md slice 8b: one node's settings in a graph's text (a
  * projectile's program, edited outside the canvas): the members it carries

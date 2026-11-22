@@ -1165,3 +1165,28 @@ extern "C" char *weaponGraphEditorSetNodeSettings(const char *graph_json, const 
         return nullptr;
     }
 }
+
+extern "C" u32 weaponGraphDesignerKindsMask(const char *text, const char *choices)
+{
+    u32 named = 0;
+    u32 mask = 0;
+    u32 index = 0;
+    std::string word;
+
+    if (!text || !choices || targetFilterKindsFromText(text, &named) < 0) return 0;
+    for (const char *p = choices; ; p++) {
+        if (*p == '|' || *p == '\0') {
+            u32 bits = 0;
+            if (!word.empty() && targetFilterKindsFromText(word.c_str(), &bits) >= 0 && bits
+                    && (named & bits) == bits && index < 32) {
+                mask |= 1u << index;
+            }
+            word.clear();
+            index++;
+            if (*p == '\0') break;
+        } else {
+            word += *p;
+        }
+    }
+    return mask;
+}

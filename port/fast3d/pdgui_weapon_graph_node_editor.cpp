@@ -803,12 +803,15 @@ static bool renderSettingInput(const weapon_graph_designer_setting_t &setting, c
 	}
 	case WEAPON_GRAPH_INPUT_KINDS: {
 		const std::vector<std::string> kinds = splitChoices(setting.choices);
-		std::string current = value.is_string() ? value.get<crude_json::string>() : std::string();
-		const bool all = current == "all";
+		const std::string current = value.is_string() ? value.get<crude_json::string>() : std::string();
+		/* PR 49 review: a group ("characters", "things", "all") checks the
+		 * kinds it names, so an edit keeps them. */
+		const u32 checked = weaponGraphDesignerKindsMask(current.c_str(), setting.choices);
 		bool changed = false;
 		std::string next;
-		for (const std::string &kind : kinds) {
-			bool on = all || (std::string(",") + current + ",").find("," + kind + ",") != std::string::npos;
+		for (size_t index = 0; index < kinds.size(); index++) {
+			const std::string &kind = kinds[index];
+			bool on = index < 32 && (checked & (1u << index)) != 0;
 			ImGui::PushID(kind.c_str());
 			if (ImGui::Checkbox(kind.c_str(), &on)) changed = true;
 			ImGui::PopID();
