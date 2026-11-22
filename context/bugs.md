@@ -107,11 +107,17 @@ fought each other (21 hits: Falcon 2 for 1, MagSec 4 for 1.1, DY357 for 2, at th
 simulants that refill 8-point shields from Felicity's two shield pickups. A kill takes 16 points on one. Kills are
 rare in every local run on both candidates (0 to 2 a match), and August's Combat smokes injected kills for the same
 reason, so a first kill in 240 s is chance; it is not a team bug. Fix: the five objective smokes pass
-`--match-scorelimit 100 --match-teamscorelimit 400` (out of reach in 150 s) and require both boot lines; the local
-and networked Combat score-limit smokes seed `--debug-mp-options 0x10200001` (the default Bot Jumping and Spawn With
-Weapon plus One-Hit Kills, as `combat_sim_release_cycle` does), so the first hit is the first kill, and require
-`MATCH: options=0x10200001 onehitkills=1`. Tests: `[smokes]` in `tests/test_mode_graph_program.cpp`. Severity low
-(test only). If simulants still seem too passive in play, that is a tuning question for Mike, not this fixture.
+`--match-scorelimit 100 --match-teamscorelimit 400` (out of reach in 150 s) and require both boot lines. For Combat,
+PR 47 seeded One-Hit Kills (`--debug-mp-options 0x10200001`), and candidate 3's rerun showed that it cannot work:
+the seed was applied at boot, then `MATCH: options=0x10200000`. `mpStartMatch` strips `MPOPTION_ONEHITKILLS` on an
+offline start unless the profile unlocked it (`challengeIsFeatureUnlocked`, the original's rule), and a clean smoke
+install has not. An unlocked agent profile cannot fix that on the direct debug path either: the match starts as soon
+as the boot stage has a player, before `--launch-load-agent` fires at frame 4. That run still ended by a real kill,
+at about 220 s. So the local Combat smoke has no seed; its time limit is a 600 s backstop, with its end-screen wait
+(620 s) and runner timeout (720 s) grown to fit. The match still ends at the first kill, so a normal run is no
+longer. The networked smoke is back to its pre-B-1305 form, because its fixed 480 s exit leaves no room for a longer
+clock; it passed on 11-16. Tests: `[smokes]` in `tests/test_mode_graph_program.cpp`. Severity low (test only). If
+simulants still seem too passive in play, that is a tuning question for Mike, not this fixture.
 
 ## 2026-11-22 B-1303 The six local mode smokes required a respawn, so a match where nobody died failed (T-MODDING-026, fixed on week-pd/mp-rules, found by Integration's finalization smokes)
 
