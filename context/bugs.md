@@ -17,12 +17,17 @@ units over its feet (`manground + 20`) instead of the original search, which chr
 and its clamp), so on stairs and steeper ramps the floor was above the search. The lookup returned a lower
 floor, the simulant fell against the slope, and its horizontal collision held it there.
 
-Fix: walking simulants use the original search again, with the rendered-floor check. Where no tile is under
+Fix: walking simulants use the original search again, with the rendered-floor check. Where no tile is at
 their feet (a table, a prop, a lift after a jump), the new support may raise that ground, as the player's
-`bwalkUpdateVertical` does; it never lowers it. The under-the-feet support (`manground + 0.5`) and
-`chrStepSimulantAirborne` now apply only during a jump, from its impulse to `botJumpOnLand`
-(`botJumpInFlight`). A jump that ends on the ground without a landing now ends there too, so the next jump is
-not blocked. Propagation: the player's support only raises a legacy ground, and `botJumpProbeFlight` models
+`bwalkUpdateVertical` does. Where the rendered floor already found that surface, the support supplies its room,
+flags and lift (Codex review: otherwise a simulant on a mesh-only lift kept the tile's metadata, and
+`liftIsVacant` could see the lift as empty). It never lowers the ground. The under-the-feet support
+(`manground + 0.5`) is used only during a jump, from its impulse to `botJumpOnLand` (`botJumpInFlight`).
+`chrStepSimulantAirborne` steps a jump and any simulant fall onto a ground under its feet. It clamps the
+last step of a long fall to the ground, where `chr0f01f264` would refuse a step the sweep finds blocked and
+leave the simulant hanging over the floor (Codex review). A ground at or over the feet keeps the original
+landing. A jump that ends on the ground without a landing now ends there too, so the next jump is not blocked.
+Propagation: the player's support only raises a legacy ground, and `botJumpProbeFlight` models
 the flight's own support, so neither is affected (SP-101). Tests: `[jump]` static pins in
 `tests/test_jump_two_stage_design.cpp`. Not yet checked in play: Integration reruns G1 (the six local mode
 smokes), G2 (the four ledge and tabletop smokes), G3 (co-op AI) and G4 (net simulants) on the fixed candidate.
