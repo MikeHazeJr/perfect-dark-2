@@ -84,7 +84,7 @@ function Restore-TaskPatch($Task, [string] $SessionId) {
         }
     }
     $patchFile = Join-Path $paths.Tasks "$($Task.issue).patch"
-    $out = & 'C:\Program Files\Git\mingw64\bin\git.exe' -C $dir apply --whitespace=nowarn $patchFile 2>&1
+    $out = & (Get-Pd2qGitExe) -C $dir apply --whitespace=nowarn $patchFile 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Saved patch of $($Task.issue) did not restore into scratch: $(($out | Out-String).Trim())" }
     $deleted = @(Get-Content -LiteralPath $patchFile | Where-Object { $_ -match '^deleted file mode' }).Count
     if ($deleted) {

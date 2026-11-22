@@ -16,7 +16,8 @@ Checks (spec, Milestone 2 plus "Claude and Codex in parallel"):
 #>
 param([switch] $KeepFixture)
 $ErrorActionPreference = 'Stop'
-$git = 'C:\Program Files\Git\mingw64\bin\git.exe'
+Import-Module (Join-Path $PSScriptRoot '..\Pd2Queue.psm1') -Force
+$git = Get-Pd2qGitExe
 $pwsh = (Get-Process -Id $PID).Path
 $cli = Join-Path $PSScriptRoot '..\pd2q.ps1'
 $root = Join-Path ([IO.Path]::GetTempPath()) ('pd2q-leases-' + [guid]::NewGuid().ToString('N').Substring(0, 10))

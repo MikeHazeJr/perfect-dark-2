@@ -13,7 +13,18 @@ Every program is started by full path (B-1283: never open anything by file type)
 #>
 Set-StrictMode -Version Latest
 
-$script:Git = 'C:\Program Files\Git\mingw64\bin\git.exe'
+function Get-Pd2qGitExe {
+    # Git for Windows' git.exe, started by its full path. Where it lives differs
+    # (GitHub's Windows runners have no mingw64\bin copy), so the known paths
+    # come first, then git.exe on PATH. Only an .exe is ever returned.
+    foreach ($p in @('C:\Program Files\Git\mingw64\bin\git.exe', 'C:\Program Files\Git\cmd\git.exe', 'C:\Program Files\Git\bin\git.exe')) {
+        if (Test-Path -LiteralPath $p -PathType Leaf) { return $p }
+    }
+    $found = @(Get-Command -Name 'git.exe' -CommandType Application -ErrorAction SilentlyContinue | Where-Object { $_.Source -like '*.exe' })
+    if ($found) { return $found[0].Source }
+    throw 'git.exe was not found (Git for Windows).'
+}
+$script:Git = Get-Pd2qGitExe
 $script:LeaseMinutes = 10
 $script:IssuePattern = '^[A-Z][A-Z0-9-]{1,40}$'
 $script:SessionPattern = '^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$'

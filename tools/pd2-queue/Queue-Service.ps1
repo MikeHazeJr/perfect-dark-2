@@ -28,7 +28,7 @@ param(
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'Pd2Queue.psm1') -Force
 $paths = Initialize-Pd2qLayout
-$git = 'C:\Program Files\Git\mingw64\bin\git.exe'
+$git = Get-Pd2qGitExe
 $ps51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 # pwsh hands its own module folders to child processes. Windows PowerShell then
 # finds PowerShell 7's Microsoft.PowerShell.Utility first and loses cmdlets such

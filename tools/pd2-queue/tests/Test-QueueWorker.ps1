@@ -15,9 +15,10 @@ param(
     [switch] $KeepFixture
 )
 $ErrorActionPreference = 'Stop'
-$git = 'C:\Program Files\Git\mingw64\bin\git.exe'
 $pwsh = (Get-Process -Id $PID).Path
 $here = Split-Path -Parent $PSScriptRoot
+Import-Module (Join-Path $here 'Pd2Queue.psm1') -Force
+$git = Get-Pd2qGitExe
 $cli = Join-Path $here 'pd2q.ps1'
 $service = Join-Path $here 'Queue-Service.ps1'
 $root = 'C:\PD2\m3-' + [guid]::NewGuid().ToString('N').Substring(0, 8)
