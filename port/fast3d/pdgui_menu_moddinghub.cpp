@@ -1847,6 +1847,7 @@ static void weaponGraphBuilderDuplicateNode(int index)
     strncpy(node.kind, src.kind, sizeof(node.kind) - 1);
     strncpy(node.subgraph, src.subgraph, sizeof(node.subgraph) - 1);
     strncpy(node.params, src.params, sizeof(node.params) - 1);
+    strncpy(node.extra, src.extra, sizeof(node.extra) - 1); /* slice 8a: a program node's settings */
     node.pos_x = src.pos_valid ? src.pos_x + 36.0f : 80.0f;
     node.pos_y = src.pos_valid ? src.pos_y + 36.0f : 80.0f;
     node.pos_valid = true;
@@ -1854,6 +1855,38 @@ static void weaponGraphBuilderDuplicateNode(int index)
     s_WeaponGraphModel.canvas_layout_seeded = false;
     s_WeaponGraphNodeCount++;
     weaponGraphBuilderSyncJson();
+}
+
+/* held-weapon-events.md slice 8a: a designer node becomes another of its
+ * group in place: its links, mode and place stay; its settings go, since
+ * they were the old node's. */
+static void weaponGraphBuilderReplaceNode(int index, int moduleIndex)
+{
+    if (index < 0 || index >= s_WeaponGraphNodeCount || moduleIndex < 0 ||
+            moduleIndex >= weaponGraphModuleCount()) {
+        return;
+    }
+    const WeaponGraphModuleDef &module = weaponGraphPalette()[(size_t)moduleIndex];
+    WeaponGraphNodeEdit &node = s_WeaponGraphNodes[index];
+    const weapon_graph_designer_node_t *from = weaponGraphDesignerNodeFor(node.kind);
+    const weapon_graph_designer_node_t *to = weaponGraphDesignerNodeFor(module.kind);
+    if (!from || !to || strcmp(from->group, to->group) != 0) {
+        weaponSetStatus(false, "A node is replaced only by another of its group");
+        return;
+    }
+    char status[160];
+    char id[sizeof(node.id)];
+    snprintf(status, sizeof(status), "Replaced %s with %s", from->label, to->label);
+    /* A new id from the new kind, made apart from the node's own buffer:
+     * the id check compares against every node, this one included. */
+    weaponGraphBuilderMakeNodeId(module.kind, id, sizeof(id));
+    memset(node.kind, 0, sizeof(node.kind));
+    strncpy(node.kind, module.kind, sizeof(node.kind) - 1);
+    snprintf(node.id, sizeof(node.id), "%s", id);
+    snprintf(node.params, sizeof(node.params), "{}");
+    node.extra[0] = '\0';
+    weaponGraphBuilderSyncJson();
+    weaponSetStatus(true, status);
 }
 
 static void weaponGraphBuilderBreakPin(int nodeIndex, int pinKind)
@@ -2044,6 +2077,10 @@ static void weaponGraphBuilderApplyEditorResult(
             break;
         case PD_WEAPON_GRAPH_EDITOR_ACTION_BREAK_PIN:
             weaponGraphBuilderBreakPin(result.a, result.b);
+            needsSync = false;
+            break;
+        case PD_WEAPON_GRAPH_EDITOR_ACTION_REPLACE_NODE:
+            weaponGraphBuilderReplaceNode(result.a, result.b);
             needsSync = false;
             break;
         case PD_WEAPON_GRAPH_EDITOR_ACTION_NONE:

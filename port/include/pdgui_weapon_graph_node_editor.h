@@ -94,6 +94,8 @@ enum PdWeaponGraphEditorAction {
 	PD_WEAPON_GRAPH_EDITOR_ACTION_SET_PRIMARY,
 	PD_WEAPON_GRAPH_EDITOR_ACTION_SET_SECONDARY,
 	PD_WEAPON_GRAPH_EDITOR_ACTION_BREAK_PIN,
+	/* slice 8a: node a becomes palette entry b, another of its group */
+	PD_WEAPON_GRAPH_EDITOR_ACTION_REPLACE_NODE,
 };
 
 struct PdWeaponGraphEditorResult {

@@ -1171,3 +1171,106 @@ TEST_CASE("the creator's named inputs are the rule tables' settings", "[weapon-g
 	REQUIRE(canvas.find("renderProgramSettings(node, result);") != std::string::npos);
 	REQUIRE(canvas.find("ImGui::TextDisabled(\"%s: the function's own\", setting.label);") != std::string::npos);
 }
+
+// held-weapon-events.md slice 8a: Mike's first example as the creator
+// builds it: the Falcon 2's primary program, its Fire once replaced by an
+// Automatic set to 600 rounds a minute with no spin-up (the node the hub
+// writes: its id from the new kind, empty params, the two settings), is a
+// weapon the game takes.
+TEST_CASE("the creator's machine-gun pistol: Fire once replaced by Automatic", "[weapon-graph][editor][held-weapon]")
+{
+	const std::string primary = R"({
+  "schema": "pd.weapon_graph.v2",
+  "asset_id": "mod:machine_pistol",
+  "graph_id": "primary",
+  "nodes": [
+    { "id": "primary_trigger", "kind": "event.trigger_pressed", "subgraph": "primary", "params": { "mode": "primary", "trigger": "pressed" } },
+    { "id": "primary_action", "kind": "fire.hitscan", "subgraph": "primary", "params": { "mode": "primary", "function_type": "shoot_single", "ammo_slot": 0, "damage": 1, "spread": 2 } },
+    { "id": "primary_pressed", "kind": "event.weapon.trigger_pressed" },
+    { "id": "primary_held", "kind": "event.weapon.ready_while_held" },
+    { "id": "primary_has_ammo", "kind": "gate.weapon.has_ammo", "rounds": 1 },
+    { "id": "primary_has_reserve", "kind": "gate.weapon.has_reserve" },
+    { "id": "primary_attack", "kind": "og.weapon.fire_once" },
+    { "id": "primary_dry_fire", "kind": "og.weapon.dry_fire" },
+    { "id": "primary_use_ammo", "kind": "og.weapon.use_ammo", "rounds": 1 },
+    { "id": "primary_shot", "kind": "og.weapon.hitscan" }
+  ],
+  "edges": [
+    { "from": "primary_trigger", "to": "primary_action" },
+    { "from": "primary_pressed", "output": "out", "to": "primary_has_ammo", "input": "exec" },
+    { "from": "primary_held", "output": "out", "to": "primary_has_ammo", "input": "exec" },
+    { "from": "primary_has_ammo", "output": "pass", "to": "primary_attack", "input": "exec" },
+    { "from": "primary_attack", "output": "out", "to": "primary_use_ammo", "input": "exec" },
+    { "from": "primary_use_ammo", "output": "out", "to": "primary_shot", "input": "exec" },
+    { "from": "primary_has_ammo", "output": "fail", "to": "primary_has_reserve", "input": "exec" },
+    { "from": "primary_has_reserve", "output": "pass", "to": "primary_dry_fire", "input": "exec" }
+  ],
+  "exports": [ { "name": "primary", "node": "primary_action" } ]
+})";
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "mod:machine_pistol",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1 } }
+  ],
+  "edges": [],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	char err[256] = "";
+	IoText editor(weaponGraphEditorCompose(primary.c_str(), secondary.c_str(), nullptr, "mod:machine_pistol",
+		err, sizeof(err)), &std::free);
+	INFO(err);
+	REQUIRE(editor.get() != nullptr);
+	std::string joined = editor.get();
+	REQUIRE(weaponGraphValidateJson(ASSET_WEAPON, joined.data(), static_cast<u32>(joined.size()), err, sizeof(err)) == 0);
+	// Fire once and Automatic are of one group, so Replace offers it.
+	REQUIRE(weaponGraphDesignerNodeFor("og.weapon.fire_once") != nullptr);
+	CHECK(std::string(weaponGraphDesignerNodeFor("og.weapon.fire_once")->group)
+		== weaponGraphDesignerNodeFor("og.weapon.automatic")->group);
+	const std::string attack = "\"id\": \"primary_attack\"";
+	const size_t at = joined.find(attack);
+	REQUIRE(at != std::string::npos);
+	// The composed node ends with its empty params: "params": {} }.
+	const std::string tail = "\"params\": {} }";
+	const size_t start = joined.rfind('{', at);
+	const size_t end = joined.find(tail, at);
+	REQUIRE(start != std::string::npos);
+	REQUIRE(end != std::string::npos);
+	joined.replace(start, end + tail.size() - start,"{ \"id\": \"og_weapon_automatic_11\", \"kind\": \"og.weapon.automatic\", "
+		"\"subgraph\": \"primary\", \"params\": {}, \"rate\": 600, \"spin_up\": 0 }");
+	for (const char *ref : { "\"from\": \"primary_attack\"", "\"to\": \"primary_attack\"" }) {
+		const std::string from = ref;
+		const size_t edge = joined.find(from);
+		REQUIRE(edge != std::string::npos);
+		std::string renamed = from;
+		renamed.replace(renamed.find("primary_attack"), std::strlen("primary_attack"), "og_weapon_automatic_11");
+		joined.replace(edge, from.size(), renamed);
+	}
+	INFO(joined);
+	REQUIRE(weaponGraphValidateJson(ASSET_WEAPON, joined.data(), static_cast<u32>(joined.size()), err, sizeof(err)) == 0);
+	IoSplit split(joined.c_str(), "mod:machine_pistol");
+	INFO(split.err);
+	REQUIRE(split.ok == 1);
+	const std::string written = split.files.primary;
+	CHECK(written.find("\"kind\": \"og.weapon.automatic\"") != std::string::npos);
+	CHECK(written.find("\"rate\": 600") != std::string::npos);
+	CHECK(written.find("og.weapon.fire_once") == std::string::npos);
+	IoGraph graph;
+	graph.compileSource("mod:machine_pistol", written, split.files.secondary, "");
+	INFO(graph.err);
+	REQUIRE(graph.ok);
+	REQUIRE(graph.ir->held_program_json[0] != nullptr);
+	CHECK(std::string(graph.ir->held_program_json[0]).find("og.weapon.automatic") != std::string::npos);
+
+	// The hub keeps a replaced node's links and place, drops its settings,
+	// and makes the new id apart from the node's own; a duplicate keeps its
+	// settings.
+	const std::string hub = ioReadFile(fs::path(PD_SOURCE_DIR) / "port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(hub.find("weaponGraphBuilderMakeNodeId(module.kind, id, sizeof(id));") != std::string::npos);
+	REQUIRE(hub.find("weaponGraphBuilderReplaceNode(result.a, result.b);") != std::string::npos);
+	REQUIRE(hub.find("strncpy(node.extra, src.extra, sizeof(node.extra) - 1);") != std::string::npos);
+	const std::string canvas = ioReadFile(fs::path(PD_SOURCE_DIR) / "port/fast3d/pdgui_weapon_graph_node_editor.cpp");
+	REQUIRE(canvas.find("outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_REPLACE_NODE, nodeIndex, i);")
+		!= std::string::npos);
+}

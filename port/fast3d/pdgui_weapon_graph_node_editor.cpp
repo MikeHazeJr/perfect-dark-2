@@ -839,6 +839,9 @@ static bool renderSettingInput(const weapon_graph_designer_setting_t &setting, c
 	}
 }
 
+static void renderReplaceMenu(const PdWeaponGraphEditorDesc *desc, PdWeaponGraphEditorResult *result,
+		int nodeIndex);
+
 static void renderProgramSettings(PdWeaponGraphNodeEdit &node, PdWeaponGraphEditorResult *result)
 {
 	crude_json::value root = crude_json::value::parse(std::string("{") + node.extra + "}");
@@ -984,6 +987,16 @@ static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 	if (ImGui::Button("Duplicate Node", ImVec2(130.0f * desc->scale, 0.0f))) {
 		outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_DUPLICATE_NODE, selected, -1);
 	}
+	if (weaponGraphDesignerNodeFor(node.kind)) {
+		ImGui::SameLine();
+		if (ImGui::Button("Replace With...", ImVec2(130.0f * desc->scale, 0.0f))) {
+			ImGui::OpenPopup("##replace_node_popup");
+		}
+		if (ImGui::BeginPopup("##replace_node_popup")) {
+			renderReplaceMenu(desc, result, selected);
+			ImGui::EndPopup();
+		}
+	}
 	ImGui::SameLine();
 	if (ImGui::Button("Delete Node", ImVec2(108.0f * desc->scale, 0.0f))) {
 		outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_REMOVE_NODE, selected, -1);
@@ -993,6 +1006,29 @@ static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 	ImGui::TextDisabled("Primary: %s", nodeLabel(model, model->primary_export));
 	ImGui::TextDisabled("Secondary: %s", nodeLabel(model, model->secondary_export));
 	ImGui::EndChild();
+}
+
+/* held-weapon-events.md slice 8a: a designer node is replaced by another of
+ * its group, keeping its links and place (Fire once for Automatic). */
+static void renderReplaceMenu(const PdWeaponGraphEditorDesc *desc, PdWeaponGraphEditorResult *result,
+		int nodeIndex)
+{
+	const weapon_graph_designer_node_t *designer = weaponGraphDesignerNodeFor(desc->model->nodes[nodeIndex].kind);
+
+	if (!designer || !ImGui::BeginMenu("Replace With")) return;
+	for (int i = 0; i < desc->module_count; i++) {
+		const PdWeaponGraphModuleDef &module = desc->modules[i];
+		if (!module.group || strcmp(module.group, designer->group) != 0
+				|| strcmp(module.kind, designer->kind) == 0) {
+			continue;
+		}
+		if (ImGui::MenuItem(module.label)) {
+			result->module_index = i;
+			outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_REPLACE_NODE, nodeIndex, i);
+			editorSetStatus(result, true, "Replace node requested");
+		}
+	}
+	ImGui::EndMenu();
 }
 
 static void renderCanvasContextMenus(const PdWeaponGraphEditorDesc *desc,
@@ -1038,6 +1074,7 @@ static void renderCanvasContextMenus(const PdWeaponGraphEditorDesc *desc,
 				outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_DUPLICATE_NODE,
 					nodeIndex, -1);
 			}
+			renderReplaceMenu(desc, result, nodeIndex);
 			if (ImGui::MenuItem("Delete Node")) {
 				outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_REMOVE_NODE,
 					nodeIndex, -1);
