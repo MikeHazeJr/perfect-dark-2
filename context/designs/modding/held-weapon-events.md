@@ -1020,6 +1020,14 @@ first example is a pd-tests case: the Falcon-like program with Fire once
 replaced by Automatic (rate 600, spin-up 0), as the hub writes it,
 validates, splits into a v2 primary file and compiles.
 
+**PR 49 review (2026-11-22):** the homing rocket's re-check and the proximity
+arm's filter now read the owner's IR scanner (`sightOwnerUsesIr`: a living
+player, not in a cutscene or an eyespy, using the scanner; anyone else
+none), so `"cloaked": "with_ir"` there means what it means for the sight;
+they had built their facts with it off. The inspector's kinds checkboxes
+start from `weaponGraphDesignerKindsMask`, which expands `characters`,
+`things` and `all` as the filter reads them, so an edit keeps a group.
+
 **8b as written (2026-11-22, `week-pd/core-weapons-w8`):** done before 8c,
 since it completes the done-when (8c's value nodes are the advanced
 extra). The rocket example needs only settings on nodes the base rocket
