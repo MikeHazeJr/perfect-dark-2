@@ -1,6 +1,34 @@
 # Session Log (Active)
 
-2026-11-21 INTEGRATION (claude-pd-integration-20261121), 23:25 UTC to 2026-11-22 (interim entry at 10:40 UTC), the successor of Session A after the Shadowbane crash. Mike's assignment: steps 7 to 9 (the smoke runner's prepare/execute boundary, the no-worktree build queue per his spec, the finalization smokes and the release), in the canonical checkout without switching its branch, no worktrees, never main. Done: **cleanup** (T-TOOLING-017: 130 folders, 118.5 GiB; B-1283, the bare `cmd` that opened Chitubox, fixed on dev f3e323ca, SP-100); **prepare/execute** (T-TOOLING-019, PR 35, dev b79ac511); **build timing** (Milestone 0, PR 38: `-Target full`, pd-tests at -g0, a cold clean build in 128 s); **the build queue** (T-TOOLING-020, `tools/pd2-queue`, PR 41 merged as d58efdfd after all 25 Codex findings were fixed; Milestones 1 to 6 in `context/evidence/2026-11-22-pd2q-milestones.md`; Milestone 4's jobs were its first real landings: q1 3f6e2cc0 B-1307, q2 a5a6e931 the evidence file, q3 1dc7a7b8 B-1304; the scheduled-task install and the reboot test wait for Mike); **B-1304** (`release.ps1 -DryRun` committed and pushed; fixed); **B-1307** (`pd2q edit -New` failed for every new file; SP-102, PowerShell unrolls an empty array to $null); **the release dry run** (a fresh clone of dev 1dc7a7b8: v0.1.106, 42 files, which are v0.1.105's 35 plus the five bundled samples, `bundled-mods.sha256` and `Open Mods Folder.lnk`; the BYOR and typed-archive checks pass; nothing committed or pushed). Step 9 smokes so far: on dev 96882002, G5a 3/3 and G5b 2/3 (the RCP120 miss was the smoke's; PR 46). On candidate 2, dev fbf2822d (PR 45, D-052's ground search), G1a 1/3 and G1b 3/3 (the misses were fixture assumptions: B-1305, PR 47). Candidate 3, dev 83d3aeb2 (PR 48, B-1306: the stuck watchdog relocated guards), is the release candidate: PerfectDark.exe sha256 6ac0a87c...115e, pd-tests 2,639 cases / 720,832 assertions. Found and open: **B-1308** (the worker's Workbench note targets the job's issue, and the Workbench refuses a bug id; fixed, landing through the queue), **B-1309** (`release.ps1`'s sync step would commit Codex's memory from any fresh clone of this public repository; the step 9 clone excludes it; Mike decides on a tracked rule). Next: the six G1 local modes, G2, G3, G4, the Authored Mods and Room singles and the startup A/B pair on candidate 3, then the v0.1.106 pre-release from a fresh clone. Core Weapons holds PR 44 and PR 49 until the release cut.
+2026-11-21 INTEGRATION (claude-pd-integration-20261121), 23:25 UTC to 2026-11-22 16:49 UTC, the successor of
+Session A after the Shadowbane crash. Mike's assignment: steps 7 to 9 (the smoke runner's prepare/execute
+boundary, the no-worktree build queue per his spec, the finalization smokes and the release), in the canonical
+checkout without switching its branch, no worktrees, never main. Done: **cleanup** (T-TOOLING-017: 130 folders,
+118.5 GiB; B-1283, the bare `cmd` that opened Chitubox, fixed on dev f3e323ca, SP-100); **prepare/execute**
+(T-TOOLING-019, PR 35, dev b79ac511); **build timing** (Milestone 0, PR 38: `-Target full`, pd-tests at -g0, a cold
+clean build in 128 s); **the build queue** (T-TOOLING-020, `tools/pd2-queue`, PR 41 merged as d58efdfd after all 27
+Codex findings were fixed; Milestones 1 to 6 in `context/evidence/2026-11-22-pd2q-milestones.md`; its jobs on dev:
+q1 3f6e2cc0 B-1307, q2 a5a6e931 the milestone evidence, q3 1dc7a7b8 B-1304, q4 6d8c1a0c B-1308, q5 21f9bd5f the
+interim entries, q6 edbb0db8 v0.1.106's notes and `release.ps1 -KeepOldReleases`, q7 38a63623 B-1314, q8 180cce91
+the version, q10 5b8ef3d0 B-1315 and B-1316 (q9, its first try, was refused by pd-tests: a two-line pin against the
+CRLF checkout), q11 this entry; installing the worker as a scheduled task and the reboot test wait for Mike);
+**bugs** B-1304 (`release.ps1 -DryRun` committed and pushed), B-1307 (`pd2q edit -New` failed for every new file;
+SP-102, PowerShell unrolls an empty array to $null), B-1308 (the landing note targeted a bug id), B-1314
+(`release.ps1` would send UNRELEASED.md, 176,321 characters, as the GitHub release body, over GitHub's 125,000
+limit, after pushing the tag, and then delete the zip; now `-NotesFile` and a check before anything is committed or
+pushed), B-1315 (in a checkout with no `dev-keys/`, as every fresh clone, `release.ps1` made a new signing key,
+rewrote `updater_pubkey.h` after the build, signed the zip with that key and committed the header; B-1316, step 4's
+`git pull` dying under Windows PowerShell 5.1, stopped it before any push; now `-SigningKey`, no key is ever made
+in a release, and a guard refuses to commit that header), all fixed; B-1309 corrected and closed (the exports
+folder's tracked `.gitignore` already keeps the Codex memory mirror out of commits). **Step 9:** five candidates (96882002, fbf2822d, 83d3aeb2, 1e9c6a34, eb3ba06da) and 22
+records, all in `context/evidence/2026-11-22-step9-finalization.md`: G1 6/6, G2 0/4 (B-1310, the ledge and table
+smokes' first runs: harness and fixture faults, PR 51 held), G3 3/3, G4 11/11, G5 6/6, G6 7/7 proofs (known misses: character_tool_play's stale fixture and the two Escape vehicle smokes, B-1241), G7 2/2, and the
+startup A/B pair (five disabled mods add about 0.02 s). Found on the way and fixed by the lanes: B-1305, B-1306
+(PR 48), B-1311, B-1312 (PR 53), B-1313 (PR 54). **v0.1.106** is out as a Dev prerelease: published 16:47 UTC, tagged on dev 5b8ef3d0, game code the version commit 180cce91 (candidate 3c plus the version), a 42-file zip of 46.8 MB plus PerfectDark.exe, Updater.exe and the .sha256 and .sig sidecars, signed with the release key the updater header embeds (the zip's sha256 equals GitHub's digest), concise notes as the body, the older prereleases kept (-KeepOldReleases); the release cut went out at 16:48 UTC, and Core Weapons' PR 44 and PR 49 and MP-RULES' PR 51 land next. Open for Mike: Install-QueueService.ps1
+and the reboot test; the HKCR\.PhotonWorkShop association (B-1283's trigger); the Recycle Bin and the Visual
+Studio installer's temp folders; deleting the four oldest prereleases (v0.1.1, v0.1.2, v0.1.3, v0.1.5), which this
+release kept; whether G2's ledge and table proofs must pass before the next release. Next: candidate 4 (Core
+Weapons' PR 44 and PR 49, MP-RULES' PR 51) and its reruns, listed in the evidence file.
 
 2026-11-21 AUTHORED MODS (claude-pd-authored-mods-20261121), 04:29 to 05:15 UTC, then 23:24 UTC to
 03:50 UTC on 11-22, after the Shadowbane crash. Mike's order: seven items, canonical checkout, own branch

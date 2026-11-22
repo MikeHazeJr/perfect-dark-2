@@ -140,19 +140,25 @@ Severity: high in play. This is from code, not a run:
 Combat Simulator starts were never affected. Integration carries this to Mike for v0.1.106's notes (candidate 3 ships
 without the fix).
 
-## 2026-11-22 B-1309 `release.ps1` would commit Codex's memory from a fresh clone of this public repository (T-RELEASE-006, open: Mike's decision)
+## 2026-11-22 B-1309 `release.ps1` copies Codex's memory into the clone it releases from; the folder's tracked `.gitignore` keeps it out of commits (T-RELEASE-006, closed: corrected the same day, no defect)
 
 Found by claude-pd-integration-20261121 while preparing step 9's release in a fresh clone. Before
 building and again before pushing, `release.ps1` calls `Sync-ProjectMindState`
 (`devtools/project-state-sync.ps1`). That copies `%USERPROFILE%\.codex\memories\MEMORY.md` to
-`Tools/Workbench/exports/codex-memory-snapshot.md`; the script then runs `git add -A`, commits and pushes.
-No tracked rule ignores that path (a simulated clone with dev's ignore files did not ignore it), and the
-GitHub repository is public. Only the main checkout is protected, by an untracked
-`Tools/Workbench/exports/.gitignore` containing `*`, which ignores itself and so was never committed. The
-mirror has never been in any commit. The sync's commit body says code, Workbench state and Codex memory
-are meant to move together, so publishing it was once the design. Step 9's dry run and release use a
-clone that excludes `/Tools/Workbench/exports/` in `.git/info/exclude`. Open, for Mike: commit an ignore
-rule for the exports folder, stop the sync from copying the memory, or keep publishing it on purpose.
+`Tools/Workbench/exports/codex-memory-snapshot.md`; the script then runs `git add -A`, commits and pushes,
+and the GitHub repository is public. The mirror has never been in any commit.
+
+Corrected the same day, before the v0.1.106 release. This entry first said that no tracked rule ignores that
+path and that only the main checkout was protected, by an untracked `.gitignore`; both were wrong. The folder's
+`.gitignore` is tracked, as `tools/Workbench/exports/.gitignore` (`*`, then `!.gitignore`; since b37974e59,
+2026-07-30), and Windows resolves the sync's `Tools\` spelling to that same folder, in the main checkout and in
+a fresh clone alike. Probed in the release clone: `git ls-files -o --exclude-per-directory=.gitignore`, which
+reads the per-directory rules and not `.git/info/exclude`, listed a control file beside `exports/` and not the
+probe inside it. The first check was a simulated clone, not a real checkout; and in a clone with the exclude,
+`git check-ignore -v` cannot show the folder's own rule, because git stops reading the `.gitignore` files
+below a folder that an exclude matches. Only a case-sensitive file system, where `Tools/` and `tools/` are two
+folders, would let the mirror through. Release clones keep `/Tools/Workbench/exports/` in `.git/info/exclude`
+as a second guard; no decision is pending.
 
 ## 2026-11-22 B-1308 The build queue's landing note targeted the job's issue, which the Workbench refuses when it is a bug id (T-TOOLING-020, fixed through the build queue)
 
