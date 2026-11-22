@@ -2438,6 +2438,33 @@ def _weapon_setting_error(kind: str, key: str, spec: tuple, value: object) -> st
     return None
 
 
+def _weapon_charge_error(node: dict, committed: bool, custom: bool | None) -> str | None:
+    """Slice 5 (PR 31 review): only the charges the runtime runs. One that
+    builds while selected is fired by the trigger (release on_press; the
+    Mauler); one that a press starts is a custom weapon's committed launch,
+    which goes by itself when full (release on_full; the crystal pistol). A
+    start left out is the function's (on_press for a custom weapon's committed
+    launch), a release left out its start's."""
+    start, release = node.get("start"), node.get("release")
+    if _weapon_variable_name(start) or _weapon_variable_name(release):
+        return None  # read from the weapon's variables when it registers
+    if start is None:
+        start = "on_press" if committed else "while_selected"
+    if release is None:
+        release = "on_full" if start == "on_press" else "on_press"
+    if start not in ("while_selected", "on_press") or release not in ("on_press", "on_full"):
+        return None  # the setting check names it
+    if start == "while_selected" and release != "on_press":
+        return "a charge that builds while_selected is fired by the trigger (release on_press)"
+    if start == "on_press":
+        if release != "on_full":
+            return "a charge that a press starts goes by itself when full (release on_full)"
+        if custom is False:
+            return ("start on_press is a custom weapon's committed launch; a base weapon's charge builds "
+                    "while_selected")
+    return None
+
+
 def _is_weapon_program_kind(kind: object) -> bool:
     return isinstance(kind, str) and kind.startswith(("event.weapon.", "gate.weapon.", "og."))
 
@@ -2476,6 +2503,17 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
                 and not _is_weapon_program_kind(node.get("kind")):
             record_type = node["params"]["function_type"]
             break
+    # Slice 5 (review): a custom weapon's function whose record is a committed
+    # charge launch (its charge starts on a press unless the node says).
+    asset_id = graph.get("asset_id")
+    custom = (not asset_id.startswith("base:")) if isinstance(asset_id, str) and ":" in asset_id else None
+    committed = custom is not False and any(
+        isinstance(node, dict) and isinstance(node.get("params"), dict)
+        and not _is_weapon_program_kind(node.get("kind"))
+        and isinstance(node["params"].get("charge_time_ticks60"), int)
+        and not isinstance(node["params"]["charge_time_ticks60"], bool)
+        and node["params"]["charge_time_ticks60"] > 0
+        for node in nodes)
     # A program node may not take a record node's id (slice 3; the runner
     # refuses it): the record compiler reads every node.
     record_ids = {node.get("id") for node in nodes if isinstance(node, dict)
@@ -2520,6 +2558,10 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
                 why = _weapon_setting_error(kind, key, spec, node[key])
                 if why:
                     errors.append(f"{where} {kind} {node_id!r} {why}")
+        if kind == "og.weapon.charge":
+            why = _weapon_charge_error(node, committed, custom)
+            if why:
+                errors.append(f"{where} og.weapon.charge {node_id!r}: {why}")
         if kind in ("gate.weapon.state_is", "og.weapon.set_state"):
             flag = "equals" if kind == "gate.weapon.state_is" else "value"
             key = node.get("key")

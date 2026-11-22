@@ -500,6 +500,69 @@ the settings, and the original's charge arithmetic beside the plan's over held
 and switched functions at 1 to 3 ticks a frame),
 `tools/tests/test_projectile_program_conformance.py` (`test_charge_and_cook`).
 
+### PR 31 review (slices 2 to 5), two rounds
+
+Round 1 (45204a1ad): a module's settings read through "$name" variables each
+get a buffer of their own (a ring of 12, each as long as a catalog id), so an
+item is no longer overwritten by its item_function nor a long id cut; a launch
+whose item is not the rocket frees the held rocket and fires its own;
+`item_function` applies to every launched object, the gun's own included; a
+player's shield damage is the firing hand's plan; idle admission counts the
+plan's rounds, so a clip below a shot's reloads; the Weapons creator keeps a
+program node's settings and an edge's ports and writes v2 when the graph has a
+program.
+
+Round 2:
+
+- **Only the charges the runtime runs.** `start: while_selected` with
+  `release: on_press` (the Mauler; on any weapon) and `start: on_press` with
+  `release: on_full` (a custom weapon's committed launch, the crystal pistol).
+  Registration (`heldProgramParamVisit`, `weaponRulesChargeUnsupported`) and
+  conformance refuse every other pair, so no setting is accepted and then
+  ignored: a while-selected charge that would go by itself, a pressed charge
+  that would wait for a press, and a base weapon's pressed charge (it has no
+  committed launch to make). A start left out is the function's (on_press for a
+  custom weapon's committed record), a release left out its start's. Other
+  shapes (hold to charge and let go, a selected charge that fires itself) are
+  new behaviour, not slice 5's: they wait for Mike.
+- **The committed charge is its plan's alone.** The player's attack
+  (`bgunTickIncAttack`: a custom weapon whose attack plan is an on_press
+  charge), bots (`bgunModBotChargeShot`, the function choice and the fire
+  bookkeeping) and the gun's look (`bgunModChargeFunction`; the glow ramps over
+  the charge's own time) ask `bgunModFunctionCharges`, the function's plan, for
+  its time; a node needs no `charge_time_ticks60` besides, which is only a v1
+  record's native plan. Bots no longer wait the record's time when the node
+  says another.
+- **The level has its own field.** `hand->chargelevel` (types.h's unused
+  `fspare3`, so the layout is unchanged), not `matmot1`, which the Shotgun's
+  flash, the Laser's stream, the Reaper's blades and a cloak's drain use for
+  their own effects; a weapon change clears it with them.
+- **Every step is paid.** Each whole step a frame crosses takes
+  `ammo_per_step` while the clip holds `min_clip`, and the charge stops at the
+  last step paid (the Mauler crosses at most one a frame, so its numbers are
+  the original's).
+- **The cooked fuse is the plan's.** The thrown grenade's timer is the plan's
+  `fuse` less the prime (it was the record's activation time less the prime),
+  and the wait after it goes off in the hand follows that fuse.
+- **The beam's reach is its range.** `shotCalculateHitsSource`'s hit and aim
+  checks use the plan's `range` where they used 300.
+- **Reloads follow the program.** A manual reload (no reload planned by the
+  idle seam: Reload pressed with rounds in the clip) is the reload the
+  function's program plans for an empty clip (`weaponProgramReloadWalk`), so
+  an authored `style` holds there too; a clip the program regrows needs no
+  reserve: the native ammunition check (`bgun0f098ca0`), the gates' reserve
+  and so the idle seam's clip_empty admit it (`weaponProgramRegrows`), as they
+  admit a regrowing mod magazine. Simulants' self-loading check (`botact.c`)
+  still reads only mod ammo records: Multiplayer & Rules' (a base weapon's
+  regrow for bots needs the regrow's timing, not unlimited rounds).
+
+Tests: `tests/test_mission_graph_runner.cpp` ("a charge runs as its node says,
+or its weapon is refused": the pairs, the defaults, registration's refusals,
+the seams; "the charge and cook triggers ...": the per-step paying beside the
+Mauler's arithmetic and a five-steps-a-frame charge),
+`tests/test_weapon_graph_editor_io.cpp` (validation by asset id),
+`tools/tests/test_projectile_program_conformance.py` (`test_charge_and_cook`).
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
@@ -524,6 +587,10 @@ Listed as each slice lands; none is run by Core Weapons.
 | 5 | any smoke that charges the Mauler and fires it (none written yet: give `base:mauler`, switch to the secondary, wait two seconds, fire) | the press's `WEAPON.RULE` line shows `plan=charge start=while_selected time=100 steps=5 ... damage_per_step=3.33333325`; no `WEAPON.RULE differs` |
 | 5 | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the crystal pistol's committed charge still waits its time and launches (`BONDGUN.CHARGE: start ... release_in=`) |
 | 5 | `projectile_events_smoke` | the timed grenade still cooks and throws (its fuse lines unchanged) |
+| 5 (review) | the Mauler smoke above | the gun's tint and the shot's pitch still follow the charge (now `chargelevel`); a weapon change clears it |
+| 5 (review) | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the player's and the bot's `BONDGUN.CHARGE: start ... release_in=` both equal the function's plan time; the glow ramps over it |
+| 5 (review) | `projectile_events_smoke` | a cooked grenade's fuse lines unchanged (a base grenade's fuse is its activation time) |
+| 4 (review) | any Laser stream smoke (`held_weapon_cadence_smoke`) | the stream still hits at up to 300 |
 
 ## Where to look
 

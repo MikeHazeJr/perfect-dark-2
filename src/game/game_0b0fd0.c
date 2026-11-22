@@ -481,7 +481,7 @@ void gsetPopulateFromCurrentPlayer(s32 handnum, struct gset *gset)
 	/* held-weapon-events.md slice 5: the shot carries the weapon's charge
 	 * (tenths of a step), as the Mauler's did. */
 	if (weaponWeaponCharge(gset->weaponnum, NULL)) {
-		gset->unk063a = g_Vars.currentplayer->hands[handnum].matmot1 * 10.0f;
+		gset->unk063a = g_Vars.currentplayer->hands[handnum].chargelevel * 10.0f;
 	}
 
 	if (gset->weaponnum == WEAPON_LASER) {

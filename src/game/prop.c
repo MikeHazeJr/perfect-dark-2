@@ -950,7 +950,8 @@ static struct prop *shotCalculateHitsSource(s32 handnum, bool isshooting, struct
 		for (i = 0; i < ARRAYCOUNT(shotdata.hits); i++) {
 			hitprop = shotdata.hits[i].prop;
 
-			if (hitprop && !(laserstream && shotdata.hits[i].distance > 300)) {
+			/* slice 4 (review): the hit stops where the beam does. */
+			if (hitprop && !(laserstream && shotdata.hits[i].distance > shotplan->range)) {
 				if (accepted) {
 					weaponGraphWorldHitObserve(receipt, &shotdata.gset, &shotdata.hits[i], 0);
 					if (!wgV2RuntimeDeliveryValid(receipt) || g_Vars.currentplayer != receipt->owner) goto graph_done;
@@ -1144,7 +1145,7 @@ static struct prop *shotCalculateHitsSource(s32 handnum, bool isshooting, struct
 			hitprop = shotdata.hits[i].prop;
 
 			if (hitprop && !done) {
-				if (laserstream && shotdata.hits[i].distance > 300) {
+				if (laserstream && shotdata.hits[i].distance > shotplan->range) {
 					done = true;
 				} else {
 					if (hitprop->type == PROPTYPE_CHR

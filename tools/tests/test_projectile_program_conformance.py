@@ -700,20 +700,43 @@ class HeldWeaponPrograms(unittest.TestCase):
     def test_charge_and_cook(self):
         """held-weapon-events.md slice 5: Charge then release and Hold to
         cook are triggers with settings of their kinds."""
-        def with_attack(node: dict) -> dict:
+        def with_attack(node: dict, asset: str = "base:test__weapon", committed: bool = False) -> dict:
             graph = copy.deepcopy(V2_HELD)
+            graph["asset_id"] = asset
+            if committed:  # the record of a custom weapon's committed charge launch
+                graph["nodes"][1]["params"]["charge_time_ticks60"] = 90
             for idx, old in enumerate(graph["nodes"]):
                 if old["id"] == "primary_attack":
                     graph["nodes"][idx] = dict(node, id="primary_attack")
             return graph
 
-        for node in ({"kind": "og.weapon.charge", "start": "while_selected", "time": 100, "steps": 5,
-                      "ammo_per_step": 1, "min_clip": 2, "fall_time": 200, "release": "on_press",
-                      "damage_per_step": 3.33333325},
-                     {"kind": "og.weapon.charge", "start": "on_press", "release": "on_full", "damage_per_step": 0},
-                     {"kind": "og.weapon.cook", "fuse": 240}):
-            with self.subTest(node=node):
-                self.assertEqual(weapon_errors(with_attack(node)), [])
+        custom = "dev_test:test__weapon"
+        for node, asset, committed in (
+                ({"kind": "og.weapon.charge", "start": "while_selected", "time": 100, "steps": 5,
+                  "ammo_per_step": 1, "min_clip": 2, "fall_time": 200, "release": "on_press",
+                  "damage_per_step": 3.33333325}, "base:test__weapon", False),
+                ({"kind": "og.weapon.charge"}, "base:test__weapon", False),
+                ({"kind": "og.weapon.charge", "start": "on_press", "release": "on_full", "damage_per_step": 0},
+                 custom, False),
+                ({"kind": "og.weapon.charge", "start": "on_press"}, custom, False),
+                ({"kind": "og.weapon.charge", "time": 30}, custom, True),
+                ({"kind": "og.weapon.cook", "fuse": 240}, "base:test__weapon", False)):
+            with self.subTest(node=node, asset=asset):
+                self.assertEqual(weapon_errors(with_attack(node, asset, committed)), [])
+        # PR 31 review: only the charges the runtime runs.
+        for node, asset, committed, why in (
+                ({"kind": "og.weapon.charge", "start": "on_press"}, "base:test__weapon", False,
+                 "start on_press is a custom weapon's committed launch"),
+                ({"kind": "og.weapon.charge", "release": "on_full"}, "base:test__weapon", False,
+                 "a charge that builds while_selected is fired by the trigger (release on_press)"),
+                ({"kind": "og.weapon.charge", "start": "on_press", "release": "on_press"}, custom, False,
+                 "a charge that a press starts goes by itself when full (release on_full)"),
+                ({"kind": "og.weapon.charge", "release": "on_press"}, custom, True,
+                 "a charge that a press starts goes by itself when full (release on_full)")):
+            with self.subTest(node=node, asset=asset, committed=committed):
+                messages = weapon_errors(with_attack(node, asset, committed))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
         for node, why in (({"kind": "og.weapon.charge", "start": "held"}, "needs start while_selected, on_press"),
                           ({"kind": "og.weapon.charge", "release": "late"}, "needs release on_press, on_full"),
                           ({"kind": "og.weapon.charge", "steps": 0}, "needs steps from 1 to 50"),

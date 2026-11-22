@@ -1136,8 +1136,12 @@ s32 bgun0f098ca0(s32 funcnum, struct handweaponinfo *info, struct hand *hand)
 			/* T-MODDING-008: a self-loading mod magazine has no reserve to run
 			 * out of, so a reload is always possible (and an empty trigger
 			 * pull reloads instead of switching weapons). */
+			/* held-weapon-events.md (PR 31 review): so does a clip its
+			 * program regrows (og.weapon.reload style regrow), a base
+			 * weapon's too. */
 			bool noreserve = g_Vars.currentplayer->ammoheldarr[info->gunctrl->ammotypes[ammoindex]] == 0
-				&& !bgunModAmmoIsSelfLoading(info->weaponnum, ammoindex);
+				&& !bgunModAmmoIsSelfLoading(info->weaponnum, ammoindex)
+				&& !weaponProgramRegrows(info->weaponnum, funcnum);
 
 			result = 1;
 
@@ -2496,7 +2500,7 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 				hand->lastshootframe60 = g_Vars.lvframe60;
 
 				if (handle && weaponWeaponCharge(hand->gset.weaponnum, NULL)) {
-					s32 matmot = hand->matmot1;
+					s32 matmot = hand->chargelevel;
 					f32 tmp;
 					f32 frac = matmot / 3.0f;
 
@@ -2769,7 +2773,7 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 
 		/* slice 5: a shot spends the weapon's charge. */
 		if (weaponWeaponCharge(hand->gset.weaponnum, NULL)) {
-			hand->matmot1 = 0;
+			hand->chargelevel = 0;
 		}
 
 		return sp68;
@@ -2869,7 +2873,9 @@ bool bgunTickIncAttackingThrow(s32 handnum, struct hand *hand)
 	if (hand->stateminor == HANDSTATEMINOR_ATTACK_THROW_GRENADEWAIT) {
 		bgunResetAnim(hand);
 
-		if (hand->stateframes > TICKS(activationtime60 + 240)) {
+		/* slice 5 (review): the wait follows the fuse it went off by. */
+		if (hand->stateframes > TICKS((plan->module == WEAPON_MODULE_COOK ? plan->cook_fuse : activationtime60)
+				+ 240)) {
 			return true;
 		}
 
@@ -3288,11 +3294,13 @@ s32 bgunTickIncAttack(struct handweaponinfo *info, s32 handnum, struct hand *han
 		func = gsetGetWeaponFunction(&hand->gset);
 	}
 
-	/* T-MODDING-008: a mod function with charge_time_ticks60 is a committed
-	 * charge launch (crystal pistol secondary), not a single throw or shot.
-	 * held-weapon-events.md slice 5: it is the plan's og.weapon.charge with
-	 * start on_press, release on_full, for its time. */
-	if (func != NULL && graph != NULL && graph->has_charge
+	/* T-MODDING-008: a custom weapon's committed charge launch (the crystal
+	 * pistol's secondary), not a single throw or shot. held-weapon-events.md
+	 * slice 5: it is the attack's og.weapon.charge with start on_press (and
+	 * release on_full), for its time. The node alone makes it one (PR 31
+	 * review: no record setting besides); a v1 record's charge_time_ticks60
+	 * is its native plan. */
+	if (func != NULL && graph != NULL && hand->gset.weaponnum >= WEAPON_CUSTOM_START
 			&& bgunHandPlan(handnum)->module == WEAPON_MODULE_CHARGE
 			&& bgunHandPlan(handnum)->charge_start == WEAPON_RULE_CHARGE_ON_PRESS) {
 		finished = bgunModTickIncAttackCharge(info, handnum, hand, graph, bgunHandPlan(handnum)->charge_time);
@@ -6057,8 +6065,16 @@ struct defaultobj *bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 		if (obj->type == OBJTYPE_WEAPON) {
 			weapon = (struct weaponobj *)obj;
 
-			/* slice 5: a cooked throw's fuse is shortened by its prime. */
+			/* slice 5: a cooked throw's fuse is the plan's og.weapon.cook fuse
+			 * (PR 31 review: not the record's activation time the object was
+			 * made with), shortened by its prime. */
 			if (bgunHandPlan(handnum)->module == WEAPON_MODULE_COOK) {
+				weapon->timer240 = bgunHandPlan(handnum)->cook_fuse;
+
+				if (weapon->timer240 >= 2) {
+					weapon->timer240 = TICKS(weapon->timer240 * 4);
+				}
+
 				if (weapon->timer240 < hand->primetimer60 * 4) {
 					weapon->timer240 = 0;
 				} else {
@@ -7130,6 +7146,7 @@ void bgunTickSwitch2(void)
 				player->hands[i].matmot1 = 0.0f;
 				player->hands[i].matmot2 = 0.0f;
 				player->hands[i].matmot3 = 0.0f;
+				player->hands[i].chargelevel = 0.0f;
 				player->hands[i].angledamper = 0.0f;
 				player->hands[i].gunsmokepoint = 0.0f;
 				player->hands[i].burstbullets = 0;
@@ -7955,6 +7972,7 @@ void bgunHandlePlayerDead(void)
 			player->hands[i].matmot1 = 0;
 			player->hands[i].matmot2 = 0;
 			player->hands[i].matmot3 = 0;
+			player->hands[i].chargelevel = 0;
 
 			bgunSetState(i, HANDSTATE_IDLE);
 		}
@@ -10010,7 +10028,12 @@ void bgun0f0a5550(s32 handnum)
  * while_selected) builds while its function is selected: steps over time
  * (the Mauler's five in 100 ticks), each whole step taking ammo_per_step
  * from the clip while it holds min_clip; while the other function is held it
- * falls back a step every fall_time ticks (the Mauler's 200).
+ * falls back a step every fall_time ticks (the Mauler's 200). The level is
+ * the hand's chargelevel (the original kept the Mauler's in matmot1, which
+ * the Shotgun, the Laser, the Reaper and a cloak use for their own effects).
+ * PR 31 review: every whole step a frame crosses is paid for, and the charge
+ * stops at the last step its clip could pay (the original crossed at most
+ * one a frame).
  */
 void bgunTickMaulerCharge(void)
 {
@@ -10034,32 +10057,38 @@ void bgunTickMaulerCharge(void)
 
 			if (bgunIsReloading(hand)) {
 				// Reloading - reset charge amount
-				hand->matmot1 = 0;
+				hand->chargelevel = 0;
 			} else if (hand->gset.weaponfunc == chargefunc) {
 				// Charging or fully charged
-				s32 oldvalue = hand->matmot1;
+				s32 oldvalue = hand->chargelevel;
 				s32 newvalue;
+				s32 step;
 
-				if (hand->loadedammo[slot] >= charge.charge_min_clip && hand->matmot1 < steps) {
+				if (hand->loadedammo[slot] >= charge.charge_min_clip && hand->chargelevel < steps) {
 					charging = true;
-					hand->matmot1 += g_Vars.lvupdate60freal * (steps / (f32)charge.charge_time);
+					hand->chargelevel += g_Vars.lvupdate60freal * (steps / (f32)charge.charge_time);
 				}
 
-				if (hand->matmot1 > steps) {
-					hand->matmot1 = steps;
+				if (hand->chargelevel > steps) {
+					hand->chargelevel = steps;
 				}
 
-				newvalue = hand->matmot1;
+				newvalue = hand->chargelevel;
 
-				if (oldvalue != newvalue && hand->loadedammo[slot] >= charge.charge_min_clip) {
+				for (step = oldvalue; step < newvalue; step++) {
+					if (hand->loadedammo[slot] < charge.charge_min_clip) {
+						hand->chargelevel = step;
+						break;
+					}
+
 					weaponRulesSpendRounds(charge.charge_ammo, &hand->loadedammo[slot]);
 				}
 			} else if (charge.charge_fall > 0) {
 				// Using primary function - make the charge wear off slowly
-				hand->matmot1 -= g_Vars.lvupdate60freal * (1.0f / (f32)charge.charge_fall);
+				hand->chargelevel -= g_Vars.lvupdate60freal * (1.0f / (f32)charge.charge_fall);
 
-				if (hand->matmot1 < 0) {
-					hand->matmot1 = 0;
+				if (hand->chargelevel < 0) {
+					hand->chargelevel = 0;
 				}
 			}
 
@@ -10080,16 +10109,16 @@ void bgunTickMaulerCharge(void)
 			 * This is not yet confirmed.
 			 */
 			if (hand->audiohandle == NULL
-					&& hand->matmot1 > 0.1f
+					&& hand->chargelevel > 0.1f
 					&& charging
 					&& g_Vars.lvupdate240 != 0) {
 				sndStart(var80095200, SFX_MAULER_CHARGE, &hand->audiohandle, -1, -1, -1, -1, -1);
 			}
 
 			if (hand->audiohandle) {
-				f32 speed = 0.5f + hand->matmot1 / 3.0f + sinf(g_20SecIntervalFrac * M_PI * 32.0f) * 0.03f;
+				f32 speed = 0.5f + hand->chargelevel / 3.0f + sinf(g_20SecIntervalFrac * M_PI * 32.0f) * 0.03f;
 
-				if (hand->matmot1 < 0.1f || !charging) {
+				if (hand->chargelevel < 0.1f || !charging) {
 					audioStop(hand->audiohandle);
 				} else {
 					audioPostEvent(hand->audiohandle, AL_SNDP_PITCH_EVT, *(s32 *)&speed);
@@ -13047,7 +13076,7 @@ void bgunRender(Gfx **gdlptr)
 
 				// 838
 				if (weaponWeaponCharge(hand->gset.weaponnum, NULL)) {
-					u32 weight = hand->matmot1 * 50.0f;
+					u32 weight = hand->chargelevel * 50.0f;
 					renderdata.envcolour = colourBlend(0xff00007f, renderdata.envcolour, weight);
 				}
 			}

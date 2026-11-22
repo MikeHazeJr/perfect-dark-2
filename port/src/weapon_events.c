@@ -146,7 +146,8 @@ static void weaponRuleHandOf(const struct hand *hand, weapon_rule_hand_t *out)
 			out->loaded = hand->loadedammo[ammoindex];
 			out->clipsize = hand->clipsizes[ammoindex];
 			out->reserve = g_Vars.currentplayer->ammoheldarr[type] != 0
-				|| bgunModAmmoIsSelfLoading(hand->gset.weaponnum, ammoindex);
+				|| bgunModAmmoIsSelfLoading(hand->gset.weaponnum, ammoindex)
+				|| weaponProgramRegrows(hand->gset.weaponnum, hand->gset.weaponfunc);
 		}
 	}
 }
@@ -426,6 +427,9 @@ u32 weaponIdleModules(s32 event_kind, s32 handnum, struct hand *hand, s32 ammo_s
 	return chosen;
 }
 
+static s32 weaponProgramReloadWalk(s32 weaponnum, s32 func, const weapon_rule_function_t *record,
+	weapon_rule_reload_t *out);
+
 const struct weapon_rule_reload *weaponHandReload(struct hand *hand, const struct weapon_rule_function *record)
 {
 	static weapon_rule_reload_t s_NativeReload;
@@ -439,6 +443,13 @@ const struct weapon_rule_reload *weaponHandReload(struct hand *hand, const struc
 		}
 	}
 	if (kept && kept->reload_planned) {
+		return &kept->reload;
+	}
+	/* PR 31 review: a reload the idle seam did not plan (Reload pressed with
+	 * rounds in the clip) is the one the function's program plans for an
+	 * empty clip, its og.weapon.reload's style. */
+	if (kept && record && weaponProgramReloadWalk(record->weaponnum, record->func, record, &kept->reload)) {
+		kept->reload_planned = 1;
 		return &kept->reload;
 	}
 	if (kept) {
@@ -519,6 +530,78 @@ static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_functi
 			}
 		}
 	}
+}
+
+/* The reload a function's program plans for an empty clip: its
+ * og.weapon.reload and that node's style, walked for an idle hand with an
+ * empty clip and reserve to reload from (the hand clip_empty fires for). 1
+ * with *out filled, 0 when the function has no program or it plans no
+ * reload. */
+static s32 weaponProgramReloadWalk(s32 weaponnum, s32 func, const weapon_rule_function_t *record,
+	weapon_rule_reload_t *out)
+{
+	const mission_graph_program_t *program = weaponGraphRuntimeHeldProgram(weaponnum, func);
+	weapon_rule_walk_t walk;
+
+	if (!program || !record) {
+		return 0;
+	}
+	memset(&walk, 0, sizeof(walk));
+	walk.weaponnum = weaponnum;
+	weaponRulesReadyHand(&walk.hand);
+	walk.hand.uses_ammo = 1;
+	walk.hand.clipsize = 1;
+	walk.hand.reserve = 1;
+	walk.states = NULL;
+	walk.function = record;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	walk.item_number = weaponItemNumber;
+	weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY, -1, weaponEventWeaponId(weaponnum), &walk, &walk);
+	if (!(walk.modules & WEAPON_MODULE_RELOAD)) {
+		return 0;
+	}
+	if (out) {
+		*out = walk.reload;
+	}
+	return 1;
+}
+
+/* PR 31 review: whether a function's program regrows its clip
+ * (og.weapon.reload style regrow), which needs no reserve: the native
+ * ammunition check and the gates admit its reload as they admit a regrowing
+ * mod magazine's. Kept while its program stays. */
+typedef struct weapon_regrow_cache {
+	const mission_graph_program_t *program;
+	u32 generation;
+	s32 regrows;
+} weapon_regrow_cache_t;
+static weapon_regrow_cache_t s_WeaponRegrow[WEAPON_CUSTOM_END][2];
+
+s32 weaponProgramRegrows(s32 weaponnum, s32 func)
+{
+	const mission_graph_program_t *program;
+	weapon_regrow_cache_t *cache;
+	const u32 generation = weaponGraphRuntimeHeldProgramsGeneration();
+
+	if (weaponnum < 0 || weaponnum >= WEAPON_CUSTOM_END || func < 0 || func > 1) {
+		return 0;
+	}
+	program = weaponGraphRuntimeHeldProgram(weaponnum, func);
+	if (!program) {
+		return 0;
+	}
+	cache = &s_WeaponRegrow[weaponnum][func];
+	if (cache->program != program || cache->generation != generation) {
+		weapon_rule_function_t record;
+		weapon_rule_reload_t reload;
+
+		weaponRuleFunctionOfHeld(weaponnum, func, &record);
+		cache->program = program;
+		cache->generation = generation;
+		cache->regrows = weaponProgramReloadWalk(weaponnum, func, &record, &reload)
+			&& reload.style == WEAPON_RULE_RELOAD_REGROW;
+	}
+	return cache->regrows;
 }
 
 /* The press plan of each weapon function, kept while its program stays

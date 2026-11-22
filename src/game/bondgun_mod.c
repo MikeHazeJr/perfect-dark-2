@@ -22,6 +22,8 @@
 #include "loader_pool.h"
 #include "system.h"
 #include "weapon_graph_runtime.h"
+#include "weapon_rules.h"
+#include "weapon_events.h"
 #include "game/camera.h"
 #include "game/game_0b0fd0.h"
 #include "game/player.h"
@@ -101,6 +103,34 @@ static struct bgunmodcharge *bgunModChargeForCurrentPlayer(void)
 	return &s_BgunModCharges[playernum];
 }
 
+/*
+ * held-weapon-events.md slice 5 (PR 31 review): whether a custom weapon's
+ * function is a committed charge launch: its plan's trigger is
+ * og.weapon.charge with start on_press (a v1 record's charge_time_ticks60
+ * is that plan), for the plan's time. The player's hand, bots and the gun's
+ * look all ask here, so a node's time is everyone's.
+ */
+static s32 bgunModFunctionCharges(s32 weaponnum, s32 funcnum, s32 *out_time60)
+{
+	weapon_rule_trigger_t plan;
+
+	if (weaponnum < WEAPON_CUSTOM_START || funcnum < 0 || funcnum > 1) {
+		return false;
+	}
+
+	weaponFunctionPlan(weaponnum, funcnum, &plan);
+
+	if (plan.module != WEAPON_MODULE_CHARGE || plan.charge_start != WEAPON_RULE_CHARGE_ON_PRESS) {
+		return false;
+	}
+
+	if (out_time60) {
+		*out_time60 = plan.charge_time > 0 ? plan.charge_time : 1;
+	}
+
+	return true;
+}
+
 /* The function of weaponnum that is a committed charge launch, or NULL. */
 static const weapon_graph_held_function_t *bgunModChargeFunction(s32 weaponnum, s32 *out_funcnum)
 {
@@ -114,7 +144,7 @@ static const weapon_graph_held_function_t *bgunModChargeFunction(s32 weaponnum, 
 		const weapon_graph_held_function_t *held =
 			weaponGraphRuntimeGetHeldFunctionForGameplay(weaponnum, f);
 
-		if (held != NULL && held->has_charge) {
+		if (held != NULL && bgunModFunctionCharges(weaponnum, f, NULL)) {
 			if (out_funcnum) {
 				*out_funcnum = f;
 			}
@@ -245,8 +275,8 @@ void bgunModApplyHeldModel(struct hand *hand, struct modeldef *modeldef, Mtxf *m
 
 		if (charging) {
 			s32 elapsed = g_Vars.lvframe60 - charge->startframe60;
-			f32 ramp = chargefunc->charge_time_ticks60 > 0
-				? (f32)elapsed / (f32)chargefunc->charge_time_ticks60 : 1.0f;
+			s32 chargetime = charge->releaseframe60 - charge->startframe60; /* the plan's time (slice 5) */
+			f32 ramp = chargetime > 0 ? (f32)elapsed / (f32)chargetime : 1.0f;
 
 			/* Sockets before any seat is scaled; the tips are unscaled children. */
 			bgunModChargeCaptureSockets(charge, chargefunc, modeldef, matrices);
@@ -478,8 +508,8 @@ void bgunModApplyHeldModel3P(struct chrdata *chr, struct prop *weaponprop, struc
 
 		if (charging) {
 			s32 elapsed = g_Vars.lvframe60 - charge->startframe60;
-			f32 ramp = chargefunc->charge_time_ticks60 > 0
-				? (f32)elapsed / (f32)chargefunc->charge_time_ticks60 : 1.0f;
+			s32 chargetime = charge->releaseframe60 - charge->startframe60; /* the plan's time (slice 5) */
+			f32 ramp = chargetime > 0 ? (f32)elapsed / (f32)chargetime : 1.0f;
 
 			if (ramp > 1.0f) {
 				ramp = 1.0f;
@@ -1326,6 +1356,7 @@ bool bgunModBotChargeShot(struct chrdata *chr, s32 handnum, struct gset *gset)
 	struct bgunmodcharge *charge;
 	struct weaponfunc *func;
 	s32 loaded;
+	s32 chargetime60 = 0;
 
 	if (chr == NULL || chr->aibot == NULL || chr->prop == NULL || gset == NULL
 			|| gset->weaponnum < WEAPON_CUSTOM_START) {
@@ -1334,7 +1365,8 @@ bool bgunModBotChargeShot(struct chrdata *chr, s32 handnum, struct gset *gset)
 
 	held = weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
 
-	if (held == NULL || !held->has_charge) {
+	/* slice 5 (review): the function's plan, as the player's hand reads it. */
+	if (held == NULL || !bgunModFunctionCharges(gset->weaponnum, gset->weaponfunc, &chargetime60)) {
 		return false;
 	}
 
@@ -1363,7 +1395,7 @@ bool bgunModBotChargeShot(struct chrdata *chr, s32 handnum, struct gset *gset)
 	charge->ammoindex = func ? func->ammoindex : -1;
 	charge->count = loaded < BGUN_MOD_CHARGE_ROUNDS ? loaded : BGUN_MOD_CHARGE_ROUNDS;
 	charge->startframe60 = g_Vars.lvframe60;
-	charge->releaseframe60 = g_Vars.lvframe60 + held->charge_time_ticks60;
+	charge->releaseframe60 = g_Vars.lvframe60 + chargetime60;
 	charge->gset = *gset;
 	charge->ownerprop = chr->prop;
 	s_BgunModBotChargeHand[charge - s_BgunModBotCharges] = handnum;
@@ -1373,7 +1405,7 @@ bool bgunModBotChargeShot(struct chrdata *chr, s32 handnum, struct gset *gset)
 	}
 
 	sysLogPrintf(LOG_NOTE, "BONDGUN.CHARGE: start weapon=%d bot=%d func=%d count=%d release_in=%d",
-		charge->weaponnum, (s32)chr->chrnum, charge->funcnum, charge->count, held->charge_time_ticks60);
+		charge->weaponnum, (s32)chr->chrnum, charge->funcnum, charge->count, chargetime60);
 
 	return true;
 }
@@ -1611,7 +1643,8 @@ s32 bgunModBotChooseFunction(struct chrdata *chr, s32 weaponnum, s32 funcnum)
 	charge = weaponGraphRuntimeGetHeldFunctionForGameplay(weaponnum, FUNC_SECONDARY);
 	pref = catalogManagerGetWeaponBotPref(weaponnum);
 
-	if (charge == NULL || !charge->has_charge || pref == NULL || !pref->hassecammogoal) {
+	if (charge == NULL || !bgunModFunctionCharges(weaponnum, FUNC_SECONDARY, NULL) || pref == NULL
+			|| !pref->hassecammogoal) {
 		return funcnum;
 	}
 
@@ -1684,7 +1717,7 @@ void bgunModBotFired(struct chrdata *chr, s32 handnum, struct gset *gset)
 
 	held = weaponGraphRuntimeGetHeldFunctionForGameplay(gset->weaponnum, gset->weaponfunc);
 
-	if (held != NULL && !held->has_charge) {
+	if (held != NULL && !bgunModFunctionCharges(gset->weaponnum, gset->weaponfunc, NULL)) {
 		s_BgunModBotChargedLast[slot] = 0;
 	}
 

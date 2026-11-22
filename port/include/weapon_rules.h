@@ -536,6 +536,53 @@ static inline s32 weaponRulesShotFits(u32 shot, s32 functype)
 #define WEAPON_RULE_RELEASE_ON_FULL 2       /* it goes by itself when full */
 #define WEAPON_RULE_MAULER_CHARGE_DAMAGE (10.0f / 3.0f)
 
+/* A charge node's start: the one it names, else its function's (a custom
+ * weapon's committed launch starts on a press; any other charge builds while
+ * selected). -1 for a start it does not know. */
+static inline s32 weaponRulesChargeStartFromText(const char *text, s32 committed)
+{
+	if (!text) return committed ? WEAPON_RULE_CHARGE_ON_PRESS : WEAPON_RULE_CHARGE_WHILE_SELECTED;
+	if (strcmp(text, "while_selected") == 0) return WEAPON_RULE_CHARGE_WHILE_SELECTED;
+	if (strcmp(text, "on_press") == 0) return WEAPON_RULE_CHARGE_ON_PRESS;
+	return -1;
+}
+
+/* A charge node's release: the one it names, else its start's. -1 for a
+ * release it does not know. */
+static inline s32 weaponRulesChargeReleaseFromText(const char *text, s32 start)
+{
+	if (!text) return start == WEAPON_RULE_CHARGE_ON_PRESS ? WEAPON_RULE_RELEASE_ON_FULL : WEAPON_RULE_RELEASE_ON_PRESS;
+	if (strcmp(text, "on_press") == 0) return WEAPON_RULE_RELEASE_ON_PRESS;
+	if (strcmp(text, "on_full") == 0) return WEAPON_RULE_RELEASE_ON_FULL;
+	return -1;
+}
+
+/*
+ * held-weapon-events.md slice 5 (PR 31 review): the two charges the runtime
+ * runs. One that builds while selected is fired by the trigger (release
+ * on_press; the Mauler); one that a press starts is a custom weapon's
+ * committed launch, which goes by itself when full (release on_full; the
+ * crystal pistol). NULL when start and release are one of those, else why
+ * not; custom is 1 for a custom weapon, 0 for a base one, -1 unknown.
+ * Registration and conformance refuse the others, so no setting is accepted
+ * and then ignored.
+ */
+static inline const char *weaponRulesChargeUnsupported(s32 start, s32 release, s32 custom)
+{
+	if (start == WEAPON_RULE_CHARGE_WHILE_SELECTED && release != WEAPON_RULE_RELEASE_ON_PRESS) {
+		return "a charge that builds while_selected is fired by the trigger (release on_press)";
+	}
+	if (start == WEAPON_RULE_CHARGE_ON_PRESS) {
+		if (release != WEAPON_RULE_RELEASE_ON_FULL) {
+			return "a charge that a press starts goes by itself when full (release on_full)";
+		}
+		if (custom == 0) {
+			return "start on_press is a custom weapon's committed launch; a base weapon's charge builds while_selected";
+		}
+	}
+	return NULL;
+}
+
 /*
  * held-weapon-events.md slice 5: the Mauler's charge (its secondary): it
  * builds while the function is selected, five steps in 100 ticks, each step
@@ -945,11 +992,14 @@ static inline s32 weaponRulesApplySettings(u32 module, weapon_rule_text_fn get, 
 		plan->count = count >= 0 ? count : dcount;
 		plan->gap = gap >= 0 ? gap : dgap;
 	} else if (module == WEAPON_MODULE_CHARGE) {
-		/* slice 5: the record's own charge, else the Mauler's. */
+		/* slice 5: the record's own charge, else the Mauler's. Each setting
+		 * is parsed as soon as it is read (review: a "$name" setting's text
+		 * lives in a read buffer). */
 		weapon_rule_trigger_t base;
-		const char *start_text = get(WEAPON_RULE_START_PARAM, user);
-		const char *release_text = get(WEAPON_RULE_RELEASE_PARAM, user);
-		const char *damage_text = get(WEAPON_RULE_DAMAGE_PER_STEP_PARAM, user);
+		const s32 committed = native.module == WEAPON_MODULE_CHARGE
+			&& native.charge_start == WEAPON_RULE_CHARGE_ON_PRESS;
+		const s32 custom = record ? record->weaponnum >= WEAPON_CUSTOM_START : -1;
+		const char *damage_text;
 		s32 v;
 
 		memset(&base, 0, sizeof(base));
@@ -963,15 +1013,18 @@ static inline s32 weaponRulesApplySettings(u32 module, weapon_rule_text_fn get, 
 		plan->charge_fall = base.charge_fall;
 		plan->charge_release = base.charge_release;
 		plan->charge_damage = base.charge_damage;
-		if (start_text) {
-			if (strcmp(start_text, "while_selected") == 0) plan->charge_start = WEAPON_RULE_CHARGE_WHILE_SELECTED;
-			else if (strcmp(start_text, "on_press") == 0) plan->charge_start = WEAPON_RULE_CHARGE_ON_PRESS;
-			else ok = 0;
-		}
-		if (release_text) {
-			if (strcmp(release_text, "on_press") == 0) plan->charge_release = WEAPON_RULE_RELEASE_ON_PRESS;
-			else if (strcmp(release_text, "on_full") == 0) plan->charge_release = WEAPON_RULE_RELEASE_ON_FULL;
-			else ok = 0;
+		v = weaponRulesChargeStartFromText(get(WEAPON_RULE_START_PARAM, user), committed);
+		if (v < 0) ok = 0; else plan->charge_start = v;
+		/* A release left out is its start's (review). */
+		v = weaponRulesChargeReleaseFromText(get(WEAPON_RULE_RELEASE_PARAM, user), plan->charge_start);
+		if (v < 0) ok = 0; else plan->charge_release = v;
+		if (weaponRulesChargeUnsupported(plan->charge_start, plan->charge_release, custom)) {
+			/* Registration refuses it; the walk keeps a charge the runtime runs. */
+			ok = 0;
+			if (plan->charge_start == WEAPON_RULE_CHARGE_ON_PRESS && custom == 0) {
+				plan->charge_start = WEAPON_RULE_CHARGE_WHILE_SELECTED;
+			}
+			plan->charge_release = weaponRulesChargeReleaseFromText(NULL, plan->charge_start);
 		}
 		v = weaponRulesWholeFromText(get(WEAPON_RULE_TIME_PARAM, user), 1, WEAPON_RULE_MAX_SPIN, plan->charge_time);
 		if (v < 0) ok = 0; else plan->charge_time = v;
@@ -985,6 +1038,7 @@ static inline s32 weaponRulesApplySettings(u32 module, weapon_rule_text_fn get, 
 		if (v < 0) ok = 0; else plan->charge_min_clip = v;
 		v = weaponRulesWholeFromText(get(WEAPON_RULE_FALL_TIME_PARAM, user), 0, WEAPON_RULE_MAX_SPIN, plan->charge_fall);
 		if (v < 0) ok = 0; else plan->charge_fall = v;
+		damage_text = get(WEAPON_RULE_DAMAGE_PER_STEP_PARAM, user);
 		if (damage_text) {
 			if (strcmp(damage_text, "0") == 0) {
 				plan->charge_damage = 0.0f;

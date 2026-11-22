@@ -75,6 +75,11 @@ const struct weapon_rule_trigger *weaponHandTrigger(struct hand *hand, const str
  * original's for the record. Never NULL. */
 const struct weapon_rule_reload *weaponHandReload(struct hand *hand, const struct weapon_rule_function *record);
 
+/* PR 31 review: whether a function's program regrows its clip
+ * (og.weapon.reload style regrow), so its reload needs no reserve. 0 with no
+ * program. */
+s32 weaponProgramRegrows(s32 weaponnum, s32 func);
+
 /* The attack a press starts for a simulant or a guard: the function's
  * program walked for a ready hand with a loaded clip, reserve to reload
  * from and every named state false (the hand a player takes the weapon
