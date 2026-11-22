@@ -765,3 +765,27 @@ TEST_CASE("the simulants' mode commands run through the plan",
 	REQUIRE(modeRulesSeamEvent(MODE_SEAM_BOT_IDLE) == MISSION_GRAPH_EVENT_MODE_BOT_IDLE);
 	REQUIRE(missionGraphEventIsMode(MISSION_GRAPH_EVENT_MODE_BOT_COMMAND) == 1);
 }
+
+TEST_CASE("simulants charge, and a dropped cloak turns off, by the weapon program",
+	"[mode-graph][weapon-rules][held-weapon][static]")
+{
+	/* Core Weapons' held-weapon slices 4 and 5 (PR 31): this lane's bot.c and
+	 * the network drop handler read the plan where they read weapon numbers,
+	 * as bondgun.c's own charge and drop do. */
+	const std::string bot = readRepoFile("src/game/bot.c");
+	REQUIRE(bot.find("const s32 chargefunc = weaponWeaponCharge(aibot->weaponnum, &charge) - 1;")
+		!= std::string::npos);
+	REQUIRE(bot.find("&& aibot->loadedammo[i] >= weaponRulesChargeStepNeeds(&charge)) {")
+		!= std::string::npos);
+	REQUIRE(bot.find("aibot->maulercharge[i] += g_Vars.lvupdate60freal * (steps / (f32)charge.charge_time);")
+		!= std::string::npos);
+	REQUIRE(bot.find("weaponRulesSpendRounds(charge.charge_ammo, &aibot->loadedammo[i]);")
+		!= std::string::npos);
+	CHECK(bot.find("aibot->weaponnum == WEAPON_MAULER") == std::string::npos);
+	CHECK(bot.find("aibot->maulercharge[i] += g_Vars.lvupdate60freal * 0.05f;") == std::string::npos);
+
+	const std::string net = readRepoFile("port/src/net/netmsg.c");
+	REQUIRE(net.find("if (weaponCloakToggle(weaponnum, NULL, NULL)) {\n\t\tplayer->devicesactive &= ~DEVICE_CLOAKRCP120;")
+		!= std::string::npos);
+	CHECK(net.find("if (weaponnum == WEAPON_RCP120) {") == std::string::npos);
+}
