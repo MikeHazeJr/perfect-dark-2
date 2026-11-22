@@ -402,6 +402,7 @@ switch ($Command) {
                 Add-Pd2qJournal $j.Id @{ event = 'cancelled'; detail = "break by $who`: $Reason" }
                 $dropped += $j.Id
             }
+            if ($dropped) { Set-Pd2qTaskResumable $issueId "dropped by break ($who): $Reason; the next claim restores the submitted patch" }
             if ($lease) {
                 if ($lease.state -eq 'queued' -and $lease.job -and -not ($dropped -contains $lease.job)) { throw "$issueId belongs to running job $($lease.job); use pd2q cancel." }
                 $l.leases.Remove($issueId); Write-Pd2qJson $paths.Leases $l
@@ -431,6 +432,7 @@ switch ($Command) {
                 Add-Pd2qJournal $jobId @{ event = 'cancelled'; detail = "cancelled before it ran: $Reason" }
                 $l = Read-Pd2qLeases
                 if ($l.leases[$job.Request.issue] -and $l.leases[$job.Request.issue].job -eq $jobId) { $l.leases.Remove($job.Request.issue); Write-Pd2qJson $paths.Leases $l }
+                Set-Pd2qTaskResumable $job.Request.issue "$jobId cancelled before it ran: $Reason"
                 $text = "$jobId cancelled before it ran"
             } else {
                 Write-Pd2qJson (Join-Path $paths.Requests "cancel-$jobId.json") @{ schema = 'pd2q.cancel.v1'; job = $jobId; reason = $Reason; by = $(if ($Session) { $Session } else { $env:USERNAME }); atUtc = Format-Pd2qTime (Get-Pd2qNow) }

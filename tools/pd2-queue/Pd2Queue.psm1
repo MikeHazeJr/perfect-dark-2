@@ -291,6 +291,17 @@ function Get-Pd2qScratchDir([string] $Session) {
     return Join-Path (Get-Pd2qPaths).Scratch $Session
 }
 
+function Set-Pd2qTaskResumable([string] $Issue, [string] $Note) {
+    # A job that ends without running (cancelled or dropped while queued) gives
+    # its saved patch back to the task, as Complete-Job does for a running one:
+    # submit cleared the scratch, so the next claim must restore the patch.
+    $task = Get-Pd2qTask $Issue
+    if (-not $task) { return }
+    $task.state = 'started'
+    $task.notes = @($task.notes) + @(@{ atUtc = Format-Pd2qTime (Get-Pd2qNow); agent = 'pd2q'; session = 'pd2q'; note = $Note })
+    Save-Pd2qTask $task
+}
+
 function Clear-Pd2qScratch([string] $Session) {
     $p = Get-Pd2qPaths
     $dir = Get-Pd2qScratchDir $Session

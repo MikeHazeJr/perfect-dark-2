@@ -126,6 +126,11 @@ try {
     Check ((Leases).leases['T-UNIT-005'] -and $r.Out -match 'needs testing') 'a queued lease outlives the session clock'
     $r = Q @('cancel', $job, '-Reason', 'unit test')
     Check ($r.Code -eq 0 -and -not (Leases).leases['T-UNIT-005']) 'cancelling a queued job frees its issue'
+    $r = Q @('check', 'T-UNIT-005')
+    Check ($r.Out -match 'started \(unowned\)' -and $r.Out -match 'saved work: 1 file') "a job cancelled before it ran gives its patch back to the task`n$($r.Out)"
+    $r = Q @('claim', 'T-UNIT-005', '-Session', 's1', '-OwnerPid', $o1.Id)
+    Check ($r.Code -eq 0 -and $r.Out -match 'Restored your saved work' -and (Get-Content -LiteralPath (Join-Path $root 'scratch\s1\src\a.c') -Raw) -match 'return 2') "the next claim restores the submitted edits`n$($r.Out)"
+    [void](Q @('release', 'T-UNIT-005', '-Lease', (LeaseNumber $r.Out)))
 
     # Breaking a queued lease leaves its session's scratch alone: the session may
     # be editing its next issue there, and the queued patch was saved at submit.
@@ -143,6 +148,7 @@ try {
     $r = Q @('break', 'T-UNIT-012', '-Reason', 'unit test: break a queued lease', '-Session', 'tester')
     Check ($r.Code -eq 0 -and (Test-Path -LiteralPath $f13) -and (Get-Content -LiteralPath $f13 -Raw) -match 'return 13') "breaking a queued lease leaves the session's next issue's scratch alone`n$($r.Out)"
     Check ((Get-Content -LiteralPath (Join-Path $root 'queue\tasks\T-UNIT-012.patch') -Raw) -match 'return 12') "and the queued issue's saved patch is still its own"
+    Check ((Q @('check', 'T-UNIT-012')).Out -match 'started \(unowned\)') 'and the dropped job leaves its issue resumable'
     [void](Q @('release', 'T-UNIT-013', '-Lease', $n13))
 
     # Landed issue refuses a claim without -Reopen.
