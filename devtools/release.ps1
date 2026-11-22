@@ -244,34 +244,44 @@ if ($SkipBuild) {
     # even if a later step in this script fails.
     Copy-RomAddinIntoBuild
 
-    # Commit any pending changes so the release tag lands on a clean commit
-    Write-Host "  [pre-release] Committing any pending changes..." -ForegroundColor Gray
-    Sync-ProjectMindState -ProjectRoot $ProjectRoot | Out-Null
-    $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    $statusOut = git -C $ProjectRoot status --porcelain 2>&1
-    if ($statusOut) {
-        git -C $ProjectRoot add -A 2>&1 | Out-Null
-        $commitBody = Get-ProjectStateCommitBody -ProjectRoot $ProjectRoot -ActionLabel "pre-release"
-        if (Invoke-ReleaseCommit `
-                -Subject "Tooling - c120: Sync live project state for release" `
-                -Body $commitBody `
-                -AllowNoVerifyFallback:$ForceCommitNoVerify) {
-            Write-Host "  [pre-release] Committed pending changes." -ForegroundColor Green
+    if ($DryRun) {
+        # B-1304: a dry run commits and pushes nothing.
+        Write-Host "  [DRY RUN] [pre-release] Would sync project state, commit pending changes and push the branch." -ForegroundColor Magenta
+    } else {
+        # Commit any pending changes so the release tag lands on a clean commit
+        Write-Host "  [pre-release] Committing any pending changes..." -ForegroundColor Gray
+        Sync-ProjectMindState -ProjectRoot $ProjectRoot | Out-Null
+        $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $statusOut = git -C $ProjectRoot status --porcelain 2>&1
+        if ($statusOut) {
+            git -C $ProjectRoot add -A 2>&1 | Out-Null
+            $commitBody = Get-ProjectStateCommitBody -ProjectRoot $ProjectRoot -ActionLabel "pre-release"
+            if (Invoke-ReleaseCommit `
+                    -Subject "Tooling - c120: Sync live project state for release" `
+                    -Body $commitBody `
+                    -AllowNoVerifyFallback:$ForceCommitNoVerify) {
+                Write-Host "  [pre-release] Committed pending changes." -ForegroundColor Green
+            } else {
+                Write-Host "  [pre-release] Commit failed." -ForegroundColor Red
+                exit 1
+            }
         } else {
-            Write-Host "  [pre-release] Commit failed." -ForegroundColor Red
-            exit 1
+            Write-Host "  [pre-release] Nothing to commit." -ForegroundColor Gray
         }
-    } else {
-        Write-Host "  [pre-release] Nothing to commit." -ForegroundColor Gray
-    }
-    $currentBranchForPush = git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>&1
-    $pushOut = git -C $ProjectRoot push origin $currentBranchForPush 2>&1
-    $pushExit = $LASTEXITCODE
-    $ErrorActionPreference = $savedEAP
-    if ($pushExit -ne 0) {
-        Write-Host "  [pre-release] Push failed (will retry in Step 4)." -ForegroundColor Yellow
-    } else {
-        Write-Host "  [pre-release] Pushed to remote." -ForegroundColor Green
+        if ($SkipPush) {
+            $ErrorActionPreference = $savedEAP
+            Write-Host "  [pre-release] -SkipPush: not pushing." -ForegroundColor Yellow
+        } else {
+            $currentBranchForPush = git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>&1
+            $pushOut = git -C $ProjectRoot push origin $currentBranchForPush 2>&1
+            $pushExit = $LASTEXITCODE
+            $ErrorActionPreference = $savedEAP
+            if ($pushExit -ne 0) {
+                Write-Host "  [pre-release] Push failed (will retry in Step 4)." -ForegroundColor Yellow
+            } else {
+                Write-Host "  [pre-release] Pushed to remote." -ForegroundColor Green
+            }
+        }
     }
 
     # Also build the standalone Updater if it's missing (dev-window-v2 builds
@@ -294,34 +304,44 @@ if ($SkipBuild) {
 } else {
     Write-Host "[0/8] Rebuilding from source (cmake reconfigure + compile)..." -ForegroundColor Yellow
 
-    # ---- Pre-build: commit + push so the release tag lands on a clean commit ----
-    Write-Host "  [pre-build] Committing any pending changes before release build..." -ForegroundColor Gray
-    Sync-ProjectMindState -ProjectRoot $ProjectRoot | Out-Null
-    $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
-    $statusOut = git -C $ProjectRoot status --porcelain 2>&1
-    if ($statusOut) {
-        git -C $ProjectRoot add -A 2>&1 | Out-Null
-        $commitBody = Get-ProjectStateCommitBody -ProjectRoot $ProjectRoot -ActionLabel "pre-build release"
-        if (Invoke-ReleaseCommit `
-                -Subject "Tooling - c120: Sync live project state for release" `
-                -Body $commitBody `
-                -AllowNoVerifyFallback:$ForceCommitNoVerify) {
-            Write-Host "  [pre-build] Committed pending changes." -ForegroundColor Green
+    if ($DryRun) {
+        # B-1304: a dry run commits and pushes nothing.
+        Write-Host "  [DRY RUN] [pre-build] Would sync project state, commit pending changes and push the branch." -ForegroundColor Magenta
+    } else {
+        # ---- Pre-build: commit + push so the release tag lands on a clean commit ----
+        Write-Host "  [pre-build] Committing any pending changes before release build..." -ForegroundColor Gray
+        Sync-ProjectMindState -ProjectRoot $ProjectRoot | Out-Null
+        $savedEAP = $ErrorActionPreference; $ErrorActionPreference = "Continue"
+        $statusOut = git -C $ProjectRoot status --porcelain 2>&1
+        if ($statusOut) {
+            git -C $ProjectRoot add -A 2>&1 | Out-Null
+            $commitBody = Get-ProjectStateCommitBody -ProjectRoot $ProjectRoot -ActionLabel "pre-build release"
+            if (Invoke-ReleaseCommit `
+                    -Subject "Tooling - c120: Sync live project state for release" `
+                    -Body $commitBody `
+                    -AllowNoVerifyFallback:$ForceCommitNoVerify) {
+                Write-Host "  [pre-build] Committed pending changes." -ForegroundColor Green
+            } else {
+                Write-Host "  [pre-build] Commit failed." -ForegroundColor Red
+                exit 1
+            }
         } else {
-            Write-Host "  [pre-build] Commit failed." -ForegroundColor Red
-            exit 1
+            Write-Host "  [pre-build] Nothing to commit." -ForegroundColor Gray
         }
-    } else {
-        Write-Host "  [pre-build] Nothing to commit." -ForegroundColor Gray
-    }
-    $currentBranchForPush = git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>&1
-    $pushOut = git -C $ProjectRoot push origin $currentBranchForPush 2>&1
-    $pushExit = $LASTEXITCODE
-    $ErrorActionPreference = $savedEAP
-    if ($pushExit -ne 0) {
-        Write-Host "  [pre-build] Push failed (continuing -- will retry in Step 4)." -ForegroundColor Yellow
-    } else {
-        Write-Host "  [pre-build] Pushed to remote." -ForegroundColor Green
+        if ($SkipPush) {
+            $ErrorActionPreference = $savedEAP
+            Write-Host "  [pre-build] -SkipPush: not pushing." -ForegroundColor Yellow
+        } else {
+            $currentBranchForPush = git -C $ProjectRoot rev-parse --abbrev-ref HEAD 2>&1
+            $pushOut = git -C $ProjectRoot push origin $currentBranchForPush 2>&1
+            $pushExit = $LASTEXITCODE
+            $ErrorActionPreference = $savedEAP
+            if ($pushExit -ne 0) {
+                Write-Host "  [pre-build] Push failed (continuing -- will retry in Step 4)." -ForegroundColor Yellow
+            } else {
+                Write-Host "  [pre-build] Pushed to remote." -ForegroundColor Green
+            }
+        }
     }
 
     # ---- Single configure (unified Build/ dir) then build both targets ----

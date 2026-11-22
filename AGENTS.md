@@ -62,6 +62,27 @@ wrapper starts capture live stdout/stderr in
 `_build-session.err.log`; use `.\devtools\build-session.ps1 -Tail -Session <id>`
 or `-Tail -Follow` for the active build.
 
+### The no-worktree build queue (pd2q)
+
+`tools/pd2-queue` implements Mike's no-worktree build queue spec (T-TOOLING-020). With it, a session:
+- reads the clean dev clone at `C:\PD2\dev` and never builds;
+- edits copies in its scratch folder;
+- submits a patch.
+
+One worker builds each patch clean on the latest dev, runs pd-tests, and pushes it to dev. If anything fails, it writes a report instead.
+
+The flow is `check`, `claim`, `edit`, `renew` every 3 minutes, `submit`, `wait`. See `tools/pd2-queue/README.md`:
+
+```powershell
+pwsh -File tools\pd2-queue\pd2q.ps1 check <issue>
+pwsh -File tools\pd2-queue\pd2q.ps1 claim <issue> -Session <id>
+```
+
+- **Before any fix,** run `pd2q check`: the board lists every landed fix, and a claim on a landed issue needs `-Reopen "why"`.
+- **The commit message** comes from `submit`: `-Title` in the commit standard, `-Body <file>` saying what changed and why, and `-CoAuthor "Name <email>"`. The queue adds `Refs` and the `PD2-*` trailers.
+- **Leases** free themselves when their owner exits, the PC reboots, or no renew comes for 10 minutes. Edits in progress are saved first, so another session or the other agent can pick the work up after `validate`.
+- **Until the worker runs as a service,** which Milestone 5 hosts as a scheduled task on Mike's OK, the session-build flow above remains the default.
+
 ---
 
 ## STANDING ORDERS - Workbench and Coordination

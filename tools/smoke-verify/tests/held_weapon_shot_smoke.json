@@ -1,6 +1,6 @@
 {
   "scenario_name": "held_weapon_shot_smoke",
-  "description": "Held weapon shots (context/designs/modding/held-weapon-events.md, slice 4). On Felicity with no simulants, player 0 is given each base weapon whose shot was a weapon-number case and uses it: the rocket launcher, crossbow, Devastator and Super Dragon launch the items the original's if-chain chose (base:rocket, base:bolt with the gun's function, base:grenaderound with the gun's and as function 2), the Farsight's bullet passes walls with ten times its shield damage, the Tranquilizer's sedative strike takes 4 rounds, the RCP120's cloak toggles and drains 24 rounds a second, and the Laptop gun is thrown as a sentry, giving up the gun. Each function's first press logs its program's plan, the shot included, beside the original's; they must be equal, and no rule may differ in the totals at the scripted exit.",
+  "description": "Held weapon shots (context/designs/modding/held-weapon-events.md, slice 4). On Felicity with no simulants, player 0 is given each base weapon whose shot was a weapon-number case and uses it: the rocket launcher, crossbow, Devastator and Super Dragon launch the items the original's if-chain chose (base:rocket, base:bolt with the gun's function, base:grenaderound with the gun's and as function 2), the Farsight's bullet passes walls with ten times its shield damage, the Tranquilizer's sedative strike takes 4 rounds, the RCP120's primary fires as its program plans (under extended controls its alt button toggles the cloak itself, bgunConsiderToggleGunFunction's RCP120 case, so its secondary's mode_toggle node is never pressed here; pd-tests prove that node's drain of 24), and the Laptop gun is thrown as a sentry, giving up the gun. Each function's first press logs its program's plan, the shot included, beside the original's; they must be equal, and no rule may differ in the totals at the scripted exit.",
   "tags": [
     "graph",
     "weapons",
@@ -142,25 +142,11 @@
       "path": "base:rcp120"
     },
     {
-      "at_ms": 43000,
-      "type": "action",
-      "name": "ACTION_FIRE_MODE",
-      "action": "tap",
-      "comment": "Switch to the cloak."
-    },
-    {
       "at_ms": 44000,
       "type": "action",
       "name": "ACTION_FIRE_PRIMARY",
       "action": "tap",
-      "comment": "Cloak on: drains 24 rounds a second."
-    },
-    {
-      "at_ms": 47000,
-      "type": "action",
-      "name": "ACTION_FIRE_PRIMARY",
-      "action": "tap",
-      "comment": "Cloak off."
+      "comment": "RCP120 primary: an automatic. Its alt button would toggle the cloak itself under extended controls (no line records that yet), not select the secondary."
     },
     {
       "at_ms": 50000,
@@ -198,7 +184,7 @@
       "WEAPON\\.RULE: trigger_pressed weapon=base:superdragon func=secondary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 shot=launch item=base:grenaderound item_function=2 native_plan=fire_once rounds=1 shot=launch item=base:grenaderound item_function=2",
       "WEAPON\\.RULE: trigger_pressed weapon=base:farsight func=primary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 shot=hitscan pellets=1 through_walls=true shield_damage=10 native_plan=fire_once rounds=1 shot=hitscan pellets=1 through_walls=true shield_damage=10",
       "WEAPON\\.RULE: trigger_pressed weapon=base:tranquilizer func=secondary program=yes modules=fire_once native=fire_once plan=fire_once rounds=4 shot=melee native_plan=fire_once rounds=4 shot=melee",
-      "WEAPON\\.RULE: trigger_pressed weapon=base:rcp120 func=secondary program=yes modules=fire_once native=fire_once plan=fire_once rounds=1 shot=mode_toggle mode=cloak drain=24 native_plan=fire_once rounds=1 shot=mode_toggle mode=cloak drain=24",
+      "WEAPON\\.RULE: trigger_pressed weapon=base:rcp120 func=primary program=yes modules=automatic native=automatic plan=automatic rate=",
       "WEAPON\\.RULE: trigger_pressed weapon=base:laptopgun func=secondary program=yes modules=fire_once native=fire_once plan=fire_once rounds=0 shot=throw give_up_gun=true native_plan=fire_once rounds=0 shot=throw give_up_gun=true",
       "PROJECTILE\\.EVENT: spawned weapon=base:rocketlauncher func=primary object=base:rocket ",
       "PROJECTILE\\.EVENT: spawned weapon=base:crossbow func=primary object=base:bolt ",
