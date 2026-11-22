@@ -16,7 +16,30 @@ timed out at 420 s, and the end-screen wait never started. The hosted twin passe
 does not sit through that intro.
 
 Fix (fixture only): `--debug-end-mission 100:complete`, which leaves about 36 s of play after an unskipped intro
-and also works if the assist does skip it. Not yet rerun.
+and also works if the assist does skip it. Rerun R8 (candidate 3, checkout 11cb964d) failed the same way, for the
+reason in B-1312: the timing was only half of it.
+
+## 2026-11-22 B-1312 A match or mission started from the solo Room ran under the Room's menu input layer when the Room owned it (T-MENUS-009, T-NETWORKING-007, fixed on week-pd/mp-rules-b1312, found in Integration's finalization run R8)
+
+In R8 (candidate 3), with B-1311's fixture in place, Defection's intro ended at 84.3 s, the buddy spawned and the
+mission ended at 100 s to its results. Still, `offline_gameplay_ready` began its stability window only once, in
+CI before the Room opened. INPUTCTX shows why:
+- `gameplay` was at depth 1. At 16.97 the offline Room pushed `imgui_menu` at depth 2
+  (`MENUPOOL: acquired room ... ctx=imgui_menu(owned)`) and the mouse went to absolute mode.
+- Nothing popped it until the end screen took the slot at 02:00.33 ("marked for deferred removal", then "restored
+  relative mode for gameplay"). There was no input reset at the stage change.
+- The readiness wait needs the gameplay layer on top, so it could not hold.
+
+Cause: both solo Start Match paths in `pdgui_menu_room.cpp` (the Combat Simulator start after `matchStart()`, and
+the Campaign start after `pdguiRoomStartOfflineCoop`) called `pdguiSoloRoomClose()`, which only clears the Room's
+flags. The Leave path releases `MENU_TYPE_ROOM` first. A Room opened without the Main Menu's push (B-1278's
+`--launch-offline-room`, and possibly a Room the Main Menu no longer covers) owns the layer, so only that release
+pops it. Same class as B-1042, which fixed the listen host's lobby only.
+
+Fix: both solo starts call `menupoolRelease(MENU_TYPE_ROOM)` before `pdguiSoloRoomClose()`. The release is
+idempotent, and a shared slot does not pop. Tests: `[b1312]` in `tests/test_net_mission_end_static.cpp`. Not yet seen
+with a human in normal play; the rerun is `coop_ai_buddies_offline_smoke` on candidate 4. Severity: high if a player's
+start leaves the layer up (absolute mouse; gameplay-only actions suppressed, per B-1042), otherwise test only.
 
 ## 2026-11-22 B-1309 `release.ps1` would commit Codex's memory from a fresh clone of this public repository (T-RELEASE-006, open: Mike's decision)
 

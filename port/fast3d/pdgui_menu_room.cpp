@@ -3920,6 +3920,11 @@ static s32 roomGraphStartMatch(void *userdata)
                     return -1;
                 }
                 combatSimVerifyOnMatchStart("room");
+                /* B-1312: release the Room's slot before closing, as Leave
+                 * does: when the Room owns the menu input layer (opened
+                 * without the Main Menu's push), only this pops it, and the
+                 * match would otherwise run under it (B-1042's class). */
+                menupoolRelease(MENU_TYPE_ROOM);
                 pdguiSoloRoomClose();
                 return 0;
             } else {
@@ -3969,6 +3974,8 @@ static s32 roomGraphStartMatch(void *userdata)
                 if (pdguiRoomStartOfflineCoop(coop_id, (u8)s_CampaignDiff) != 0) {
                     return -1;
                 }
+                /* B-1312: as the Combat start above. */
+                menupoolRelease(MENU_TYPE_ROOM);
                 pdguiSoloRoomClose();
                 return 0;
             }
