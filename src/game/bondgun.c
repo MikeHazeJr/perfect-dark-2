@@ -87,6 +87,7 @@
 #include "mission_graph_runner.h"
 #include "weapon_rules.h"
 #include "weapon_events.h"
+#include "weapondata_authored.h" /* the cloak log's weapon id */
 
 #define GUNLOADSTATE_FLUX     0
 #define GUNLOADSTATE_MODEL    1
@@ -10320,6 +10321,29 @@ void bgunTickGameplay2(void)
 				/* PR 31 review: no reserve to settle from (ammotypes -1). */
 				hand->matmot1 = 0;
 			}
+		}
+	}
+
+	/* PR 46 follow-up: the cloak's changes are logged, whichever way it was
+	 * toggled (the alt button's own toggle under extended controls, or a
+	 * mode_toggle shot), with the drain its weapon's program names. */
+	if (g_Vars.currentplayernum >= 0 && g_Vars.currentplayernum < MAX_PLAYERS) {
+		static u8 s_CloakOn[MAX_PLAYERS];
+		const u8 on = (g_Vars.currentplayer->devicesactive & ~g_Vars.currentplayer->devicesinhibit
+			& DEVICE_CLOAKRCP120) ? 1 : 0;
+
+		if (on != s_CloakOn[g_Vars.currentplayernum]) {
+			const s32 weaponnum = player->gunctrl.weaponnum;
+			f32 drain = 0.0f;
+			s32 slot = -1;
+			const s32 toggles = weaponCloakToggle(weaponnum, &drain, &slot);
+
+			s_CloakOn[g_Vars.currentplayernum] = on;
+			sysLogPrintf(LOG_NOTE, "BONDGUN.CLOAK: %s player=%d weapon=%s drain=%.9g slot=%d",
+				on ? "on" : "off", g_Vars.currentplayernum,
+				weaponnum >= 0 && weaponnum < g_WeaponDataCount && g_WeaponDataCatalogIds[weaponnum]
+					? g_WeaponDataCatalogIds[weaponnum] : "?",
+				toggles ? (double)drain : 0.0, toggles ? slot : -1);
 		}
 	}
 

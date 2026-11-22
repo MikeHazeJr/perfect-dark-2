@@ -804,6 +804,53 @@ and a sample made from a base weapon may not carry ROM data), to this spec:
   and armed rules a rocket needs (the base homing rocket's wiring is the
   reference).
 
+## Slice 7 plan: feel (Core Weapons, 2026-11-22, before code)
+
+What a gun's shots feel like, from the audit's "Recoil and feel" and
+"Presentation" rows and a survey of the code at `week-pd/core-weapons-w6b`.
+The audit's done-when: mod guns feel like base guns.
+
+| Feel | Where it is decided and runs | What it reads | A mod gun today |
+|---|---|---|---|
+| Recoil kick and return | `bgun0f09aba4`, each frame of the attack's second shoot state (once per attack for an automatic, after its last round) | the held record's `recoil_anim_unk24..27`, recovery time, `recoildist`, `recoilangle`, else the function's | its graph's (the crystal pistol's 4/6/3/0) |
+| Slide | `bgunStartSlide` each shot, `bgunUpdateSlide` each frame (models with `MODELPART_GUN_SLIDE`) | the function's `slidemax` only; the held one is never read | the adapter copies its graph's |
+| Jitter | `bgun0f0a5550`, each firing frame | the function's `recoilsettings` (x, y, z ranges), times the Reaper's spin multiplier (`vibrationstart`/`vibrationmax`, element 0 only) | none (`recoilsettings` NULL) |
+| Casings | `bgunCreateFx` each firing frame; the casing model loaded at equip | the ammo's `casingeject` | none (`CASING_NONE`) |
+| Muzzle flash | `bgun0f09a6f8` each shot | `FUNCFLAG_NOMUZZLEFLASH` (held flags first) | from its flags |
+| Shot sound | each firing tick | the held shot sound and duration, else the function's | from its graph |
+| Fire animation | each attack | the function's `fire_animation` | none (never set; the adapter's weapon lacks the animation flag) |
+
+The recoil's four frame counts: `unk24` frames of kick, `unk25` of return, and
+a press after `unk26` frames cuts the recoil short with an `unk27`-frame
+return (negative: no cut); then `recoverytime60` frames of recovery before the
+attack ends. They also set a semi-automatic's fire rate, and simulants use
+kick plus return as their shot interval (`botactGetShootInterval60`).
+
+**The plan, in the slices' pattern:**
+
+- **7a. `og.weapon.recoil`** (weapon module bit 17), reached on the attack's
+  walk with its shot: `kick`, `return`, `recovery`, `cut_after`,
+  `cut_return` (frames), `distance`, `angle`, `slide`, `shake_x`, `shake_y`,
+  `shake_z`, `spin_shake` (the shake's multiplier at full spin; the Reaper's).
+  A setting left out is the function's own, so a program without the node
+  feels as today; base programs write every one (`embedded.v24`). The plan
+  carries them, and the recoil, the slide and the jitter read the hand's
+  plan. The held record gains `recoilsettings` and the spin shake (base
+  archives already carry both). Mod guns get jitter.
+- **7b. `og.weapon.casing`** (`type`: none, standard, reaper, rifle,
+  shotgun), **`og.weapon.muzzle_flash`** (`on`), **`og.weapon.shot_sound`**
+  (`sound`, `duration`): the plan carries them, and the casing model loads
+  from the press plan when the gun is equipped. Mod guns get casings.
+- **7c. `og.weapon.play_animation`**: the fire animation by name. A mod gun
+  plays one only on a model that animates (the adapter sets the animation
+  flag when its program names one); to be checked against the generated
+  models' static matrices before it is built.
+- Simulants: their shot interval reads the press plan's kick and return
+  (`botact.c`, Multiplayer & Rules' file: an accessor and a note to them).
+- Weapon-number cases stay, as the rule says (guards go last): the Shotgun's
+  hold, the Reaper's eject parts and velocities, the DY357's casings,
+  tracers, smoke, the Falcon 2's laser sight.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
