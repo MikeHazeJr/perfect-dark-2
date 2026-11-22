@@ -866,7 +866,7 @@ angle), `bgunUpdateSlide`, the jitter and the spin multiplier. The held
 record now reads the jitter (`recoilsettings`) and the Reaper's spin
 (`vibration_start`, `vibration_max`), which base archives always carried, so
 a mod gun's graph gives it jitter. Base programs write every recoil setting
-after their shot (`embedded.v24`, cache `_heldrecoil`); the parity probe
+after their shot (`embedded.v24`, cache `_heldfeel` since 7b); the parity probe
 compares the recoil as part of the plan, and the first `WEAPON.RULE` line
 ends with it (` recoil=6/18/0 refire=yes cut=2/8 ...`). Registration and
 conformance refuse a recoil on a function that does not shoot, and
@@ -874,6 +874,21 @@ malformed settings. A number setting from 0 now reads `0.0` too, the
 charge's `damage_per_step` included. Simulants' shot interval has an
 accessor for Multiplayer & Rules' `botact.c` (`weaponProgramRecoilFrames`:
 the press plan's kick plus return, the original's with no program).
+
+**7b as written (2026-11-22, `week-pd/core-weapons-w7`):** `og.weapon.casing`
+(bit 18, `type`: none, standard, reaper, rifle, shotgun) and
+`og.weapon.muzzle_flash` (bit 19, `on`). The attack's plan carries both, the
+casing as its `CASING_*` value plus one so a zeroed plan ejects none; the
+original's casing is the function's ammo's `casingeject`, its flash on unless
+the function is flagged `FUNCFLAG_NOMUZZLEFLASH`. The per-shot hub reads the
+plan's flash; the casing spawn (`casingCreateForHand`) reads the plan's
+casing, and a function with no clip ejects one too when its program names
+one; when the gun is equipped it loads the model of the casing its
+function's press plan names (`weaponFunctionCasing`), so a mod gun with a
+casing node has its casing's model ready. The profile executor's weapons
+keep their own casing path. Base programs write both after the recoil
+(still `embedded.v24`: nothing was extracted at v24 before this). So a mod
+gun gets casings from its program.
 
 ## Smokes for Integration's finalization batch
 
@@ -909,6 +924,7 @@ Listed as each slice lands; none is run by Core Weapons.
 | 6b | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the crystal pistol's mine keeps its record's radius and filters (`BONDGUN.CRYSTAL: mine triggered` as before; the owner still sets off its own mine) |
 | 7a | `boot_smoke` on a freshly extracted install | `embedded.v24`: every base weapon re-extracts once; no `program refused` line (every shooting function's program carries `og.weapon.recoil`) |
 | 7a | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their first `WEAPON.RULE` lines end with ` recoil=...`; `rules.differ=0`; the guns kick, slide and jitter as before (the Falcon 2's slide, the Reaper's shake rising with its spin) |
+| 7b | `held_weapon_cadence_smoke` (or any smoke that fires a Falcon 2, a CMP150 and a Shotgun) | casings fly as before (standard, rifle, shotgun) and the flash shows; no `WEAPON.RULE differs` line |
 | 6c | a vehicle lock smoke with the sample above (none written yet: the Blank Room with a hoverbike, `--debug-forge-level-vehicle`, as `hoverbike_room_flow_smoke`) | aiming the secondary at the empty bike logs `SIGHT.LOCK: ... kind=vehicle occupied=0 relation=none`; the primary takes no lock on it; with a second player riding (split screen or a second client) the primary logs `occupied=1 relation=enemy`, and its rocket flies straight once the rider bails; `rules.differ=0` |
 | 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 

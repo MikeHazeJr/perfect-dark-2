@@ -2434,7 +2434,7 @@ WEAPON_GRAPH_SHOT_FAMILIES = {
 }
 WEAPON_GRAPH_SHOTS = tuple(WEAPON_GRAPH_SHOT_FAMILIES)
 # Slice 7: how each shot of the attack feels; a shooting function's.
-WEAPON_GRAPH_FEEL = ("og.weapon.recoil",)
+WEAPON_GRAPH_FEEL = ("og.weapon.recoil", "og.weapon.casing", "og.weapon.muzzle_flash")
 WEAPON_GRAPH_FEEL_FAMILIES = ("shoot_single", "shoot_automatic", "shoot_projectile")
 WEAPON_GRAPH_IDLE_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state", "og.weapon.use_ammo") \
     + WEAPON_GRAPH_SHOTS + WEAPON_GRAPH_FEEL
@@ -2493,6 +2493,9 @@ WEAPON_GRAPH_SETTINGS = {
                          "distance": ("nonneg", 1000), "angle": ("nonneg", 360), "slide": ("nonneg", 1000),
                          "shake_x": ("nonneg", 100), "shake_y": ("nonneg", 100), "shake_z": ("nonneg", 100),
                          "spin_shake_from": ("nonneg", 100), "spin_shake_to": ("nonneg", 100)},
+    # Slice 7b: a shot's casing and muzzle flash.
+    "og.weapon.casing": {"type": ("choice", ("none", "standard", "reaper", "rifle", "shotgun"))},
+    "og.weapon.muzzle_flash": {"on": ("bool",)},
 }
 WEAPON_GRAPH_ITEM_RE = re.compile(r"[a-z0-9_]+:[a-z0-9_]+")
 

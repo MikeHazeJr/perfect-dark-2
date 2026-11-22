@@ -1308,7 +1308,7 @@ TEST_CASE("base weapon archives use the catalog IDs requested at runtime",
 	        std::string::npos);
 	REQUIRE(authored.find("\"base:falcon2scope\"") == std::string::npos);
 
-	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules_heldlocks_heldrecoil\"") !=
+	REQUIRE(extractor.find("PDWEAPON_FAST_CACHE_KIND \"pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules_heldlocks_heldfeel\"") !=
 		std::string::npos);
 	REQUIRE(extractor.find("PDWEAPON_DEPENDENCY_CLOSURE_MARKER \"embedded.v24\"") !=
 		std::string::npos);

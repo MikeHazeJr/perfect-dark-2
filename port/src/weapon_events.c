@@ -501,6 +501,16 @@ const struct weapon_rule_trigger *weaponHandTrigger(struct hand *hand, const str
 	return &s_Native;
 }
 
+/* slice 7b: its ammo's casing (CASING_* plus one, 0 none). */
+static void weaponRuleCasingOf(s32 weaponnum, weapon_rule_function_t *out)
+{
+	struct weapon *def = (out->ammo_slot == 0 || out->ammo_slot == 1) ? weaponFindById(weaponnum) : NULL;
+
+	if (def && def->ammos[out->ammo_slot] && (s32)def->ammos[out->ammo_slot]->casingeject >= 0) {
+		out->casing = (s32)def->ammos[out->ammo_slot]->casingeject + 1;
+	}
+}
+
 /* A function's record as the cadence code reads it: its held graph record
  * (a function with a program always has one), else the function itself. */
 static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_function_t *out)
@@ -591,6 +601,9 @@ static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_functi
 				}
 			}
 		}
+	}
+	if ((out->functype & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+		weaponRuleCasingOf(weaponnum, out);
 	}
 }
 
@@ -781,6 +794,14 @@ s32 weaponCloakToggle(s32 weaponnum, f32 *drain, s32 *ammo_slot)
 		}
 	}
 	return 0;
+}
+
+s32 weaponFunctionCasing(s32 weaponnum, s32 func)
+{
+	weapon_rule_trigger_t plan;
+
+	weaponFunctionPlan(weaponnum, func, &plan);
+	return weaponRulesCasingEject(&plan);
 }
 
 s32 weaponProgramRecoilFrames(s32 weaponnum, s32 func, s32 native)

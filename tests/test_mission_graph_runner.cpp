@@ -4115,7 +4115,7 @@ TEST_CASE("the sight's lock is the original's, and a program's lock_on is its se
 		!= std::string::npos);
 	REQUIRE(extractor.find("if (weaponRulesLockSettingsText(lock, settings, (s32)sizeof(settings)) < 0) return -1;")
 		!= std::string::npos);
-	const std::string trackTypeArg = "s_weaponTrackType(wpn)) != 0) {";
+	const std::string trackTypeArg = "s_weaponTrackType(wpn), s_functionCasing(wpn, ";
 	REQUIRE(extractor.find(trackTypeArg) != std::string::npos);
 	CHECK(extractor.find(trackTypeArg, extractor.find(trackTypeArg) + 1) != std::string::npos);
 }
@@ -4557,12 +4557,151 @@ TEST_CASE("a shot's recoil is its function's own unless its program's recoil nod
 		!= std::string::npos);
 	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
 	REQUIRE(extractor.find("\"use_ammo\", \"shot\", \"recoil\",") != std::string::npos);
-	REQUIRE(extractor.find("(i == 10 && !plan->recoil)) continue;") != std::string::npos);
+	REQUIRE(extractor.find("(i >= 10 && !plan->recoil)) continue;") != std::string::npos);
 	REQUIRE(extractor.find("s_emitHeldRecoilNode(w, ids[i], plan, last);") != std::string::npos);
 	REQUIRE(extractor.find("s_emitHeldProgramEdge(w, plan->shot ? shot : plan->rounds > 0 ? use_ammo : attack, \"out\", "
 		"recoil, 0);") != std::string::npos);
 	const std::string events = readSource("port/src/weapon_events.c");
 	REQUIRE(events.find("return plan.recoil_kick + plan.recoil_return;") != std::string::npos);
+}
+
+// held-weapon-events.md slice 7b: a shot's casing and muzzle flash.
+TEST_CASE("a shot's casing and flash are its function's own unless its program names them",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	weapon_rule_function_t record = recoilRecord();
+	record.casing = CASING_RIFLE + 1;
+	weapon_rule_trigger_t native;
+	weaponRulesNativeTrigger(&record, &native);
+	CHECK(weaponRulesCasingEject(&native) == CASING_RIFLE);
+	CHECK(native.flash == 1);
+	CHECK(std::string(weaponRulesCasingName(native.casing)) == "rifle");
+	// A function flagged for no flash, one with no casing, and one that does
+	// not shoot.
+	weapon_rule_function_t dark = record;
+	dark.flags = WEAPON_RULE_FUNCFLAG_NOMUZZLEFLASH;
+	dark.casing = 0;
+	weapon_rule_trigger_t plan;
+	weaponRulesNativeTrigger(&dark, &plan);
+	CHECK(plan.flash == 0);
+	CHECK(weaponRulesCasingEject(&plan) == -1);
+	weapon_rule_function_t thrown = record;
+	thrown.functype = 0x0002;
+	weaponRulesNativeTrigger(&thrown, &plan);
+	CHECK(plan.casing == 0);
+	CHECK(plan.flash == 0);
+	// A zeroed plan ejects none.
+	weapon_rule_trigger_t zero{};
+	CHECK(weaponRulesCasingEject(&zero) == -1);
+	// They are part of the attack's plan.
+	plan = native;
+	plan.casing = CASING_SHOTGUN + 1;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+	plan = native;
+	plan.flash = 0;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts none;
+	REQUIRE(weaponRulesApplyCasingSettings(Texts::get, &none, &record, &plan) == 1);
+	CHECK(weaponRulesCasingEject(&plan) == CASING_RIFLE);
+	Texts shotgun;
+	shotgun.values = { { "type", "shotgun" }, { "on", "false" } };
+	REQUIRE(weaponRulesApplyCasingSettings(Texts::get, &shotgun, &record, &plan) == 1);
+	CHECK(weaponRulesCasingEject(&plan) == CASING_SHOTGUN);
+	REQUIRE(weaponRulesApplyFlashSettings(Texts::get, &shotgun, &record, &plan) == 1);
+	CHECK(plan.flash == 0);
+	Texts nocase;
+	nocase.values = { { "type", "none" } };
+	REQUIRE(weaponRulesApplyCasingSettings(Texts::get, &nocase, &record, &plan) == 1);
+	CHECK(weaponRulesCasingEject(&plan) == -1);
+	Texts wrong;
+	wrong.values = { { "type", "brass" }, { "on", "yes" } };
+	CHECK(weaponRulesApplyCasingSettings(Texts::get, &wrong, &record, &plan) == 0);
+	CHECK(weaponRulesApplyFlashSettings(Texts::get, &wrong, &record, &plan) == 0);
+	CHECK(weaponRulesCasingFromText("reaper") == CASING_REAPER + 1);
+
+	// The base wiring's chain (shot, recoil, casing, flash), as the
+	// extractor writes it, plans the original's.
+	int instance = 0;
+	std::string json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1,
+		"\"kind\": \"og.weapon.hitscan\"");
+	json.insert(json.find("], \"edges\""), ",{ \"id\": \"primary_recoil\", \"kind\": \"og.weapon.recoil\"" +
+		recoilNodeSettings(native) + " },{ \"id\": \"primary_casing\", \"kind\": \"og.weapon.casing\", \"type\": \"" +
+		weaponRulesCasingName(native.casing) + "\" },{ \"id\": \"primary_flash\", \"kind\": \"og.weapon.muzzle_flash\", "
+		"\"on\": true }");
+	json.insert(json.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_shot\", \"output\": \"out\", "
+		"\"to\": \"primary_recoil\", \"input\": \"exec\" },{ \"from\": \"primary_recoil\", \"output\": \"out\", "
+		"\"to\": \"primary_casing\", \"input\": \"exec\" },{ \"from\": \"primary_casing\", \"output\": \"out\", "
+		"\"to\": \"primary_flash\", \"input\": \"exec\" },");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err,
+		sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	weapon_rule_walk_t walk{};
+	weapon_rule_states_t states{};
+	walk.weaponnum = -1;
+	walk.hand = weapon_rule_hand_t{ 1, 8, 8, 1, 1 };
+	walk.states = &states;
+	walk.function = &record;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon", &instance,
+		&walk) == 1);
+	CHECK((walk.modules & WEAPON_MODULE_FEEL) == WEAPON_MODULE_FEEL);
+	CHECK(weaponRulesTriggerEqual(&walk.plan, &native) == 1);
+	missionGraphProgramFree(program);
+
+	// Registration names what a casing takes.
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	std::string casing = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1);
+	casing.insert(casing.find("], \"edges\""), ",{ \"id\": \"primary_casing\", \"kind\": \"og.weapon.casing\", "
+		"\"type\": \"brass\" }");
+	casing.insert(casing.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_use_ammo\", \"output\": "
+		"\"out\", \"to\": \"primary_casing\", \"input\": \"exec\" },");
+	weaponGraphRuntimeClearAll();
+	CHECK(weaponGraphRuntimeRegisterWeaponSourceJson(5, "base:test__weapon", casing.data(), (u32)casing.size(),
+		secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, err, sizeof(err)) != 0);
+	INFO(err);
+	CHECK(std::string(err).find("og.weapon.casing needs type none, standard, reaper, rifle or shotgun, got brass")
+		!= std::string::npos);
+	weaponGraphRuntimeClearAll();
+
+	// The seams: the flash and the casing read the attack's plan; the gun
+	// loads the casing its function's press plans; the extractor writes both.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("if (!plan->flash) {\n\t\thand->flashon = false;") != std::string::npos);
+	CHECK(bondgun.find("if (funcflags & FUNCFLAG_NOMUZZLEFLASH) {") == std::string::npos);
+	REQUIRE(bondgun.find("? weaponFunctionCasing(hand->gset.weaponnum, hand->gset.weaponfunc) : -1;") != std::string::npos);
+	REQUIRE(bondgun.find("out->casing = (s32) def->ammos[out->ammo_slot]->casingeject + 1;") != std::string::npos);
+	const std::string gunfx = readSource("src/game/gunfx.c");
+	REQUIRE(gunfx.find("casingtype = weaponRulesCasingEject(bgunHandPlan(handnum));") != std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("\"use_ammo\", \"shot\", \"recoil\", \"casing\", \"flash\",") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldCasingNode(w, ids[i], plan, last);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldFlashNode(w, ids[i], plan, last);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldProgramEdge(w, recoil, \"out\", casing, 0);\n"
+		"\t\t\ts_emitHeldProgramEdge(w, casing, \"out\", flash, 0);") != std::string::npos);
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("weaponRuleCasingOf(weaponnum, out);") != std::string::npos);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

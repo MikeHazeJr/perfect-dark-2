@@ -100,6 +100,11 @@ s32 weaponProgramTicksPerShot(s32 weaponnum, s32 func, s32 native);
  * function with no program or one whose press plans no recoil. */
 s32 weaponProgramRecoilFrames(s32 weaponnum, s32 func, s32 native);
 
+/* slice 7b: the casing a function's shots eject (CASING_*, -1 none): its
+ * program's og.weapon.casing, else its ammo's; the gun loads that casing's
+ * model when it is equipped. */
+s32 weaponFunctionCasing(s32 weaponnum, s32 func);
+
 /* A simulant's burst (bot.c): the rounds of the og.weapon.burst a press
  * starts, 0 for any other trigger; `native` for a function with no
  * program. */

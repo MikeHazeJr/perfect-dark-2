@@ -2075,6 +2075,16 @@ static void bgunRuleFunctionOf(struct hand *hand, struct weaponfunc *func, weapo
 			out->recoil_spin_from = autoshoot->vibrationstart[0];
 			out->recoil_spin_to = autoshoot->vibrationmax[0];
 		}
+
+		/* slice 7b: its ammo's casing, as the casing code read it. */
+		if (out->ammo_slot == 0 || out->ammo_slot == 1) {
+			struct weapon *def = wgV2RuntimeIsWeapon(hand->gset.weaponnum)
+				? (struct weapon *) wgV2RuntimeGsetWeapon(&hand->gset) : weaponFindById(hand->gset.weaponnum);
+
+			if (def && def->ammos[out->ammo_slot] && (s32) def->ammos[out->ammo_slot]->casingeject >= 0) {
+				out->casing = (s32) def->ammos[out->ammo_slot]->casingeject + 1;
+			}
+		}
 	}
 }
 
@@ -2456,7 +2466,9 @@ void bgun0f09a6f8(struct handweaponinfo *info, s32 handnum, struct hand *hand, s
 
 	hand->burstbullets += hand->shotstotake;
 
-	if (funcflags & FUNCFLAG_NOMUZZLEFLASH) {
+	/* held-weapon-events.md slice 7b: the attack's flash
+	 * (og.weapon.muzzle_flash, else the function's NOMUZZLEFLASH flag). */
+	if (!plan->flash) {
 		hand->flashon = false;
 	} else {
 		if (g_BgunGeMuzzleFlashes) {
@@ -5520,7 +5532,13 @@ void bgunTickMasterLoad(void)
 										shootfunc = func;
 									}
 
-									if (weapondef && shootfunc) {
+									if (!wgV2RuntimeIsWeapon(player->gunctrl.weaponnum)) {
+										/* held-weapon-events.md slice 7b: the casing the
+										 * function's program plans (og.weapon.casing),
+										 * else its ammo's. */
+										casingindex = shootfunc
+											? weaponFunctionCasing(hand->gset.weaponnum, hand->gset.weaponfunc) : -1;
+									} else if (weapondef && shootfunc) {
 										ammodef = func->ammoindex >= 0 ? weapondef->ammos[func->ammoindex] : NULL;
 
 										if (ammodef) {

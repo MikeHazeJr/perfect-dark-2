@@ -1111,6 +1111,9 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 				} else if (setting->type == WEAPON_RULE_SETTING_RELEASE) {
 					snprintf(check->why, sizeof(check->why), "%s needs %s on_press or on_full, got %s",
 						kind, setting->key, raw);
+				} else if (setting->type == WEAPON_RULE_SETTING_CASING) {
+					snprintf(check->why, sizeof(check->why), "%s needs %s none, standard, reaper, rifle or shotgun, got %s",
+						kind, setting->key, raw);
 				} else if (setting->type == WEAPON_RULE_SETTING_NONNEG) {
 					snprintf(check->why, sizeof(check->why), "%s needs %s from 0 up to %d, got %s",
 						kind, setting->key, setting->hi, raw);

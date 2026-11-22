@@ -58,8 +58,10 @@ extern "C" {
 #define WEAPON_MODULE_LOCK_ON     (1u << 16) /* og.weapon.lock_on ("locks", "aim_follows", the target filter) */
 /* Slice 7: how each shot of the attack feels. */
 #define WEAPON_MODULE_RECOIL      (1u << 17) /* og.weapon.recoil ("kick", "return", "recovery", the cut, travel, shake) */
-#define WEAPON_MODULE_COUNT 18
-#define WEAPON_MODULE_FEEL (WEAPON_MODULE_RECOIL)
+#define WEAPON_MODULE_CASING      (1u << 18) /* og.weapon.casing ("type") */
+#define WEAPON_MODULE_MUZZLE_FLASH (1u << 19) /* og.weapon.muzzle_flash ("on") */
+#define WEAPON_MODULE_COUNT 20
+#define WEAPON_MODULE_FEEL (WEAPON_MODULE_RECOIL | WEAPON_MODULE_CASING | WEAPON_MODULE_MUZZLE_FLASH)
 #define WEAPON_MODULE_ALL ((1u << WEAPON_MODULE_COUNT) - 1)
 #define WEAPON_MODULE_TRIGGERS (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC \
 	| WEAPON_MODULE_CHARGE | WEAPON_MODULE_COOK)
@@ -115,6 +117,7 @@ static inline const char *weaponRulesModuleKind(u32 bit)
 		"og.weapon.hitscan", "og.weapon.beam", "og.weapon.launch", "og.weapon.throw",
 		"og.weapon.melee", "og.weapon.special", "og.weapon.mode_toggle",
 		"og.weapon.charge", "og.weapon.cook", "og.weapon.lock_on", "og.weapon.recoil",
+		"og.weapon.casing", "og.weapon.muzzle_flash",
 	};
 	for (s32 i = 0; i < WEAPON_MODULE_COUNT; i++) {
 		if (bit == (1u << i)) return kinds[i];
@@ -397,6 +400,9 @@ typedef struct weapon_rule_trigger {
 	s32 recoil_has_spin_shake; /* the jitter's multiplier follows an automatic's spin */
 	f32 recoil_spin_from;  /* at no spin */
 	f32 recoil_spin_to;    /* at full spin */
+	/* slice 7b: og.weapon.casing and og.weapon.muzzle_flash. */
+	s32 casing;            /* 0 none, else the CASING_* each shot ejects plus one */
+	s32 flash;             /* each shot flashes */
 } weapon_rule_trigger_t;
 
 #define WEAPON_RULE_ITEM_OWN (-1)              /* the function's own projectile object */
@@ -448,12 +454,14 @@ typedef struct weapon_rule_function {
 	s32 recoil_has_spin_shake; /* vibrationstart and vibrationmax, element 0 */
 	f32 recoil_spin_from;
 	f32 recoil_spin_to;
+	s32 casing;            /* slice 7b: its ammo's casingeject plus one; 0 none */
 } weapon_rule_function_t;
 
 #define WEAPON_RULE_FUNCFLAG_BURST3  0x00000002u /* FUNCFLAG_BURST3 */
 #define WEAPON_RULE_FUNCFLAG_BURST50 0x00000020u /* FUNCFLAG_BURST50 */
 #define WEAPON_RULE_FUNCFLAG_BURST2  0x00001000u /* FUNCFLAG_BURST2 */
 #define WEAPON_RULE_FUNCFLAG_BURST5  0x00020000u /* FUNCFLAG_BURST5 */
+#define WEAPON_RULE_FUNCFLAG_NOMUZZLEFLASH 0x00002000u /* FUNCFLAG_NOMUZZLEFLASH (slice 7b) */
 
 static inline s32 weaponRulesFunctionShoots(const weapon_rule_function_t *f)
 {
@@ -730,6 +738,46 @@ static inline void weaponRulesNativeRecoil(const weapon_rule_function_t *f, weap
 	out->recoil_spin_to = f->recoil_spin_to;
 }
 
+/*
+ * held-weapon-events.md slice 7b: a shot's casing and muzzle flash. The
+ * casing is the function's ammo's (`casingeject`: none, standard, the
+ * Reaper's, rifle, shotgun), kept as its CASING_* value plus one so a zeroed
+ * plan ejects none; the flash is on unless the function is flagged
+ * FUNCFLAG_NOMUZZLEFLASH. A function that does not shoot has neither.
+ */
+#define WEAPON_RULE_CASING_NAMES 5
+static inline const char *weaponRulesCasingName(s32 casing)
+{
+	static const char *const names[WEAPON_RULE_CASING_NAMES] = { "none", "standard", "reaper", "rifle", "shotgun" };
+
+	return casing >= 0 && casing < WEAPON_RULE_CASING_NAMES ? names[casing] : NULL;
+}
+
+static inline s32 weaponRulesCasingFromText(const char *text)
+{
+	for (s32 i = 0; text && i < WEAPON_RULE_CASING_NAMES; i++) {
+		if (strcmp(text, weaponRulesCasingName(i)) == 0) return i;
+	}
+	return -1;
+}
+
+/* The CASING_* value a plan ejects (-1 none). */
+static inline s32 weaponRulesCasingEject(const weapon_rule_trigger_t *plan)
+{
+	return plan && plan->casing > 0 ? plan->casing - 1 : -1;
+}
+
+static inline void weaponRulesNativeCasing(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	out->casing = f && weaponRulesFunctionShoots(f) && f->casing > 0 && f->casing < WEAPON_RULE_CASING_NAMES
+		? f->casing : 0;
+}
+
+static inline void weaponRulesNativeFlash(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	out->flash = f && weaponRulesFunctionShoots(f) && !(f->flags & WEAPON_RULE_FUNCFLAG_NOMUZZLEFLASH) ? 1 : 0;
+}
+
 /* What the seam reads: unk26 and unk27 as the original keeps them (unk27
  * below 0 when no press refires early). */
 static inline s32 weaponRulesRecoilCutAfter(const weapon_rule_trigger_t *plan)
@@ -762,6 +810,8 @@ static inline void weaponRulesNativeTrigger(const weapon_rule_function_t *f, wea
 	out->aimed_burst = 1;
 	weaponRulesNativeShot(f, out);
 	weaponRulesNativeRecoil(f, out);
+	weaponRulesNativeCasing(f, out);
+	weaponRulesNativeFlash(f, out);
 	if (f && f->has_charge && f->weaponnum >= WEAPON_CUSTOM_START) {
 		/* slice 5: the committed charge spends its own rounds on release. */
 		weaponRulesCommittedCharge(f, out);
@@ -860,6 +910,7 @@ static inline f32 weaponRulesRateFromText(const char *text, f32 dflt)
 #define WEAPON_RULE_SETTING_CHARGE_START 10 /* "while_selected" or "on_press" */
 #define WEAPON_RULE_SETTING_RELEASE 11      /* "on_press" or "on_full" */
 #define WEAPON_RULE_SETTING_NONNEG 12       /* a number from 0 up to hi */
+#define WEAPON_RULE_SETTING_CASING 13       /* a casing by name (slice 7b) */
 #define WEAPON_RULE_START_PARAM "start"
 #define WEAPON_RULE_TIME_PARAM "time"
 #define WEAPON_RULE_STEPS_PARAM "steps"
@@ -901,6 +952,8 @@ static inline f32 weaponRulesRateFromText(const char *text, f32 dflt)
 #define WEAPON_RULE_MAX_RECOIL_FRAMES 127           /* the record's signed bytes */
 #define WEAPON_RULE_MAX_RECOIL_TRAVEL 1000.0f
 #define WEAPON_RULE_MAX_SHAKE 100.0f
+#define WEAPON_RULE_CASING_TYPE_PARAM "type"        /* og.weapon.casing (slice 7b) */
+#define WEAPON_RULE_FLASH_ON_PARAM "on"             /* og.weapon.muzzle_flash */
 typedef struct weapon_rule_setting {
 	u32 module;
 	const char *key;
@@ -908,7 +961,7 @@ typedef struct weapon_rule_setting {
 	s32 lo;
 	s32 hi;
 } weapon_rule_setting_t;
-#define WEAPON_RULE_SETTING_COUNT 46
+#define WEAPON_RULE_SETTING_COUNT 48
 
 static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 {
@@ -961,6 +1014,8 @@ static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SHAKE_Z_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
 		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SPIN_SHAKE_FROM_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
 		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SPIN_SHAKE_TO_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
+		{ WEAPON_MODULE_CASING, WEAPON_RULE_CASING_TYPE_PARAM, WEAPON_RULE_SETTING_CASING, 0, 0 },
+		{ WEAPON_MODULE_MUZZLE_FLASH, WEAPON_RULE_FLASH_ON_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
 	};
 	return index >= 0 && index < WEAPON_RULE_SETTING_COUNT ? &settings[index] : NULL;
 }
@@ -1149,6 +1204,8 @@ static inline s32 weaponRulesSettingValid(const weapon_rule_setting_t *setting, 
 		return strcmp(text, "on_press") == 0 || strcmp(text, "on_full") == 0;
 	case WEAPON_RULE_SETTING_NONNEG:
 		return weaponRulesNonNegFromText(text, (f32)setting->hi, -1.0f) >= 0.0f;
+	case WEAPON_RULE_SETTING_CASING:
+		return weaponRulesCasingFromText(text) >= 0;
 	}
 	return 0;
 }
@@ -1303,7 +1360,8 @@ static inline s32 weaponRulesTriggerEqual(const weapon_rule_trigger_t *a, const 
 		&& a->charge_steps == b->charge_steps && a->charge_ammo == b->charge_ammo
 		&& a->charge_min_clip == b->charge_min_clip && a->charge_fall == b->charge_fall
 		&& a->charge_release == b->charge_release && a->charge_damage == b->charge_damage
-		&& a->cook_fuse == b->cook_fuse && weaponRulesRecoilEqual(a, b);
+		&& a->cook_fuse == b->cook_fuse && weaponRulesRecoilEqual(a, b)
+		&& a->casing == b->casing && a->flash == b->flash;
 }
 
 /*
@@ -1391,7 +1449,34 @@ static inline s32 weaponRulesApplyRecoilSettings(weapon_rule_text_fn get, void *
 	return ok;
 }
 
-/* Whether og.weapon.recoil fits a function: one that shoots. */
+/* og.weapon.casing's "type" (none, standard, reaper, rifle, shotgun) and
+ * og.weapon.muzzle_flash's "on", over the function's own. Returns 1, or 0
+ * when the setting is malformed (it then keeps its default). */
+static inline s32 weaponRulesApplyCasingSettings(weapon_rule_text_fn get, void *user,
+	const weapon_rule_function_t *record, weapon_rule_trigger_t *plan)
+{
+	const char *text = get(WEAPON_RULE_CASING_TYPE_PARAM, user);
+	const s32 casing = text ? weaponRulesCasingFromText(text) : -2;
+
+	weaponRulesNativeCasing(record, plan);
+	if (casing == -1) return 0;
+	if (casing >= 0) plan->casing = casing;
+	return 1;
+}
+
+static inline s32 weaponRulesApplyFlashSettings(weapon_rule_text_fn get, void *user,
+	const weapon_rule_function_t *record, weapon_rule_trigger_t *plan)
+{
+	const char *text = get(WEAPON_RULE_FLASH_ON_PARAM, user);
+	const s32 on = text ? weaponRulesBoolFromText(text) : -2;
+
+	weaponRulesNativeFlash(record, plan);
+	if (on == -1) return 0;
+	if (on >= 0) plan->flash = on;
+	return 1;
+}
+
+/* Whether a feel module (slice 7) fits a function: one that shoots. */
 static inline s32 weaponRulesRecoilFits(s32 functype)
 {
 	return (functype & 0xff) == 1;
@@ -1946,6 +2031,23 @@ static inline s32 weaponRulesWalkModule(const char *kind, const char *node_id,
 		walk->modules |= bit;
 		return 1;
 	}
+	if (bit == WEAPON_MODULE_CASING || bit == WEAPON_MODULE_MUZZLE_FLASH) {
+		/* slice 7b: the first of each reached is the attack's. */
+		if (!(walk->modules & bit)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			read.next = 0;
+			if (bit == WEAPON_MODULE_CASING) {
+				weaponRulesApplyCasingSettings(weaponRulesWalkSettingText, &read, walk->function, &walk->plan);
+			} else {
+				weaponRulesApplyFlashSettings(weaponRulesWalkSettingText, &read, walk->function, &walk->plan);
+			}
+		}
+		walk->modules |= bit;
+		return 1;
+	}
 	if (bit == WEAPON_MODULE_RECOIL) {
 		/* slice 7a: the first recoil reached is the attack's. */
 		if (!(walk->modules & WEAPON_MODULE_RECOIL)) {
@@ -2040,6 +2142,12 @@ static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 ev
 		if (!(walk->modules & WEAPON_MODULE_RECOIL)) {
 			/* slice 7a: and so is a recoil. */
 			weaponRulesNativeRecoil(walk->function, &walk->plan);
+		}
+		if (!(walk->modules & WEAPON_MODULE_CASING)) {
+			weaponRulesNativeCasing(walk->function, &walk->plan); /* slice 7b */
+		}
+		if (!(walk->modules & WEAPON_MODULE_MUZZLE_FLASH)) {
+			weaponRulesNativeFlash(walk->function, &walk->plan);
 		}
 	}
 	return 1;

@@ -64,9 +64,9 @@
  * CMP150's held programs carry their lock (event.weapon.aiming,
  * og.weapon.lock_on), which an older one lacks: its lock would not show as
  * settings. */
-/* v24 (slice 7a): every shooting function's program carries its recoil
- * (og.weapon.recoil), which an older one lacks: its feel would not show as
- * settings. */
+/* v24 (slice 7): every shooting function's program carries its recoil,
+ * casing and muzzle flash (og.weapon.recoil, casing, muzzle_flash), which an
+ * older one lacks: its feel would not show as settings. */
 #define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v24"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
@@ -76,9 +76,9 @@
  * and use_ammo nodes (slice 3). _heldshots: and their shot nodes (slice 4). _heldreloads: and their reload
  * styles (slice 4b). _flightrules: projectile archives wire the flight rule
  * (projectile-events.md slice 7). _heldlocks: the held programs carry their
- * weapon's lock (slice 6b). _heldrecoil: and a shooting function's recoil
- * (slice 7a). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules_heldlocks_heldrecoil"
+ * weapon's lock (slice 6b). _heldfeel: and a shooting function's recoil,
+ * casing and muzzle flash (slice 7). */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules_heldlocks_heldfeel"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -2811,21 +2811,47 @@ static void s_emitHeldRecoilNode(jw_t *w, const char *id, const weapon_rule_trig
 	fputs(last ? " }\n" : " },\n", w->fp);
 }
 
-#define PDWEAPON_HELD_PROGRAM_NODES 11
+/* held-weapon-events.md slice 7b: og.weapon.casing and og.weapon.muzzle_flash
+ * with the function's own. */
+static void s_emitHeldCasingNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s\", \"kind\": \"%s\", \"" WEAPON_RULE_CASING_TYPE_PARAM "\": \"%s\" }%s\n", id,
+		weaponRulesModuleKind(WEAPON_MODULE_CASING), weaponRulesCasingName(plan->casing), last ? "" : ",");
+}
+
+static void s_emitHeldFlashNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s\", \"kind\": \"%s\", \"" WEAPON_RULE_FLASH_ON_PARAM "\": %s }%s\n", id,
+		weaponRulesModuleKind(WEAPON_MODULE_MUZZLE_FLASH), plan->flash ? "true" : "false", last ? "" : ",");
+}
+
+/* slice 7b: the casing a function's ammo ejects, plus one (0 none). */
+static s32 s_functionCasing(const struct weapon *wpn, const struct weaponfunc *f)
+{
+	if (!wpn || !f || (f->type & 0xff) != INVENTORYFUNCTYPE_SHOOT || f->ammoindex < 0 || f->ammoindex > 1
+			|| !wpn->ammos[f->ammoindex] || (s32)wpn->ammos[f->ammoindex]->casingeject < 0) {
+		return 0;
+	}
+	return (s32)wpn->ammos[f->ammoindex]->casingeject + 1;
+}
+
+#define PDWEAPON_HELD_PROGRAM_NODES 13
 static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
                                    const weapon_rule_trigger_t *plan, const weapon_rule_reload_t *reload)
 {
 	char ids[PDWEAPON_HELD_PROGRAM_NODES][48];
 	static const char *const suffix[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"pressed", "held", "has_ammo", "has_reserve", "attack", "dry_fire", "clip_empty", "reload",
-		"use_ammo", "shot", "recoil",
+		"use_ammo", "shot", "recoil", "casing", "flash",
 	};
 	static const char *const kind[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"event.weapon.trigger_pressed", "event.weapon.ready_while_held",
 		WEAPON_GATE_HAS_AMMO_KIND, WEAPON_GATE_HAS_RESERVE_KIND,
 		NULL, "og.weapon.dry_fire",
 		"event.weapon.clip_empty", "og.weapon.reload",
-		"og.weapon.use_ammo", NULL, NULL,
+		"og.weapon.use_ammo", NULL, NULL, NULL, NULL,
 	};
 	s32 emit[PDWEAPON_HELD_PROGRAM_NODES];
 	s32 count = 0;
@@ -2833,7 +2859,7 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 	/* use_ammo only where the attack spends, the shot only where the
 	 * function has one (a device has none). */
 	for (s32 i = 0; i < PDWEAPON_HELD_PROGRAM_NODES; i++) {
-		if ((i == 8 && plan->rounds <= 0) || (i == 9 && !plan->shot) || (i == 10 && !plan->recoil)) continue;
+		if ((i == 8 && plan->rounds <= 0) || (i == 9 && !plan->shot) || (i >= 10 && !plan->recoil)) continue;
 		emit[count++] = i;
 	}
 	for (s32 n = 0; n < count; n++) {
@@ -2849,6 +2875,10 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 			s_emitHeldShotNode(w, ids[i], plan, last);
 		} else if (i == 10) {
 			s_emitHeldRecoilNode(w, ids[i], plan, last);
+		} else if (i == 11) {
+			s_emitHeldCasingNode(w, ids[i], plan, last);
+		} else if (i == 12) {
+			s_emitHeldFlashNode(w, ids[i], plan, last);
 		} else {
 			s_emitHeldProgramNode(w, ids[i], kind[i], i == 2 ? rounds : i == 8 ? plan->rounds : 0, last);
 		}
@@ -2876,6 +2906,16 @@ static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name, const weapon_
 
 		snprintf(recoil, sizeof(recoil), "%s_recoil", mode_name);
 		s_emitHeldProgramEdge(w, plan->shot ? shot : plan->rounds > 0 ? use_ammo : attack, "out", recoil, 0);
+		/* slice 7b: then its casing and its flash. */
+		{
+			char casing[48];
+			char flash[48];
+
+			snprintf(casing, sizeof(casing), "%s_casing", mode_name);
+			snprintf(flash, sizeof(flash), "%s_flash", mode_name);
+			s_emitHeldProgramEdge(w, recoil, "out", casing, 0);
+			s_emitHeldProgramEdge(w, casing, "out", flash, 0);
+		}
 	}
 	s_emitHeldProgramEdge(w, pressed, "out", has_ammo, 0);
 	s_emitHeldProgramEdge(w, held, "out", has_ammo, 0);
@@ -2938,7 +2978,8 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
                                      const char *entity_ref,
                                      s32 weapon_id,
                                      s32 incremental,
-                                     s32 tracktype)
+                                     s32 tracktype,
+                                     s32 casing)
 {
 	FILE *fp = fsFileOpenWrite(graph_tmp_relpath);
 	if (!fp) return -1;
@@ -2962,6 +3003,9 @@ static s32 s_emitWeaponModeGraphFile(const char *graph_tmp_relpath,
 
 	s_heldNativeTrigger(func, weapon_id, mode, incremental, &plan, &reload);
 	weaponRulesNativeLock(weapon_id, mode, tracktype, &lock);
+	if (plan.recoil) {
+		plan.casing = casing; /* slice 7b: its ammo's (the record the native trigger read has no ammo) */
+	}
 
 	fputs("{\n", fp);
 	w.indent = 1;
@@ -3280,7 +3324,7 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 			(const struct weaponfunc *)wpn->functions[0], 0,
 			projectile_refs[0], entity_refs[0], weapon_id,
 			s_functionReloadsIncrementally(wpn, (const struct weaponfunc *)wpn->functions[0]),
-			s_weaponTrackType(wpn)) != 0) {
+			s_weaponTrackType(wpn), s_functionCasing(wpn, (const struct weaponfunc *)wpn->functions[0])) != 0) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
 		s_removeRelpathIfExists(primary_tmp_relpath);
 		sysMemFree(manifest_bytes);
@@ -3293,7 +3337,7 @@ static s32 s_emitOneWeapon(s32 weapon_id, const struct weapon *wpn,
 			(const struct weaponfunc *)wpn->functions[1], 1,
 			projectile_refs[1], entity_refs[1], weapon_id,
 			s_functionReloadsIncrementally(wpn, (const struct weaponfunc *)wpn->functions[1]),
-			s_weaponTrackType(wpn)) != 0) {
+			s_weaponTrackType(wpn), s_functionCasing(wpn, (const struct weaponfunc *)wpn->functions[1])) != 0) {
 		s_removeRelpathIfExists(graph_tmp_relpath);
 		s_removeRelpathIfExists(primary_tmp_relpath);
 		s_removeRelpathIfExists(secondary_tmp_relpath);

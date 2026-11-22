@@ -509,6 +509,31 @@ class Recoil(unittest.TestCase):
         self.assertTrue(any("fits only a shooting function" in m for m in messages), messages)
 
 
+class CasingAndFlash(unittest.TestCase):
+    """Held slice 7b: og.weapon.casing and og.weapon.muzzle_flash."""
+
+    def _with(self, nodes: list) -> dict:
+        graph = copy.deepcopy(V2_HELD)
+        prev = "primary_use_ammo"
+        for i, node in enumerate(nodes):
+            graph["nodes"].append(dict(node, id=f"primary_feel{i}"))
+            graph["edges"].append({"from": prev, "output": "out", "to": f"primary_feel{i}", "input": "exec"})
+            prev = f"primary_feel{i}"
+        return graph
+
+    def test_the_settings(self):
+        self.assertEqual(weapon_errors(self._with([{"kind": "og.weapon.casing", "type": "rifle"},
+                                                   {"kind": "og.weapon.muzzle_flash", "on": False}])), [])
+
+    def test_malformed(self):
+        messages = weapon_errors(self._with([{"kind": "og.weapon.casing", "type": "brass"}]))
+        self.assertEqual(len(messages), 1, messages)
+        self.assertIn("needs type none, standard, reaper, rifle, shotgun", messages[0])
+        messages = weapon_errors(self._with([{"kind": "og.weapon.muzzle_flash", "on": "yes"}]))
+        self.assertEqual(len(messages), 1, messages)
+        self.assertIn("needs on true or false", messages[0])
+
+
 class Archives(unittest.TestCase):
     def rebuilt(self, relative: str, graph_edit) -> bytes:
         """The example archive with its behavior.graph.json edited."""
