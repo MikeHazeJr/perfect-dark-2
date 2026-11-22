@@ -20,8 +20,11 @@ with text of their own. **Mode graphs slice 2** (PR 30, `e7fb73e6`: `mode.graph.
 dispatchers run the program's plan; `MODE.PLAN` and the `MODE.PARITY` probe). Open: PR 34 (slice 4: the
 code outside the table behind its events, designated `g_MpScenarios[]` rows, 64 modules, meta kind
 `_modegraph_outside`; and bot.c's single-shot burst reads `weaponProgramBurstRounds`, Core Weapons'
-ask), slice 5 committed locally `a918ea5e` (states side by side, `SVC_SCENARIO_STATE` one section per
-state in use, protocol v67), slices 6 (a mod's mode) and 7 (simulant commands) next (T-MODDING-026).
+ask), and built and tested locally: slice 5 `a918ea5e` (states side by side, `SVC_SCENARIO_STATE` one
+section per state in use, protocol v67) and slice 7 `da862eac` (the simulants' command choice and idle
+action as modules, `event.mode.bot_command` and `bot_idle`, 73 modules). Slice 6 (a mod's own mode)
+waits for **decision D-055** (Workbench): what the first worked example plays like, whether setup
+files remember a mod mode, how the Room offers one; my pick A (scores add up, Room only).
 The shared tree's runner and validator copies carry my hunks beside Core Weapons' (they commit by
 hunk). Mistakes to avoid next time: a full SHA typed by hand for `--match-head-commit` (use `git
 rev-parse`), and heredocs for anything with doubled backslashes (Write or Edit instead). Finalization smokes for Integration: the four
