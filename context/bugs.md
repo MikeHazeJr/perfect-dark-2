@@ -57,6 +57,22 @@ the flight's own support, so neither is affected (SP-101). Tests: `[jump]` stati
 smokes), G2 (the four ledge and tabletop smokes), G3 (co-op AI) and G4 (net simulants) on the fixed candidate.
 Severity high: every mode with simulants on any arena with stairs or ramps, since 11-21.
 
+## 2026-11-22 B-1306 The stuck watchdog moved simulants standing on station, such as a Capture the Case guard on its own case, with the 25% penalty each time (T-ENGINE-006, fixed on week-pd/mp-rules, found in Integration's finalization run R2)
+
+Integration's R2 (dev fbf2822d) passed, but `mp_capture_the_case_local_smoke` still logged 10 `STUCK:` lines. Nine
+were one simulant: simulant 2, team 2, command SAVECASE, relocated every 6 to 18 s from 42 s on. Cause (read from
+the code): with its case at home a SAVECASE simulant goes to the case's position, and within 20 units on each axis
+`botTickUnpaused` stands it there (`chrStand`) in `MA_AIBOTMAINLOOP`. The port's stuck watchdog (F.5, 2026-09-22)
+counts `MA_AIBOTMAINLOOP` as navigation intent, so after 3 s standing guard it moved the simulant away with the
+25% penalty, and the simulant walked back. A King of the Hill holder on its hill pad is moved the same way (R2's one
+KOH `STUCK:` line was a HOLDHILL simulant). Same class as B-1207 (a download at the terminal). Fix: the watchdog
+skips a simulant on station: in the main loop, not on a route (`actiontype != ACT_GOPOS`), and within 50 units xz
+and 200 in height of its `gotopos` (`botStuckIsOnStation`). A simulant wedged while routing (`ACT_GOPOS`), or standing
+anywhere but its last go-to, is still moved. Propagation: `MA_AIBOTDEFEND` (defend and hold), `MA_AIBOTFOLLOW` and
+`MA_AIBOTATTACK` were never in the intent list, and B-1207 took out `MA_AIBOTDOWNLOAD`. Tests:
+`[b1306]` in `tests/test_net_bot_pickup_static.cpp`. Not yet checked in play. Severity medium: guards teleported
+in front of players, and the penalty could kill them.
+
 ## 2026-11-22 B-1305 Once simulants worked, two smoke assumptions failed: objective smokes expected a time-limit end, and the Combat score-limit smokes waited on a chance kill (T-MODDING-026, T-NETWORKING-011, fixed on week-pd/mp-rules, found by Integration's finalization rerun R1)
 
 Integration's R1 on dev fbf2822d (base 15, B-1302 fixed: no STUCK line in any run) showed two more fixture
