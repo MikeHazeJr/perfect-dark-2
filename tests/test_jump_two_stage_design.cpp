@@ -502,3 +502,63 @@ TEST_CASE("the ledge and tabletop smokes drive the movement they test (B-1310)",
     requireContains(harness, "\"%s: sample n=%d frame=%d feet=%.2f");
     requireContains(harness, "lower_landed=%d peak_feet=%.2f\"");
 }
+
+TEST_CASE("the ledge and tabletop smokes judge what the actor did (B-1310, candidate 4)",
+          "[physics][jump][smokes][static][b1310]")
+{
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string bot = readTextFile("src/game/bot.c");
+    REQUIRE_FALSE(harness.empty());
+    REQUIRE_FALSE(bot.empty());
+
+    // R16: the Complex simulant landed on the ledge and stood 39.4 off the
+    // lane's line, inside its hold's post (MA_AIBOTDEFEND sends it back only
+    // past 40 units on an axis). A simulant's lane allows that post.
+    requireContains(bot, "if (xdist > 40 || zdist > 40 || (ydist > 200 && !chr->inlift)) {");
+    requireContains(harness, "#define SMOKE_LEDGE_BOT_POST_HALF_WIDTH 44.0f");
+    requireContains(harness, "const f32 lane = ledge->bot_slot >= 0 && fixture->lane_half_width < SMOKE_LEDGE_BOT_POST_HALF_WIDTH\n"
+        "        ? SMOKE_LEDGE_BOT_POST_HALF_WIDTH : fixture->lane_half_width;");
+    requireContains(harness, "const s32 in_lane = fabsf(pos->x - fixture->x) < lane;");
+    requireNotContains(harness, "const s32 in_lane = fabsf(pos->x - fixture->x) < fixture->lane_half_width;");
+
+    // The peak starts at takeoff: from 0 it hid every Villa arc.
+    const size_t takeoff = harness.find("        ledge->took_off = 1;\n");
+    REQUIRE(takeoff != std::string::npos);
+    const size_t peak = harness.find("        ledge->peak_feet = feet;\n", takeoff);
+    REQUIRE(peak != std::string::npos);
+    REQUIRE(peak < harness.find("\"%s: phase=takeoff chrnum=%d", takeoff));
+
+    // The player's move axis is released by the stop its coast predicts, for
+    // the jump and for the walk-off; the timed release ran on to three times
+    // the distance. Predicted and actual stops are logged.
+    requireContains(harness, "#define SMOKE_LEDGE_PLAYER_COAST_FRAMES 13.3f");
+    const size_t release = harness.find("static void smokeLedgeReleaseMoveAtGoal(SmokeLedge *ledge, f32 z, f32 speed_z)\n{");
+    REQUIRE(release != std::string::npos);
+    const size_t release_end = harness.find("\n}\n", release);
+    REQUIRE(release_end != std::string::npos);
+    const std::string body = harness.substr(release, release_end - release);
+    requireContains(body, "const f32 predicted_z = z + speed_z * SMOKE_LEDGE_PLAYER_COAST_FRAMES;");
+    requireContains(body, "predicted_z >= fixture->upper_goal_z");
+    requireContains(body, "predicted_z <= fixture->lower_goal_z");
+    requireContains(body, "stage = \"approach\";");
+    requireContains(body, "stage = \"walk_off\";");
+    requireContains(body, "actionmapInjectStateForSmoke(0, ACTION_AXIS_MOVE_Y, 0);");
+    requireContains(body, "\"%s: phase=release stage=%s z=%.1f speed_z=%.2f predicted_z=%.1f goal_z=%.1f\"");
+    requireContains(body, "\"%s: phase=coast stage=approach predicted_z=%.1f actual_z=%.1f error=%.1f\"");
+    requireContains(body, "\"%s: phase=coast stage=walk_off predicted_z=%.1f actual_z=%.1f error=%.1f\"");
+    requireContains(harness, "    if (ledge->bot_slot < 0) {\n        smokeLedgeReleaseMoveAtGoal(ledge, pos->z, speed_z);\n    }");
+    requireContains(harness, "        ledge->last_z = chr->prop->pos.z;");
+    for (const char *name : {"complex_ledge_player_smoke", "villa_tabletop_player_smoke"}) {
+        INFO(name);
+        const std::string fixture = readTextFile((std::string("tools/smoke-verify/tests/") + name + ".json").c_str());
+        REQUIRE_FALSE(fixture.empty());
+        requireContains(fixture, ": phase=release stage=approach \"");
+        requireContains(fixture, ": phase=release stage=walk_off \"");
+    }
+
+    // Before takeoff the actor is sampled too, with a simulant's route, so a
+    // missing takeoff shows where it went (R16's Villa simulant left nothing).
+    requireContains(harness, "#define SMOKE_LEDGE_APPROACH_EVERY   10");
+    requireContains(harness, "\"%s: approach n=%d frame=%d feet=%.2f ground=%.2f velocity=%.2f x=%.1f z=%.1f speed_z=%.2f room=%d action=%d myaction=%d routed=%d");
+    requireContains(harness, "const s32 routed = chr->actiontype == ACT_GOPOS;");
+}

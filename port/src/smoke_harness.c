@@ -349,6 +349,16 @@ typedef struct {
     s32 walk_off;
     s32 dropped;
     s32 lower_landed;
+    /* B-1310, candidate 4: the actor's z on the last observed frame (its
+     * speed along the approach), samples before takeoff, and the player's
+     * move-axis releases with the stop they predicted. */
+    f32 last_z;
+    s32 approach_frames;
+    s32 approach_samples;
+    s32 approach_released;
+    s32 walk_released;
+    f32 approach_predicted_z;
+    f32 walk_predicted_z;
 } SmokeLedge;
 
 typedef struct {
@@ -3329,6 +3339,25 @@ static const SmokeSupportFixture s_SmokeSupportFixtures[] = {
 /* B-1310: samples of the actor after takeoff, so a missed landing shows its
  * arc (feet, velocity, position) and not only the verdict. */
 #define SMOKE_LEDGE_TRACE_FRAMES 150
+/* B-1310, candidate 4: before takeoff, one sample every this many frames
+ * (up to the cap), so a missing takeoff shows where the actor went and, for a
+ * simulant, whether it had a route. */
+#define SMOKE_LEDGE_APPROACH_EVERY   10
+#define SMOKE_LEDGE_APPROACH_SAMPLES 60
+/* B-1310, candidate 4: a simulant under HOLD is at its post within 40 units of
+ * the hold on each axis (MA_AIBOTDEFEND in botTickUnpaused: xdist > 40 ||
+ * zdist > 40 sends it back), so its lane allows that, with a margin. R16's
+ * Complex simulant landed and stood 39.4 off the lane's line. */
+#define SMOKE_LEDGE_BOT_POST_HALF_WIDTH 44.0f
+/* B-1310, candidate 4: with the move axis released, the player's speed along
+ * the approach falls by about 0.93 per frame, in the air and on the ground
+ * (R16's traces; the speed comes from the head animation, so there is no one
+ * constant in the code), so it coasts about 13 frames of its current speed.
+ * The harness releases the axis when that coast would stop the player at the
+ * fixture's goal, for the jump and for the walk-off: a timed release ran on to
+ * three times the distance and overshot the ledge window and the whole table. */
+#define SMOKE_LEDGE_PLAYER_COAST_FRAMES 13.3f
+#define SMOKE_LEDGE_PLAYER_RELEASE_SPEED 0.5f
 
 /* B-1310: while the ledge harness holds a simulant, the simulant takes no
  * items: an unarmed simulant otherwise leaves its hold for the nearest weapon
@@ -3521,6 +3550,73 @@ static s32 smokeLedgeBindTable(SmokeLedge *ledge, struct prop *actor)
     return 1;
 }
 
+/* B-1310, candidate 4: a sample before takeoff. For a simulant it also says
+ * whether its hold gave it a route (ACT_GOPOS) and where that route ends:
+ * R16's Villa simulant never took off and left nothing to read. */
+static void smokeLedgeLogApproach(const SmokeLedge *ledge, const struct chrdata *chr, s32 frame,
+                                  f32 feet, f32 ground, f32 velocity, RoomNum floorroom, f32 speed_z)
+{
+    const struct coord *pos = &chr->prop->pos;
+
+    if (ledge->bot_slot < 0) {
+        sysLogPrintf(LOG_NOTE,
+            "%s: approach n=%d frame=%d feet=%.2f ground=%.2f velocity=%.2f x=%.1f z=%.1f speed_z=%.2f room=%d",
+            ledge->fixture->marker, ledge->approach_samples, frame, feet, ground, velocity,
+            pos->x, pos->z, speed_z, floorroom);
+        return;
+    }
+    const s32 routed = chr->actiontype == ACT_GOPOS;
+    sysLogPrintf(LOG_NOTE,
+        "%s: approach n=%d frame=%d feet=%.2f ground=%.2f velocity=%.2f x=%.1f z=%.1f speed_z=%.2f room=%d action=%d myaction=%d routed=%d forwards=%.2f end=(%.1f,%.1f)",
+        ledge->fixture->marker, ledge->approach_samples, frame, feet, ground, velocity,
+        pos->x, pos->z, speed_z, floorroom, (s32)chr->actiontype, (s32)chr->myaction, routed,
+        chr->aibot ? chr->aibot->speedmultforwards : 0.0f,
+        routed ? chr->act_gopos.endpos.x : 0.0f, routed ? chr->act_gopos.endpos.z : 0.0f);
+}
+
+/* B-1310, candidate 4: release the player's move axis once its coast would
+ * stop it at the fixture's goal: on the jump (moving +Z, to the upper goal)
+ * and on the walk-off (moving -Z, to the lower goal). The scripted release
+ * stays in each fixture as a backstop. When the player then comes to rest,
+ * the predicted and the actual stop are logged together. */
+static void smokeLedgeReleaseMoveAtGoal(SmokeLedge *ledge, f32 z, f32 speed_z)
+{
+    const SmokeSupportFixture *fixture = ledge->fixture;
+    const f32 predicted_z = z + speed_z * SMOKE_LEDGE_PLAYER_COAST_FRAMES;
+    const char *stage = NULL;
+    f32 goal_z = 0.0f;
+
+    if (ledge->approach_released == 1 && !ledge->walk_off && fabsf(speed_z) < 0.05f) {
+        ledge->approach_released = 2;
+        sysLogPrintf(LOG_NOTE, "%s: phase=coast stage=approach predicted_z=%.1f actual_z=%.1f error=%.1f",
+            fixture->marker, ledge->approach_predicted_z, z, z - ledge->approach_predicted_z);
+    }
+    if (ledge->walk_released == 1 && fabsf(speed_z) < 0.05f) {
+        ledge->walk_released = 2;
+        sysLogPrintf(LOG_NOTE, "%s: phase=coast stage=walk_off predicted_z=%.1f actual_z=%.1f error=%.1f",
+            fixture->marker, ledge->walk_predicted_z, z, z - ledge->walk_predicted_z);
+    }
+
+    if (ledge->took_off && !ledge->walk_off && !ledge->approach_released
+            && speed_z > SMOKE_LEDGE_PLAYER_RELEASE_SPEED && predicted_z >= fixture->upper_goal_z) {
+        ledge->approach_released = 1;
+        ledge->approach_predicted_z = predicted_z;
+        stage = "approach";
+        goal_z = fixture->upper_goal_z;
+    } else if (ledge->walk_off && !ledge->walk_released
+            && speed_z < -SMOKE_LEDGE_PLAYER_RELEASE_SPEED && predicted_z <= fixture->lower_goal_z) {
+        ledge->walk_released = 1;
+        ledge->walk_predicted_z = predicted_z;
+        stage = "walk_off";
+        goal_z = fixture->lower_goal_z;
+    }
+    if (!stage) return;
+    actionmapInjectStateForSmoke(0, ACTION_AXIS_MOVE_Y, 0);
+    sysLogPrintf(LOG_NOTE,
+        "%s: phase=release stage=%s z=%.1f speed_z=%.2f predicted_z=%.1f goal_z=%.1f",
+        fixture->marker, stage, z, speed_z, predicted_z, goal_z);
+}
+
 static s32 smokeLedgeObserve(void)
 {
     SmokeLedge *ledge = &s_State.ledge;
@@ -3534,6 +3630,7 @@ static s32 smokeLedgeObserve(void)
     const s32 frame = g_Vars.lvframe60;
     if (frame == ledge->last_frame) return 1;
     if (frame < ledge->last_frame) return smokeLedgeFail("simulation_reset");
+    const s32 elapsed_frames = frame - ledge->last_frame;
     ledge->last_frame = frame;
 
     struct chrdata *chr = smokeLedgeActor(ledge->bot_slot);
@@ -3552,16 +3649,33 @@ static s32 smokeLedgeObserve(void)
             || !__builtin_isfinite(pos->x) || !__builtin_isfinite(pos->z)) {
         return smokeLedgeFail("nonfinite_movement");
     }
-    const s32 in_lane = fabsf(pos->x - fixture->x) < fixture->lane_half_width;
+    /* B-1310, candidate 4: the speed along the approach, per frame. */
+    const f32 speed_z = (pos->z - ledge->last_z) / (f32)elapsed_frames;
+    ledge->last_z = pos->z;
+    /* B-1310, candidate 4: a held simulant may stand anywhere at its post. */
+    const f32 lane = ledge->bot_slot >= 0 && fixture->lane_half_width < SMOKE_LEDGE_BOT_POST_HALF_WIDTH
+        ? SMOKE_LEDGE_BOT_POST_HALF_WIDTH : fixture->lane_half_width;
+    const s32 in_lane = fabsf(pos->x - fixture->x) < lane;
     const s32 settled = in_lane && floorroom == fixture->room
         && fabsf(feet - ground) <= 2.0f && fabsf(velocity) <= 0.25f;
     const s32 on_ledge = settled && fabsf(feet - fixture->upper_y) <= 2.0f
         && pos->z >= fixture->upper_min_z && pos->z <= fixture->upper_max_z
         && (!ledge->table || smokeLedgeTableContact(ledge, pos, feet, chr->prop));
 
+    if (!ledge->took_off) {
+        ledge->approach_frames++;
+        if (ledge->approach_samples < SMOKE_LEDGE_APPROACH_SAMPLES
+                && ledge->approach_frames % SMOKE_LEDGE_APPROACH_EVERY == 1) {
+            ledge->approach_samples++;
+            smokeLedgeLogApproach(ledge, chr, frame, feet, ground, velocity, floorroom, speed_z);
+        }
+    }
     if (!ledge->took_off && in_lane && pos->z < fixture->edge_z
             && feet > fixture->lower_y + 4.0f && velocity > 0.25f) {
         ledge->took_off = 1;
+        /* B-1310, candidate 4: the peak starts here; from 0 it hid every
+         * Villa arc, whose heights are all negative. */
+        ledge->peak_feet = feet;
         sysLogPrintf(LOG_NOTE,
             "%s: phase=takeoff chrnum=%d frame=%d feet=%.2f velocity=%.2f z=%.2f",
             fixture->marker, chr->chrnum, frame, feet, velocity, pos->z);
@@ -3578,6 +3692,9 @@ static s32 smokeLedgeObserve(void)
                 fixture->marker, ledge->trace_frames, frame, feet, ground, velocity, pos->x, pos->z,
                 floorroom, settled, on_ledge, ledge->descended);
         }
+    }
+    if (ledge->bot_slot < 0) {
+        smokeLedgeReleaseMoveAtGoal(ledge, pos->z, speed_z);
     }
     if (!ledge->walk_off) {
         if (!on_ledge && ledge->landed) return smokeLedgeFail("lost_ledge_before_walk_off");
@@ -3665,6 +3782,7 @@ static s32 smokeLedgeApply(SmokeSupportFixtureId fixture_id, SmokeLedgeCommand c
         ledge->bot_slot = bot_slot;
         ledge->epoch = s_State.ready_stage_generation;
         ledge->last_frame = g_Vars.lvframe60;
+        ledge->last_z = chr->prop->pos.z;
         sysLogPrintf(LOG_NOTE,
             "%s: phase=place actor=%s chrnum=%d room=%d feet=%.2f x=%.2f z=%.2f",
             fixture->marker, bot_slot < 0 ? "player" : "simulant", chr->chrnum,

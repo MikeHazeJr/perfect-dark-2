@@ -29,7 +29,8 @@
     "required_lines": [
       "SMOKE: scenario=complex_ledge_player_smoke",
       "BOOT: --launch-mp-room direct match start",
-      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready"
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
+      "SMOKE\\.LEDGE: phase=release stage=walk_off "
     ],
     "required_sequences": [
       {
@@ -38,6 +39,7 @@
           "SMOKE\\.LEDGE: phase=place actor=player .* room=24 feet=51[01234]\\.",
           "JUMP: APPLIED impulse=",
           "SMOKE\\.LEDGE: phase=takeoff",
+          "SMOKE\\.LEDGE: phase=release stage=approach ",
           "SMOKE\\.LEDGE: phase=land .* room=24 feet=(?:549|55[0-3])\\.",
           "SMOKE\\.LEDGE: phase=stay .* room=24 feet=(?:549|55[0-3])\\.",
           "SMOKE\\.LEDGE: phase=turn actor=player theta=180\\.0",
