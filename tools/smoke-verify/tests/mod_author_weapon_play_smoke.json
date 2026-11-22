@@ -65,6 +65,7 @@
       "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready .*stable_ms=3000",
       "SETUP: MP weapon models preloaded from match config \\(spawnWeapon=\\d+ random=0\\)",
       "SPAWN: player 0 spawned with weapon \\d+ \\(Smoke Falcon\\) -- auto-equipped to right hand",
+      "BONDGUN\\.ANIM: weapon=\\d+ id=[^ ]+ animation=[^ ]+ not played: its gun runs no gun animations \\(B-1317\\)",
       "COMBAT: SHOT_FIRED ",
       "SMOKE: result=scripted_exit"
     ],

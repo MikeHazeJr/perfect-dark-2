@@ -931,8 +931,15 @@ animation would move the whole gun by that animation's first channel. An
 animation the function does not have therefore plays only on a held model
 with a skeleton; otherwise the attack goes on as one with no animation and
 `BONDGUN.ANIM: weapon=... plays no fire animation: its held model has no
-skeleton` is logged (first 8). A mod gun animates once its mesh names a
-skeleton its animation was made for. The dry fire's weapon-number list
+skeleton` is logged (first 8). The gun must also run gun animations
+(B-1317): only a weapon flagged `WEAPONFLAG_00002000` runs the animation
+tick that applies a started animation, and a public mod weapon or a v2
+graph weapon never is, so `bgunHandAnimation` gives such a gun no
+animation (logged once per weapon and animation, `... not played: its gun
+runs no gun animations (B-1317)`). The reload and the gun change ask it
+too, and `bgunStartAnimation` refuses any other start, leaving the hand
+with nothing loaded and idle. Whether a mod gun whose mesh names a skeleton
+should carry the flag and animate is open (Mike, Modding). The dry fire's weapon-number list
 keeps the function's own animation. Base programs write the node last in
 every attack's chain (after the sound for a shot, after the throw or the
 strike otherwise) with the record's catalog id (still `embedded.v24`, cache
@@ -1137,6 +1144,7 @@ Listed as each slice lands; none is run by Core Weapons.
 | 7a | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their first `WEAPON.RULE` lines end with ` recoil=...`; `rules.differ=0`; the guns kick, slide and jitter as before (the Falcon 2's slide, the Reaper's shake rising with its spin) |
 | 7b | `held_weapon_cadence_smoke` (or any smoke that fires a Falcon 2, a CMP150 and a Shotgun) | casings fly as before (standard, rifle, shotgun) and the flash shows; no `WEAPON.RULE differs` line |
 | 7b (sound) | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | the guns sound as before (the Falcon 2, the CMP150's stream, the Shotgun); their first `WEAPON.RULE` lines end with ` sound=N slot=N`, N above 0; no `WEAPON.RULE differs` line; simulants' shots sound as before (any simulant smoke) |
+| 7c (B-1317) | `mod_author_weapon_play_smoke` | the mod Falcon 2 fires (`COMBAT: SHOT_FIRED`) and logs `BONDGUN.ANIM: weapon=N id=... animation=... not played: its gun runs no gun animations (B-1317)`; no stuck hand |
 | 7c | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke`, any smoke that punches or throws a grenade | fire animations play as before (the Falcon 2's, the Shotgun's pump, the punch, a grenade's throw), and the attacks keep their timing; first `WEAPON.RULE` lines end with ` animation=invanim_...`; no `WEAPON.RULE differs` line |
 | 8a | a creator smoke (none written yet: Modding Hub, Weapons, open the base Falcon 2 as a template, right-click Fire once, Replace With, Automatic, Set rate to 600 and spin-up to 0, save the mod; then a match with the saved weapon, holding the trigger). How it runs is Mike's call, **D-059**: (A, Core Weapons' pick) a `graph_edits` step in the `--mod-author` recipe (`port/src/mod_author_recipe.cpp`, Authored Mods' format) that applies the creator's own Replace With and node settings to the install's real template and saves it the way the creator does, with Replace With's rules moved into `port/src/weapon_graph_editor_io.cpp` so the creator and the recipe share them; (B) a hand-written program in a fixture, which drops the extracted record (sounds, fire animation, recoil settings, timings), so it plays a stripped gun and goes stale at the next `embedded.vNN`; or (C) a person makes and plays both examples. | the palette lists the designer groups; the saved weapon's first `WEAPON.RULE: trigger_pressed ... modules=automatic` and a held trigger keeps firing; no `program refused` line |
 | 8b | a creator smoke (none written yet: Modding Hub, Weapons, the base rocket launcher as a template; Secondary Graph, the lock: kinds vehicle, relation enemy, vehicles any; Projectile Programs, homing rocket, Home toward target: the same filter; save; then the 6c vehicle lock smoke with the saved launcher). Under D-059 A, the same recipe step, on the weapon's lock and on its projectile's member (`<projectile>::behavior.graph.json`). | the saved mod's copy of the homing rocket carries the filter; the lock takes the empty bike (`SIGHT.LOCK: ... kind=vehicle`) and never a player; no `program refused` line |

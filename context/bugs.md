@@ -1,5 +1,32 @@
 # Bug Tracker
 
+## 2026-11-22 B-1317 A gun animation started on a gun that runs no gun animations was never applied, so the hand waited forever (T-MODDING-025, slice 7c; fixed on `week-pd/core-weapons-b1317`)
+
+Found by claude-pd-integration-20261121 in candidate 4's R19: `mod_author_weapon_play_smoke` (a mod copy of the base
+Falcon 2, weapon 86) failed 21/22 with no `COMBAT: SHOT_FIRED`, where candidate 1 passed 22/22. After
+`BGUN.ANIM.SOURCE` started `base:invanim_falcon2_shoot` the first attack never ended, and the second press logged no
+trigger at all. Slice 7c's `og.weapon.play_animation` names that animation, and the mod gun's held model has a
+skeleton, so the shot started it.
+`bgunStartAnimation` only records the animation (`hand->animload`); the gun tick's `bgun0f0981e8` applies it,
+and that runs only for a weapon flagged `WEAPONFLAG_00002000`. A public (mod) weapon never carries the flag
+(`loader_pool.c`), so `animload` stayed set and `bgun0f098a44` (with nothing playing, "done" means nothing
+loaded) said not done forever: SHOOT_0 never reached the shot. Propagation: the only graph node that names an
+animation is `og.weapon.play_animation`, and the shot, throw and strike all take it through `bgunPlanFireAnimation`.
+But v2 graph weapons (`weapon_graph_v2_equipped.cpp`) build equip, unequip, reload and fire animations into a
+weapon whose flags cannot include 0x2000. Equip and unequip wait on `animmode` and go through, but they leave
+`animload` set for the next reload or shot to hang on. Every held base weapon with an animation carries the flag;
+the only base items that have animations without it are the crossbow bolt and the Devastator round, which are
+projectiles nobody holds. Fix: `bgunHandRunsGunAnimations(handnum)` asks the tick's own question
+(`weaponHasFlag(bgunGetWeaponNum2(handnum), WEAPONFLAG_00002000)`), and the tick now asks it too.
+`bgunHandAnimation` returns NULL for such a gun (logged once per weapon and animation:
+`BONDGUN.ANIM: weapon=N id=... animation=... not played: its gun runs no gun animations (B-1317)`), and every
+state that chooses an animation asks it first. So the attack, the reload (lower, the reload sound, raise), the
+unequip, the lower, the equip, the raise and the equip's wait each go the way they go for a weapon without that
+animation. `bgunStartAnimation` refuses any other start on such a gun and leaves the hand as `bgunResetAnim` does,
+with nothing loaded and idle, which every wait reads as done. Base weapons are unchanged. Pinned in `[b1317]`
+(pd-tests does not build `bondgun.c`); the play smoke now requires the refusal line. Whether mod guns should run gun
+animations at all (carry the flag when their model has a skeleton) is open for Mike and Modding.
+
 ## 2026-11-22 B-1316 `release.ps1` step 4 stopped under Windows PowerShell 5.1 on git's normal stderr (T-RELEASE-006, fixed through the build queue)
 
 Found by claude-pd-integration-20261121 in step 9's real release run (Windows PowerShell 5.1, as the release dry run
