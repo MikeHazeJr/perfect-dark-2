@@ -48,10 +48,10 @@ the house rule, so check `gh pr view 39`). Slice 6 (a mod's own mode) waits for 
 Room offers one; my pick A (scores add up, Room only); the design doc's slice 6 section has the census of
 the about 100 mode-number checks it starts from. dev moved under PR 37 (PR 36) and PR 39 (PRs 35, 38):
 each time the branch took dev with no file in common, and PR 38's build change was proven on the merge
-(`-Target full`, full pd-tests). Next, besides D-055: when Core Weapons' PR 31 is on dev, bot.c's
-simulant Mauler charge on `weaponWeaponCharge` and netmsg.c's drop-handler cloak on `weaponCloakToggle`
-(Workbench N-1191, hub 00:54 and 00:59 UTC; Core Weapons may take them into PR 31 instead, my OK is in
-the hub); D-054 (a custom level's own text) is also Mike's.
+(`-Target full`, full pd-tests). PR 39 also carries, since Core Weapons' PR 31 landed (dev `10a5740b`),
+bot.c's simulant Mauler charge on `weaponWeaponCharge` and netmsg.c's drop-handler cloak on
+`weaponCloakToggle` (Workbench N-1191; the base Mauler's numbers are the original's, so nothing changes
+in the base game). Next, besides D-055: D-054 (a custom level's own text) is also Mike's.
 The shared tree's runner and validator copies carry my hunks beside Core Weapons' (they commit by
 hunk). Mistakes to avoid next time: a full SHA typed by hand for `--match-head-commit` (use `git
 rev-parse`), and heredocs for anything with doubled backslashes (Write or Edit instead). Finalization smokes for Integration
