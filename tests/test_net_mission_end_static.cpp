@@ -994,3 +994,59 @@ TEST_CASE("B-1278 the offline Room opens from CI through the Main Menu's Combat 
 	REQUIRE(fixture.find("\"--launch-load-agent\"") != npos);
 	REQUIRE(fixture.find("\"condition\": \"agent_select_ready\"") == npos);
 }
+
+TEST_CASE("B-1312 the solo Room's Start Match releases its menu slot before it closes",
+          "[net][coop][ai-buddies][room][static][b1312]") {
+	// Opened without the Main Menu's push (--launch-offline-room, or a Room
+	// the Main Menu no longer covers), the Room owns the menu input layer;
+	// pdguiSoloRoomClose only clears its flags, so the co-op mission ran
+	// under that layer and the gameplay layer was never on top (B-1042's
+	// class, there fixed for the listen host's lobby). Both solo starts now
+	// release MENU_TYPE_ROOM first, as Leave does.
+	const size_t npos = std::string::npos;
+	const std::string room = code_only(read_text_file("port/fast3d/pdgui_menu_room.cpp"));
+	const size_t combat = room.find("combatSimVerifyOnMatchStart(\"room\");");
+	REQUIRE(combat != npos);
+	const size_t combatRelease = room.find("menupoolRelease(MENU_TYPE_ROOM);", combat);
+	const size_t combatClose = room.find("pdguiSoloRoomClose();", combat);
+	REQUIRE(combatRelease != npos);
+	REQUIRE(combatClose != npos);
+	REQUIRE(combatRelease < combatClose);
+
+	const size_t coop = room.find("if (pdguiRoomStartOfflineCoop(coop_id, (u8)s_CampaignDiff) != 0) {");
+	REQUIRE(coop != npos);
+	const size_t coopRelease = room.find("menupoolRelease(MENU_TYPE_ROOM);", coop);
+	const size_t coopClose = room.find("pdguiSoloRoomClose();", coop);
+	REQUIRE(coopRelease != npos);
+	REQUIRE(coopClose != npos);
+	REQUIRE(coopRelease < coopClose);
+
+	// The offline co-op start was the one gameplay start that never released
+	// the menu pool (the Combat start's mpStartMatch does, B-1076, and so do
+	// the end screen's Retry and Next Mission after the same mission start).
+	// The Room's slot is PC-only, so the per-frame watchdog never reclaims it.
+	// The stage archive check comes first, as in Solo Missions, so the pool
+	// is never released without a stage request.
+	const std::string bridge = code_only(read_text_file("port/fast3d/pdgui_bridge.c"));
+	REQUIRE(bridge.find("#include \"stage_archive_repair.h\"") != npos);
+	const std::string offline = function_body(bridge,
+		"s32 pdguiRoomStartOfflineCoop(const char *stage_id, u8 difficulty)\n{");
+	const size_t repair = offline.find("if (stageArchiveRepairStatus(stage.stagenum) != 0) {");
+	const size_t written = offline.find("g_MissionConfig.stageindex = (u8)stageindex;");
+	const size_t accept = offline.find("menuhandlerAcceptMission(MENUOP_SET, NULL, NULL);");
+	const size_t release = offline.find(
+		"sceneStageTransitionPrepare(SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL,");
+	REQUIRE(repair != npos);
+	REQUIRE(written != npos);
+	REQUIRE(accept != npos);
+	REQUIRE(release != npos);
+	REQUIRE(repair < written);
+	REQUIRE(accept < release);
+	REQUIRE(offline.find("return 0;", release) != npos);
+
+	// Why only the Room's slot needed this: the watchdog skips PC-only slots
+	const std::string pool = code_only(read_text_file("port/src/menupool.c"));
+	const std::string optional = function_body(pool,
+		"static s32 menupoolLegacyStackOptional(menu_type_t type)\n{");
+	REQUIRE(optional.find("case MENU_TYPE_ROOM:") != npos);
+}

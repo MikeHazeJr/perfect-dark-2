@@ -3920,6 +3920,13 @@ static s32 roomGraphStartMatch(void *userdata)
                     return -1;
                 }
                 combatSimVerifyOnMatchStart("room");
+                /* B-1312: release the Room's slot before closing, as Leave
+                 * does, so the Room never closes holding it. When the Room
+                 * owns the menu input layer (opened without the Main Menu's
+                 * push), its slot is PC-only and the per-frame watchdog
+                 * never reclaims it. mpStartMatch has already released the
+                 * whole pool here (B-1076); the co-op start below does too. */
+                menupoolRelease(MENU_TYPE_ROOM);
                 pdguiSoloRoomClose();
                 return 0;
             } else {
@@ -3969,6 +3976,10 @@ static s32 roomGraphStartMatch(void *userdata)
                 if (pdguiRoomStartOfflineCoop(coop_id, (u8)s_CampaignDiff) != 0) {
                     return -1;
                 }
+                /* B-1312: as the Combat start above. The start released the
+                 * whole pool after its mission start; a stage not yet
+                 * repaired returned above with the Room still open. */
+                menupoolRelease(MENU_TYPE_ROOM);
                 pdguiSoloRoomClose();
                 return 0;
             }
