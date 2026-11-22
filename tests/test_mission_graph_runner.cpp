@@ -2946,11 +2946,11 @@ TEST_CASE("the charge and cook triggers are the Mauler's, the crystal pistol's a
 	const auto chargeTick = [](f32 &level, s32 &clip, const weapon_rule_trigger_t &plan, f32 lv) {
 		const s32 oldvalue = level;
 		const f32 steps = (f32)plan.charge_steps;
-		if (clip >= plan.charge_min_clip && level < steps) level += lv * (steps / (f32)plan.charge_time);
+		if (clip >= weaponRulesChargeStepNeeds(&plan) && level < steps) level += lv * (steps / (f32)plan.charge_time);
 		if (level > steps) level = steps;
 		const s32 newvalue = level;
 		for (s32 step = oldvalue; step < newvalue; step++) {
-			if (clip < plan.charge_min_clip) {
+			if (clip < weaponRulesChargeStepNeeds(&plan)) {
 				level = (f32)step;
 				break;
 			}
@@ -3003,6 +3003,23 @@ TEST_CASE("the charge and cook triggers are the Mauler's, the crystal pistol's a
 		chargeTick(level, clip, fast, 1.0f);
 		CHECK(level == 5.0f);
 		CHECK(clip == 5);
+		// Review: a step needs its whole cost in the clip, not only min_clip.
+		CHECK(weaponRulesChargeStepNeeds(&p) == 2); // the Mauler's: its min_clip
+		fast.charge_min_clip = 1;
+		fast.charge_ammo = 2;
+		CHECK(weaponRulesChargeStepNeeds(&fast) == 2);
+		level = 0;
+		clip = 5;
+		chargeTick(level, clip, fast, 1.0f);
+		CHECK(level == 2.0f); // two steps paid (4 rounds); the third would cost 2 of the 1 left
+		CHECK(clip == 1);
+		fast.charge_min_clip = 2;
+		fast.charge_ammo = 3;
+		level = 0;
+		clip = 2;
+		chargeTick(level, clip, fast, 1.0f);
+		CHECK(level == 0.0f); // two rounds never buy a three-round step
+		CHECK(clip == 2);
 	}
 	// The charged shot's damage is the original's expression for the Mauler.
 	for (s32 tenth = 0; tenth <= 50; tenth++) {
@@ -3263,7 +3280,15 @@ TEST_CASE("a charge runs as its node says, or its weapon is refused",
 		const size_t end = bondgun.find("\n}\n", tick);
 		CHECK(bondgun.substr(tick, end - tick).find("matmot1") == std::string::npos);
 	}
-	REQUIRE(bondgun.find("weapon->timer240 = bgunHandPlan(handnum)->cook_fuse;") != std::string::npos);
+	REQUIRE(bondgun.find("s32 fuse240 = bgunHandPlan(handnum)->cook_fuse;") != std::string::npos);
+	REQUIRE(bondgun.find("weapon->timer240 = fuse240 < 0 ? 0 : bgunGraphClampTicks240(fuse240);") != std::string::npos);
+	REQUIRE(bondgun.find("weaponobj->timer240 = bgunGraphClampTicks240(TICKS(activatetime60 * 4));")
+		!= std::string::npos);
+	// A fired object's authored timer too (the NTSC beta branch is not built).
+	REQUIRE(bondgun.find("weapon->timer240 = bgunGraphClampTicks240(TICKS(timer60 * 4));") != std::string::npos);
+	CHECK(bondgun.find("TICKS(weaponobj->timer240 * 4)") == std::string::npos);
+	REQUIRE(bondgun.find("if (hand->loadedammo[slot] < weaponRulesChargeStepNeeds(&charge)) {") != std::string::npos);
+	CHECK(bondgun.find("charge.charge_min_clip") == std::string::npos);
 	REQUIRE(bondgun.find("TICKS((plan->module == WEAPON_MODULE_COOK ? plan->cook_fuse : activationtime60)")
 		!= std::string::npos);
 	const std::string mod = readSource("src/game/bondgun_mod.c");

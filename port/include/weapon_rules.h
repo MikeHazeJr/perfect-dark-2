@@ -603,6 +603,14 @@ static inline void weaponRulesMaulerCharge(weapon_rule_trigger_t *out)
 	out->charge_damage = WEAPON_RULE_MAULER_CHARGE_DAMAGE;
 }
 
+/* The rounds a charge's step needs in the clip: its min_clip, and at
+ * least the rounds the step takes (PR 31 review: a step is never granted for
+ * less than it costs). The Mauler's is its min_clip, 2. */
+static inline s32 weaponRulesChargeStepNeeds(const weapon_rule_trigger_t *plan)
+{
+	return plan->charge_ammo > plan->charge_min_clip ? plan->charge_ammo : plan->charge_min_clip;
+}
+
 /* A mod function's committed charge launch (the crystal pistol): a press
  * starts it, the hand waits its charge time, and it goes by itself. */
 static inline void weaponRulesCommittedCharge(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)

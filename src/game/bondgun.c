@@ -5825,8 +5825,11 @@ struct defaultobj *bgunCreateThrownProjectile2(struct chrdata *chr, struct gset 
 				// Note this timer is converted to 240 time immediately below
 				weaponobj->timer240 = activatetime60;
 
-				if (weaponobj->timer240 >= 2) {
-					weaponobj->timer240 = TICKS(weaponobj->timer240 * 4);
+				/* PR 31 review: an authored activation time over ~136 s
+				 * saturates, as the graph's other timers do, instead of
+				 * wrapping the s16 timer. */
+				if (activatetime60 >= 2) {
+					weaponobj->timer240 = bgunGraphClampTicks240(TICKS(activatetime60 * 4));
 				}
 
 				if (weaponobj->weaponnum == WEAPON_GRENADE || weaponobj->weaponnum == WEAPON_NBOMB) {
@@ -6069,17 +6072,17 @@ struct defaultobj *bgunCreateThrownProjectile(s32 handnum, struct gset *gset)
 			 * (PR 31 review: not the record's activation time the object was
 			 * made with), shortened by its prime. */
 			if (bgunHandPlan(handnum)->module == WEAPON_MODULE_COOK) {
-				weapon->timer240 = bgunHandPlan(handnum)->cook_fuse;
+				/* Review: worked out wide and clamped to the s16 timer
+				 * (bgunGraphClampTicks240), so a fuse over 8191 ticks does
+				 * not wrap. */
+				s32 fuse240 = bgunHandPlan(handnum)->cook_fuse;
 
-				if (weapon->timer240 >= 2) {
-					weapon->timer240 = TICKS(weapon->timer240 * 4);
+				if (fuse240 >= 2) {
+					fuse240 = TICKS(fuse240 * 4);
 				}
 
-				if (weapon->timer240 < hand->primetimer60 * 4) {
-					weapon->timer240 = 0;
-				} else {
-					weapon->timer240 -= hand->primetimer60 * 4;
-				}
+				fuse240 -= hand->primetimer60 * 4;
+				weapon->timer240 = fuse240 < 0 ? 0 : bgunGraphClampTicks240(fuse240);
 
 				weapon->gunfunc = gset->weaponfunc;
 			} else if (gset->weaponnum == WEAPON_ECMMINE && g_Vars.stagenum == STAGE_CITRAINING) {
@@ -6422,8 +6425,10 @@ void bgunCreateFiredProjectile(s32 handnum)
 				if (weapon->base.model && weapon->base.model->definition) {
 					weapon->timer240 = timer60;
 
-					if (weapon->timer240 != -1) {
-						weapon->timer240 = TICKS(weapon->timer240 * 4);
+					/* PR 31 review: an authored timer over ~136 s saturates
+					 * instead of wrapping the s16 timer. */
+					if (timer60 != -1) {
+						weapon->timer240 = bgunGraphClampTicks240(TICKS(timer60 * 4));
 					}
 
 					weapon->base.hidden &= 0x0fffffff;
@@ -10033,7 +10038,7 @@ void bgun0f0a5550(s32 handnum)
  * the Shotgun, the Laser, the Reaper and a cloak use for their own effects).
  * PR 31 review: every whole step a frame crosses is paid for, and the charge
  * stops at the last step its clip could pay (the original crossed at most
- * one a frame).
+ * one a frame); a step needs min_clip and its whole cost in the clip.
  */
 void bgunTickMaulerCharge(void)
 {
@@ -10064,7 +10069,7 @@ void bgunTickMaulerCharge(void)
 				s32 newvalue;
 				s32 step;
 
-				if (hand->loadedammo[slot] >= charge.charge_min_clip && hand->chargelevel < steps) {
+				if (hand->loadedammo[slot] >= weaponRulesChargeStepNeeds(&charge) && hand->chargelevel < steps) {
 					charging = true;
 					hand->chargelevel += g_Vars.lvupdate60freal * (steps / (f32)charge.charge_time);
 				}
@@ -10076,7 +10081,7 @@ void bgunTickMaulerCharge(void)
 				newvalue = hand->chargelevel;
 
 				for (step = oldvalue; step < newvalue; step++) {
-					if (hand->loadedammo[slot] < charge.charge_min_clip) {
+					if (hand->loadedammo[slot] < weaponRulesChargeStepNeeds(&charge)) {
 						hand->chargelevel = step;
 						break;
 					}

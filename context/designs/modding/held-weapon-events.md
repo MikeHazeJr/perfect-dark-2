@@ -538,12 +538,17 @@ Round 2:
   flash, the Laser's stream, the Reaper's blades and a cloak's drain use for
   their own effects; a weapon change clears it with them.
 - **Every step is paid.** Each whole step a frame crosses takes
-  `ammo_per_step` while the clip holds `min_clip`, and the charge stops at the
-  last step paid (the Mauler crosses at most one a frame, so its numbers are
-  the original's).
+  `ammo_per_step` while the clip holds `min_clip` and the step's whole cost
+  (round 3: `weaponRulesChargeStepNeeds`, so two rounds never buy a
+  three-round step), and the charge stops at the last step paid (the Mauler
+  crosses at most one a frame and needs 2 for a 1-round step, so its numbers
+  are the original's).
 - **The cooked fuse is the plan's.** The thrown grenade's timer is the plan's
   `fuse` less the prime (it was the record's activation time less the prime),
-  and the wait after it goes off in the hand follows that fuse.
+  and the wait after it goes off in the hand follows that fuse. Round 3: the
+  240 Hz timer is an s16, so the fuse is worked out wide and clamped
+  (`bgunGraphClampTicks240`); a thrown object's own activation time saturates
+  the same way.
 - **The beam's reach is its range.** `shotCalculateHitsSource`'s hit and aim
   checks use the plan's `range` where they used 300.
 - **Reloads follow the program.** A manual reload (no reload planned by the
