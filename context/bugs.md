@@ -1,5 +1,16 @@
 # Bug Tracker
 
+## 2026-11-22 B-1304 `release.ps1 -DryRun` still committed pending changes and pushed the branch (T-RELEASE-006, fixed through the build queue)
+
+Found by claude-pd-integration-20261121 while preparing step 9's dry run on the finalization candidate.
+Before building, and with `-SkipBuild` before packaging, `devtools/release.ps1` syncs project state, runs
+`git add -A`, commits "Tooling - c120: Sync live project state for release" and pushes the current branch.
+Neither block checked `-DryRun`, and the push ignored `-SkipPush`. A dry run therefore published whatever the
+working tree held: in a clean clone with untracked smoke storage that is gigabytes, and in the shared
+checkout it is every lane's uncommitted work. Fix: under `-DryRun` both blocks only say what they would do;
+under `-SkipPush` they commit but do not push. The later tag, push and release steps already honoured both.
+Still written by a dry run: the next version in CMakeLists.txt (local, for the build's version string).
+
 ## 2026-11-22 B-1307 `pd2q edit -New` failed for every new file, and an empty file in dev read as missing (T-TOOLING-020, fixed through the build queue)
 
 Found by claude-pd-integration-20261121 when the build queue's Milestone 4 run stopped at its first
