@@ -662,7 +662,12 @@ gun has none, so the Farsight's number is the table's), with the facts
 gaining the relation (owner, friend through `chrCompareTeams`, else enemy),
 alive, drugged and unexplodable; compared over 576 combinations. Homing's
 native filter takes anything (it never re-checks), so it waits for 6b.
-Next: auto-aim, the bot Slayer, proximity and sentries.
+Then the bot Slayer (`rocketTickFbw`): what sets off a bot's rocket asks its
+native filter (an enemy of the bot, alive, not invisible to bots) over the
+facts as the bot reads them (`rocketFbwTargetFacts`: `COMPARE_ENEMIES`,
+`chrIsDead`, `botIsTargetInvisible` as the cloak; the distance and the
+re-route stay the picker's). Each picker builds the facts as it reads them,
+and the filter is one. Next: auto-aim, proximity and sentries.
 
 ## Smokes for Integration's finalization batch
 

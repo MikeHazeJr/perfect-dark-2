@@ -3619,6 +3619,41 @@ TEST_CASE("the Farsight's auto-target is the target filter's native one",
 	CHECK(body.find("CHRCFLAG_UNEXPLODABLE") == std::string::npos);
 }
 
+TEST_CASE("the bot Slayer's proximity is the target filter's native one",
+	"[mission-graph][weapon-graph][held-weapon][target-filter]")
+{
+	// rocketTickFbw's test as it stood (propobj.c at b66065f8).
+	const auto original = [](bool owner, bool dead, bool enemy, bool invisible) -> bool {
+		return !owner && !dead && enemy && !invisible;
+	};
+	target_filter_t slayer;
+	targetFilterNative(TARGET_PICKER_BOT_SLAYER, WEAPON_SKROCKET, &slayer);
+	s32 compared = 0;
+	for (u32 kind : { TARGET_KIND_GUARD, TARGET_KIND_SIMULANT, TARGET_KIND_PLAYER }) {
+		for (s32 bits = 0; bits < 16; bits++) {
+			const bool owner = bits & 1, dead = bits & 2, enemy = bits & 4, invisible = bits & 8;
+			// rocketFbwTargetFacts: the owner's own chr, else enemy or not.
+			target_facts_t c{};
+			c.kind = kind;
+			c.relation = owner ? TARGET_RELATION_OWNER : (enemy ? TARGET_RELATION_ENEMY : TARGET_RELATION_FRIEND);
+			c.alive = !dead;
+			c.cloaked = invisible;
+			INFO("kind " << kind << " bits " << bits);
+			// The original asked COMPARE_ENEMIES only of another chr; the owner is never its own enemy.
+			CHECK((targetFilterAccepts(&slayer, &c) != 0) == original(owner, dead, enemy && !owner, invisible));
+			compared++;
+		}
+	}
+	CHECK(compared == 48);
+
+	const std::string propobj = readSource("src/game/propobj.c");
+	REQUIRE(propobj.find("targetFilterNative(TARGET_PICKER_BOT_SLAYER, rocket->weaponnum, &fbwfilter);") != std::string::npos);
+	REQUIRE(propobj.find("static void rocketFbwTargetFacts(struct chrdata *chr, struct chrdata *owner, target_facts_t *out)")
+		!= std::string::npos);
+	CHECK(propobj.find("&& chrCompareTeams(ownerchr, chr, COMPARE_ENEMIES)\n\t\t\t\t\t&& !botIsTargetInvisible(NULL, chr)) {")
+		== std::string::npos);
+}
+
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
 	"[mission][graph][runner]")
 {

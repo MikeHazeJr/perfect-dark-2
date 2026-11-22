@@ -108,6 +108,7 @@ extern void statIncrement(const char *key, u64 amount);
 #include "scenario_source_runtime.h"
 #include "weapondata_authored.h"
 #include "projectile_events.h"
+#include "target_filter.h"
 #include "projectile_rules.h"
 #include <stdio.h>
 
@@ -7952,6 +7953,25 @@ void platformDisplaceProps2(struct prop *platform, Mtxf *arg1)
 /**
  * Tick a Slayer fly-by-wire rocket that's being controlled by a bot.
  */
+/* held-weapon-events.md slice 6a: a character's facts as the bot that
+ * flies a Slayer rocket reads them (COMPARE_ENEMIES, chrIsDead, and
+ * botIsTargetInvisible as the cloak). */
+static void rocketFbwTargetFacts(struct chrdata *chr, struct chrdata *owner, target_facts_t *out)
+{
+	out->kind = chr->prop && chr->prop->type == PROPTYPE_PLAYER ? TARGET_KIND_PLAYER
+		: (chr->aibot ? TARGET_KIND_SIMULANT : TARGET_KIND_GUARD);
+	out->reacts_to_sight = 0;
+	out->training_target = 0;
+	out->occupied = 0;
+	out->relation = chr == owner ? TARGET_RELATION_OWNER
+		: (chrCompareTeams(owner, chr, COMPARE_ENEMIES) ? TARGET_RELATION_ENEMY : TARGET_RELATION_FRIEND);
+	out->alive = chrIsDead(chr) ? 0 : 1;
+	out->cloaked = chr->prop && botIsTargetInvisible(NULL, chr) ? 1 : 0;
+	out->owner_ir = 0;
+	out->drugged = 0;
+	out->unexplodable = 0;
+}
+
 bool rocketTickFbw(struct weaponobj *rocket)
 {
 	bool cdresult;
@@ -8101,13 +8121,19 @@ bool rocketTickFbw(struct weaponobj *rocket)
 			? projectile->flyproxradius : 250.0f;
 		f32 fbwproxradiussq = fbwproxradius * fbwproxradius;
 
+		/* held-weapon-events.md slice 6a: the bot Slayer's filter (its
+		 * native one: an enemy of the bot, alive, not invisible to bots). */
+		target_filter_t fbwfilter;
+
+		targetFilterNative(TARGET_PICKER_BOT_SLAYER, rocket->weaponnum, &fbwfilter);
+
 		for (i = 0; i < g_MpNumChrs; i++) {
 			struct chrdata *chr = mpGetChrFromPlayerIndex(i);
+			target_facts_t facts;
 
-			if (chr != ownerchr
-					&& !chrIsDead(chr)
-					&& chrCompareTeams(ownerchr, chr, COMPARE_ENEMIES)
-					&& !botIsTargetInvisible(NULL, chr)) {
+			rocketFbwTargetFacts(chr, ownerchr, &facts);
+
+			if (targetFilterAccepts(&fbwfilter, &facts)) {
 				// Explode if within 250 units
 				xdist = rocketprop->pos.x - chr->prop->pos.x;
 				ydist = rocketprop->pos.y - chr->prop->pos.y;

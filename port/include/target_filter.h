@@ -77,6 +77,7 @@ typedef struct target_filter {
 #define TARGET_PICKER_LOOK 1 /* what the player looks at (lvRender's lookingatprop) */
 #define TARGET_PICKER_LOCK 2 /* the lock that takes it (sightCanTargetProp) */
 #define TARGET_PICKER_FARSIGHT 3 /* the Farsight's auto-target (farsightChooseTarget) */
+#define TARGET_PICKER_BOT_SLAYER 4 /* what sets off a bot's Slayer rocket (rocketTickFbw) */
 
 /*
  * The candidate's relation passes the filter's. An empty vehicle and an
@@ -143,6 +144,9 @@ static inline s32 targetFilterAccepts(const target_filter_t *f, const target_fac
  * - FARSIGHT (farsightChooseTarget): the Farsight's alone; an enemy
  *   character or another player, alive and awake, not cloaked even through
  *   the IR scanner, and not one it cannot blow up. Every other gun has none.
+ * - BOT_SLAYER (rocketTickFbw): an enemy of the bot that flies it, alive,
+ *   and not invisible to bots (its facts as the bot reads them:
+ *   COMPARE_ENEMIES, chrIsDead, botIsTargetInvisible as the cloak).
  */
 static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t *out)
 {
@@ -166,6 +170,12 @@ static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t
 		if (weaponnum == WEAPON_ROCKETLAUNCHER) {
 			out->things_must_react = 0;
 		}
+		break;
+	case TARGET_PICKER_BOT_SLAYER:
+		out->kinds = TARGET_KINDS_CHARACTERS;
+		out->relation = TARGET_RELATION_ENEMY;
+		out->alive_only = 1;
+		out->sees_cloaked = TARGET_SEES_CLOAKED_NEVER;
 		break;
 	case TARGET_PICKER_FARSIGHT:
 		if (weaponnum == WEAPON_FARSIGHT) {
