@@ -4383,7 +4383,8 @@ MODE_GRAPH_EVENTS = ("event.mode.chosen", "event.mode.stage_reset", "event.mode.
 # modules listed for it, one per callback g_MpScenarios[] gives a mode, and the
 # dispatchers' defaults. event.mode.chosen chooses what every peer needs to know
 # about the mode (its setup, extra objects, team count, setup file data and its
-# presenters). The six other events choose nothing until slice 4.
+# presenters). Slice 4: the stage reset, the intro pads, the token pickups and
+# drops, the terminal and the death hook are callbacks of the table too.
 MODE_GRAPH_EVENT_MODULES = {
     "event.mode.chosen": (
         "og.mode.htb.init", "og.mode.htb.num_props", "og.mode.htb.hud",
@@ -4407,6 +4408,15 @@ MODE_GRAPH_EVENT_MODULES = {
     "event.mode.score": ("og.mode.default.score", "og.mode.htb.score", "og.mode.htm.score",
                          "og.mode.pac.score", "og.mode.koh.score", "og.mode.ctc.score"),
     "event.mode.spawn": ("og.mode.default.spawn", "og.mode.ctc.spawn"),
+    "event.mode.stage_reset": ("og.mode.htb.stage_reset", "og.mode.htm.stage_reset",
+                               "og.mode.koh.stage_reset", "og.mode.ctc.stage_reset"),
+    "event.mode.intro_pad": ("og.mode.htb.intro_pad", "og.mode.htm.intro_pad",
+                             "og.mode.koh.intro_pad", "og.mode.ctc.intro_pad"),
+    "event.mode.token_picked_up": ("og.mode.htb.token_picked_up", "og.mode.htm.token_picked_up",
+                                   "og.mode.ctc.token_picked_up"),
+    "event.mode.token_dropped": ("og.mode.ctc.token_dropped",),
+    "event.mode.prop_activated": ("og.mode.htm.prop_activated",),
+    "event.mode.player_died": ("og.mode.pac.player_died",),
 }
 MODE_GRAPH_MODULES = tuple(module for modules in MODE_GRAPH_EVENT_MODULES.values()
                            for module in modules)

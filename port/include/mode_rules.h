@@ -47,7 +47,14 @@ extern "C" {
 #define MODE_SEAM_MAX_TEAMS      11 /* maxteamsfunc */
 #define MODE_SEAM_ROOM_LIGHTS    12 /* isroomhighlightedfunc and highlightroomfunc */
 #define MODE_SEAM_SAVE           13 /* readsavefunc and writesavefunc */
-#define MODE_SEAM_COUNT          14
+/* Slice 4: the code that sat outside the table, now callbacks of its rows. */
+#define MODE_SEAM_STAGE_RESET     14 /* resetfunc: a stage load clears the mode's state (scenarioReset) */
+#define MODE_SEAM_INTRO_PAD       15 /* intropadfunc: a case or hill pad the stage intro lists */
+#define MODE_SEAM_TOKEN_PICKED_UP 16 /* pickuptokenfunc: the mode's token is picked up */
+#define MODE_SEAM_TOKEN_DROPPED   17 /* droppedtokenfunc: its carrier dropped it */
+#define MODE_SEAM_PROP_ACTIVATED  18 /* activatedpropfunc: an object is used (the terminal) */
+#define MODE_SEAM_PLAYER_DIED     19 /* playerdiedfunc: a player or simulant died */
+#define MODE_SEAM_COUNT           20
 
 /* The owner of a default module: the code a dispatcher runs for a mode
  * without the callback (kills minus suicides for the score, the general

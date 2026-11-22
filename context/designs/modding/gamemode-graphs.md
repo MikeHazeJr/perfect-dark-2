@@ -1,7 +1,7 @@
 # Combat Simulator modes as graphs
 
-Status (2026-11-21): slices 1 to 3 written by the Multiplayer and Rules
-session (see "Slice 1 as written" to "Slice 3 as written"); slices 4 to 7
+Status (2026-11-21): slices 1 to 4 written by the Multiplayer and Rules
+session (see "Slice 1 as written" to "Slice 4 as written"); slices 5 to 7
 open. Originally CORE, 2026-11-19: a survey and a plan for the week note's "Combat
 Simulator rules" row ("a mode graph calling native mode modules"), under
 decision 1 ("Players should be able to recreate any existing game behavior
@@ -304,6 +304,38 @@ answered in place as the slices land.
   see no change; a mod that rewires a mode changes it here (slice 6 lets a mod
   ship one). Tests: `[gamemode-graphs][slice3]` in
   `tests/test_mode_graph_program.cpp`.
+
+## Slice 4 as written (Multiplayer and Rules, 2026-11-21; not run in the game yet)
+
+The code outside the table is callbacks of its rows now, so the six remaining
+events choose modules too (64 in all):
+
+| Event | Chooses | Was |
+|---|---|---|
+| `event.mode.stage_reset` | `og.mode.{htb,htm,koh,ctc}.stage_reset` | `scenarioReset`'s switch (`htbReset`, `htmReset`, the hill count, Capture the Case's bases) |
+| `event.mode.intro_pad` | `og.mode.{htb,htm,koh,ctc}.intro_pad` | the intro loop's mode checks; each module takes its own pad kind (case pads, or King of the Hill's hills) |
+| `event.mode.token_picked_up` | `og.mode.{htb,ctc,htm}.token_picked_up` | the per-mode bodies of `scenarioPickUpBriefcase` and `scenarioPickUpUplink` |
+| `event.mode.token_dropped` | `og.mode.ctc.token_dropped` | `scenarioHandleDroppedToken`'s Capture the Case body (the case goes home) |
+| `event.mode.prop_activated` | `og.mode.htm.prop_activated` | `scenarioHandleActivatedProp`'s terminal |
+| `event.mode.player_died` | `og.mode.pac.player_died` | `mpstats.c`'s Pop a Cap check (`pacHandleDeath`), now `scenarioHandlePlayerDied` |
+
+- `g_MpScenarios[]` is written with designators (`[MPSCENARIO_CAPTURETHECASE] =
+  { .tickfunc = ctcTick, ... }`), and the six new fields come last in `struct
+  mpscenario`; the per-mode bodies moved verbatim into their own functions.
+- The two token routines run only a module whose mode uses their token
+  (`scenarioTokenWeaponNum`: the briefcase for Hold the Briefcase and Capture
+  the Case, the uplink for Hacker Central), as the original did.
+- No `g_MpSetup.scenario == MPSCENARIO_*` check is left in `scenarios.c`. Still
+  checked by mode, and not part of this slice: which highlight options a mode
+  honours (`scenarioHighlightProp`, Combat), Capture the Case's spawn anchor,
+  the token weapon and model by mode, what a carrier may pick up and the
+  carrier's eye height (the token's module parameters, plan item 7), and the
+  simulants' commands (slice 7).
+- The base programs gain the new modules, so the meta kind moves to
+  `_modegraph_outside` (installs re-extract their meta archives once); the
+  validator and its tests know the 64 modules. The forced team option needed
+  no move: `matchConfigApplyScenarioRules` already reads it from the mode's
+  rules (`teams.required`).
 
 ## Questions for MULTIPLAYER
 

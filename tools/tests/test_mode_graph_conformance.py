@@ -96,13 +96,13 @@ class ModeGraphTableTests(unittest.TestCase):
                 for seam in pending:
                     seam_event[seam] = "event.mode." + chosen.group(1).lower()
                 pending = []
-        self.assertEqual(len(seam_event), 14)
+        self.assertEqual(len(seam_event), 20)
 
         modules = re.findall(
             r'\{ "(og\.mode\.[a-z]+\.[a-z_]+)", (MPSCENARIO_([A-Z]+)|MODE_RULES_DEFAULT), '
             r'MODE_SEAM_([A-Z_]+) \}', self.source)
-        self.assertEqual(len(modules), 50)
-        self.assertEqual(len(conf.MODE_GRAPH_MODULES), 50)
+        self.assertEqual(len(modules), 64)
+        self.assertEqual(len(conf.MODE_GRAPH_MODULES), 64)
         self.assertEqual({kind for kind, *_ in modules}, set(conf.MODE_GRAPH_MODULES))
         names = list(conf.MODE_GRAPH_MODE_NAMES.values())
         for kind, owner, scenario, seam in modules:
@@ -136,7 +136,7 @@ class ModeGraphProgramTests(unittest.TestCase):
         self.assertIn(("event.mode.spawn", "og.mode.default.spawn"), ctc)
         self.assertNotIn(("event.mode.score", "og.mode.default.score"), ctc)
         self.assertIn(("event.mode.chosen", "og.mode.koh.save"), native("king_of_the_hill"))
-        self.assertEqual(len(native("hold_the_briefcase")), 11)
+        self.assertEqual(len(native("hold_the_briefcase")), 14)
 
     def test_a_base_archive_is_held_to_the_table(self) -> None:
         wiring = native("hold_the_briefcase")

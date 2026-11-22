@@ -358,8 +358,9 @@ void mpstatsRecordDeathByRuntimeIndex(s32 attacker_runtime_index,
 	s32 prevplayernum;
 	char text[256];
 
-	if (g_Vars.normmplayerisrunning && g_MpSetup.scenario == MPSCENARIO_POPACAP) {
-		pacHandleDeath(aplayernum, vplayernum);
+	/* gamemode-graphs.md slice 4: the mode's death modules (Pop a Cap). */
+	if (g_Vars.normmplayerisrunning) {
+		scenarioHandlePlayerDied(aplayernum, vplayernum);
 	}
 	if (g_Vars.normmplayerisrunning) {
 		modeEventRecord(MODE_EVENT_PLAYER_DIED, vplayernum);
