@@ -1,6 +1,6 @@
 {
   "scenario_name": "coop_ai_buddies_offline_smoke",
-  "description": "Co-op with AI buddies offline (Mike, 2026-11-16 and 2026-11-17, T-NETWORKING-007): the original's one-player co-op from the offline Room's Campaign tab. B-1278 (2026-11-21): the staged agent is loaded with --launch-load-agent and --launch-offline-room opens the offline Room from CI through the Main Menu's own Combat Simulator entry, so the run needs neither Agent Select nor the Main Menu (their readiness waits need window focus a background game never has). The Room opens on the Campaign tab (--debug-room-tab campaign) and fires its own Start Match (--debug-auto-start-match) with Defection on Agent and the Partner choice at 2 simulants (--coop-ai-buddies 2). A fresh profile has no co-op completions, so the start clamps to one buddy (getMaxAiBuddies); the buddy spawns at the player, the mission plays until --debug-end-mission ends it at 40 s with every objective complete, and the results show.",
+  "description": "Co-op with AI buddies offline (Mike, 2026-11-16 and 2026-11-17, T-NETWORKING-007): the original's one-player co-op from the offline Room's Campaign tab. B-1278 (2026-11-21): the staged agent is loaded with --launch-load-agent and --launch-offline-room opens the offline Room from CI through the Main Menu's own Combat Simulator entry, so the run needs neither Agent Select nor the Main Menu (their readiness waits need window focus a background game never has). The Room opens on the Campaign tab (--debug-room-tab campaign) and fires its own Start Match (--debug-auto-start-match) with Defection on Agent and the Partner choice at 2 simulants (--coop-ai-buddies 2). A fresh profile has no co-op completions, so the start clamps to one buddy (getMaxAiBuddies); the buddy spawns at the player, the mission plays until --debug-end-mission ends it at 100 s of stage time with every objective complete, and the results show. B-1311: that clock counts the intro and fires only in normal play, and the skip assist can land in CI's fly-in, leaving Defection's intro of about 64 s; at 40 s the mission ended the instant play began, before the gameplay wait's 2 s, so 100 s leaves about 36 s of play.",
   "tags": [
     "campaign",
     "coop",
@@ -46,7 +46,7 @@
     "--coop-ai-buddies",
     "2",
     "--debug-end-mission",
-    "40:complete"
+    "100:complete"
   ],
   "input_sequence": [
     {
