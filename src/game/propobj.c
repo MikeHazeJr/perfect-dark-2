@@ -7970,6 +7970,7 @@ static void rocketFbwTargetFacts(struct chrdata *chr, struct chrdata *owner, tar
 	out->owner_ir = 0;
 	out->drugged = 0;
 	out->unexplodable = 0;
+	out->armed = 0;
 }
 
 bool rocketTickFbw(struct weaponobj *rocket)
@@ -10908,6 +10909,7 @@ static void autogunTargetFacts(struct chrdata *chr, target_facts_t *out)
 	out->owner_ir = 0;
 	out->drugged = 0;
 	out->unexplodable = 0;
+	out->armed = 0;
 }
 
 void autogunTick(struct prop *prop)

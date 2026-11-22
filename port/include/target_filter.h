@@ -58,6 +58,7 @@ typedef struct target_facts {
 	s32 owner_ir;          /* the owner sees through cloaks (the IR scanner) */
 	s32 drugged;           /* a character knocked out or falling from a sedative */
 	s32 unexplodable;      /* a character the Farsight cannot blow up (CHRCFLAG_UNEXPLODABLE) */
+	s32 armed;             /* a character holding a gun, carrying one, or flagged for auto-aim */
 } target_facts_t;
 
 /* A filter: what passes. */
@@ -70,6 +71,7 @@ typedef struct target_filter {
 	s32 alive_only;
 	s32 awake_only;          /* a drugged character does not pass */
 	s32 explodable_only;     /* an unexplodable character does not pass */
+	s32 armed_only;          /* an unarmed character does not pass */
 	s32 sees_cloaked;        /* TARGET_SEES_CLOAKED_* */
 } target_filter_t;
 
@@ -79,6 +81,7 @@ typedef struct target_filter {
 #define TARGET_PICKER_FARSIGHT 3 /* the Farsight's auto-target (farsightChooseTarget) */
 #define TARGET_PICKER_BOT_SLAYER 4 /* what sets off a bot's Slayer rocket (rocketTickFbw) */
 #define TARGET_PICKER_SENTRY 5 /* what a sentry or autogun with a team mask takes (autogunTick) */
+#define TARGET_PICKER_AUTOAIM 6 /* what auto-aim considers (autoaimTick's standard auto-aim) */
 
 /*
  * The candidate's relation passes the filter's. An empty vehicle and an
@@ -125,6 +128,9 @@ static inline s32 targetFilterAccepts(const target_filter_t *f, const target_fac
 	if (f->explodable_only && c->unexplodable) {
 		return 0;
 	}
+	if (f->armed_only && !c->armed) {
+		return 0;
+	}
 	if (c->cloaked) {
 		if (f->sees_cloaked == TARGET_SEES_CLOAKED_NEVER) return 0;
 		if (f->sees_cloaked == TARGET_SEES_CLOAKED_WITH_IR && !c->owner_ir) return 0;
@@ -150,6 +156,9 @@ static inline s32 targetFilterAccepts(const target_filter_t *f, const target_fac
  *   COMPARE_ENEMIES, chrIsDead, botIsTargetInvisible as the cloak).
  * - SENTRY (autogunTick): a character of a team it attacks (its search
  *   picks the team), alive, neither hidden nor cloaked.
+ * - AUTOAIM (autoaimTick): a character or another player who is not a
+ *   friend and is armed (holding or carrying a gun, or flagged for it);
+ *   chrCalculateAutoAim then tests its state, its cloak and the screen.
  */
 static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t *out)
 {
@@ -161,6 +170,7 @@ static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t
 	out->alive_only = 0;
 	out->awake_only = 0;
 	out->explodable_only = 0;
+	out->armed_only = 0;
 	out->sees_cloaked = TARGET_SEES_CLOAKED_ALWAYS;
 	switch (picker) {
 	case TARGET_PICKER_LOOK:
@@ -179,6 +189,11 @@ static inline void targetFilterNative(s32 picker, s32 weaponnum, target_filter_t
 		out->relation = TARGET_RELATION_ENEMY;
 		out->alive_only = 1;
 		out->sees_cloaked = TARGET_SEES_CLOAKED_NEVER;
+		break;
+	case TARGET_PICKER_AUTOAIM:
+		out->kinds = TARGET_KINDS_CHARACTERS;
+		out->relation = TARGET_RELATION_ENEMY;
+		out->armed_only = 1;
 		break;
 	case TARGET_PICKER_SENTRY:
 		out->kinds = TARGET_KINDS_CHARACTERS;

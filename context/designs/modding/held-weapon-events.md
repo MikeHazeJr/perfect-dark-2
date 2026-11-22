@@ -672,7 +672,13 @@ team mask): its search still picks the team (the mask, the owner left out in
 a match, a model, an enabled prop), and its take asks the native filter (a
 character, alive, neither hidden nor cloaked) over `autogunTargetFacts`; the
 re-checks of a held target and the aim distance are next with the laptop's
-filters. Next: auto-aim, proximity.
+filters. Then auto-aim (`autoaimTick`'s standard auto-aim): its candidates ask
+the native filter (a character or another player who is not a friend and is
+armed: holding or carrying a gun, or flagged for auto-aim), and
+`chrCalculateAutoAim` keeps testing the state, the cloak and the screen (its
+state and cloak tests join the filter with the CMP150's lock-on branch).
+Next: proximity, where the projectile programs' gates already answer, and the
+mod mines' filters (`bgunModProxyDecision`).
 
 ## Smokes for Integration's finalization batch
 

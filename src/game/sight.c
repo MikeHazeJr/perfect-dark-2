@@ -20,6 +20,7 @@
 #include "data.h"
 #include "game/player.h" /* playerCurrentInCutscene, for USINGDEVICE (slice 6a) */
 #include "game/playermgr.h"
+#include "game/chr.h"
 #include "target_filter.h"
 #include "types.h"
 #include <math.h>
@@ -151,6 +152,7 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 	out->owner_ir = USINGDEVICE(DEVICE_IRSCANNER) ? 1 : 0;
 	out->drugged = 0;
 	out->unexplodable = 0;
+	out->armed = 0;
 
 	if (!prop) {
 		return;
@@ -180,6 +182,8 @@ void sightTargetFacts(struct prop *prop, struct target_facts *out)
 
 			out->drugged = chr->actiontype == ACT_DRUGGEDDROP || chr->actiontype == ACT_DRUGGEDKO;
 			out->unexplodable = (chr->chrflags & CHRCFLAG_UNEXPLODABLE) ? 1 : 0;
+			out->armed = chrGetHeldProp(chr, HAND_RIGHT) || chrGetHeldProp(chr, HAND_LEFT)
+				|| (chr->chrflags & CHRCFLAG_FORCEAUTOAIM) || chr->gunprop ? 1 : 0;
 		}
 	} else if (prop->type == PROPTYPE_OBJ || prop->type == PROPTYPE_WEAPON || prop->type == PROPTYPE_DOOR) {
 		struct defaultobj *obj = prop->obj;

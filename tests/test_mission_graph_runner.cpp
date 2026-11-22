@@ -3686,6 +3686,41 @@ TEST_CASE("the sentry's target is the target filter's native one",
 	CHECK(propobj.find("&& (chr->hidden & CHRHFLAG_CLOAKED) == 0\n\t\t\t\t\t\t&& !chrIsDead(chr)) {") == std::string::npos);
 }
 
+TEST_CASE("auto-aim's candidates are the target filter's native ones",
+	"[mission-graph][weapon-graph][held-weapon][target-filter]")
+{
+	// autoaimTick's candidate test as it stood (prop.c at b66065f8), before
+	// chrCalculateAutoAim: not a friend, and armed.
+	const auto original = [](bool friendly, bool right, bool left, bool force, bool gunprop) -> bool {
+		return !friendly && (right || left || force || gunprop);
+	};
+	target_filter_t aim;
+	targetFilterNative(TARGET_PICKER_AUTOAIM, WEAPON_FALCON2, &aim);
+	s32 compared = 0;
+	for (u32 kind : { TARGET_KIND_GUARD, TARGET_KIND_SIMULANT, TARGET_KIND_PLAYER }) {
+		for (s32 bits = 0; bits < 32; bits++) {
+			const bool friendly = bits & 1, right = bits & 2, left = bits & 4, force = bits & 8, gunprop = bits & 16;
+			target_facts_t c{};
+			c.kind = kind;
+			c.relation = friendly ? TARGET_RELATION_FRIEND : TARGET_RELATION_ENEMY;
+			c.alive = 1;
+			c.armed = right || left || force || gunprop;
+			INFO("kind " << kind << " bits " << bits);
+			CHECK((targetFilterAccepts(&aim, &c) != 0) == original(friendly, right, left, force, gunprop));
+			compared++;
+		}
+	}
+	CHECK(compared == 96);
+
+	const std::string prop = readSource("src/game/prop.c");
+	REQUIRE(prop.find("targetFilterNative(TARGET_PICKER_AUTOAIM, bgunGetWeaponNum(HAND_RIGHT), &aimfilter);") != std::string::npos);
+	REQUIRE(prop.find("if (targetFilterAccepts(&aimfilter, &facts)\n\t\t\t\t\t\t\t&& chrCalculateAutoAim(prop, &sp94, sp8c, sp84)) {")
+		!= std::string::npos);
+	CHECK(prop.find("|| (chr->chrflags & CHRCFLAG_FORCEAUTOAIM)\n\t\t\t\t\t\t\t\t|| chr->gunprop)") == std::string::npos);
+	REQUIRE(readSource("src/game/sight.c").find("|| (chr->chrflags & CHRCFLAG_FORCEAUTOAIM) || chr->gunprop ? 1 : 0;")
+		!= std::string::npos);
+}
+
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
 	"[mission][graph][runner]")
 {
