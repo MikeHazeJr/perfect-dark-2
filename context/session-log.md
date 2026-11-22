@@ -59,7 +59,8 @@ cut; Codex's five findings fixed on `w8`: the owner's IR scanner for homing and 
 checkboxes, a casing model per casing type, and authored locks that pick, refresh and pass the look; both
 PRs merged up to dev `eb3ba06d` at 15:45 UTC so their CI is fresh at the cut).
 **8c** (value nodes) waits on Mike's **D-058** (per shot for players and simulants, my pick; or per
-press; or players first). Open for Mike: D-057 (projectile 7c), D-058, PR 31's pellet thread. Asked of Authored Mods: Mike's "Enemy vehicles" sample launcher; of MP-RULES:
+press; or players first). Open for Mike: D-057 (projectile 7c), D-058, D-059 (how the creator's two examples get their in-game
+proof), PR 31's pellet thread. Asked of Authored Mods: Mike's "Enemy vehicles" sample launcher; of MP-RULES:
 `botactGetShootInterval60` through `weaponProgramRecoilFrames`. Records and smokes:
 `context/designs/modding/held-weapon-events.md`, `context/designs/modding/projectile-events.md`.
 
