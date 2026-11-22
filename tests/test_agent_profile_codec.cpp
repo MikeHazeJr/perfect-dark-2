@@ -6,6 +6,8 @@ extern "C" {
 
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <iterator>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -345,4 +347,28 @@ TEST_CASE("legacy preference sidecar rejects malformed duplicate and invalid val
 	REQUIRE(agentProfileParseLegacyPreferencesIni(
 		"[Mods]\nEnabled=mod.one,MOD.ONE\n",
 		&defaults, &output, error, sizeof(error)) == -1);
+}
+
+TEST_CASE("the Room preset smoke's agent is an exact v2 document with Unlock All",
+	"[agent-profile][smoke-fixture][b-1295]")
+{
+	/* room_load_preset_smoke stages it so all 14 preset games are unlocked:
+	 * gamefileSetDefaultState's flags plus GAMEFILEFLAG_UNLOCK_ALL (0x4c). */
+	std::ifstream input("tools/smoke-verify/fixtures/agent_unlocked.json",
+		std::ios::binary);
+	REQUIRE(input.good());
+	const std::string json((std::istreambuf_iterator<char>(input)),
+		std::istreambuf_iterator<char>());
+	const agent_profile_document defaults = makeProfile("Default");
+	agent_profile_document parsed{};
+	agent_profile_source_shape shape = AGENT_PROFILE_SOURCE_CURRENT;
+	std::string error;
+	const u8 flags[10] = { 43, 190, 238, 241, 0, 0, 0, 0, 0, 16 };
+
+	REQUIRE(parseProfile(json, "unlocked", defaults, parsed, shape, &error) == 0);
+	REQUIRE(shape == AGENT_PROFILE_SOURCE_LEGACY_TRANSITIONAL_V2);
+	REQUIRE(std::memcmp(parsed.flags, flags, sizeof(flags)) == 0);
+	REQUIRE((parsed.flags[0x4c / 8] & (1 << (0x4c % 8))) != 0);
+	REQUIRE(parsed.sfxvolume == 0x5000);
+	REQUIRE(parsed.challengecompleted[0][0] == 0);
 }

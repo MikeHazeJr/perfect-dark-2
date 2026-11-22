@@ -1,0 +1,130 @@
+{
+  "scenario_name": "room_quick_start_smoke",
+  "description": "The Room's Quick Start (Mike, 2026-11-21: Quick Start gets a working MP menu entry; T-MENUS-009). --launch-load-agent smoke and --launch-offline-room open the offline Room from CI without Agent Select or the Main Menu (B-1278); --debug-room-tab combat shows the Combat Simulator tab; --debug-room-quick-start 1 with 3 simulants at difficulty 2 (NormalSim, which needs no unlock) calls the same roomQuickStartBegin as the Quick Start popup's Start: the original's Players and Simulants rule (Teams off, three simulants added), the mode's own rules last, then the Room's own Start Match two frames later. No --debug-auto-start-match: Quick Start starts the match itself. The match must start with one human and three simulants and reach controllable gameplay; the mode program's plan and parity lines are checked at the scripted exit.",
+  "tags": [
+    "combatsim",
+    "room",
+    "quick-start",
+    "offline",
+    "menu",
+    "smoke",
+    "t-menus-009"
+  ],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_menu_room.cpp",
+    "port/src/net/matchsetup.c",
+    "port/src/main.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 600,
+  "install_state": "clean",
+  "remove_paths": [
+    "room-quick-start-home"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/agent_smoke.json",
+      "dst": "room-quick-start-home/agent_smoke.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--savedir",
+    "./room-quick-start-home",
+    "--launch-load-agent",
+    "smoke",
+    "--launch-offline-room",
+    "--debug-room-tab",
+    "combat",
+    "--debug-room-quick-start",
+    "1",
+    "--debug-room-quick-start-sims",
+    "3",
+    "--debug-room-quick-start-difficulty",
+    "2"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 420000,
+      "stable_ms": 2000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Boot, the staged agent, the offline Room from CI on its Combat Simulator tab, Quick Start applied by the hook and its own Start Match two frames later, then the match live and controllable, with one bounded Skip if an intro owns input."
+    },
+    {
+      "at_ms": 3000,
+      "type": "exit",
+      "comment": "Scripted clean exit 3 s (script time) after gameplay is ready."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=room_quick_start_smoke",
+      "SAVE: initialized .*room-quick-start-home",
+      "BOOT: --debug-room-tab armed: tab=0",
+      "BOOT: --launch-offline-room armed",
+      "BOOT: --launch-load-agent consumed: name='smoke' result=OK",
+      "AGENT\\.SESSION: activation committed name='smoke' source=json",
+      "BOOT: --launch-offline-room entered the offline Room agent='smoke' room_active=1",
+      "MENUPOOL: acquired room",
+      "BOOT: --debug-room-tab consumed: tab=0",
+      "ROOM: --debug-room-quick-start armed mode=1 sims=3 difficulty=2",
+      "ROOM: Quick Start mode='Players and Simulants' humans=1 sims=3 of 3 difficulty=2 teams=0",
+      "ROOM: --debug-room-quick-start mode=1 sims=3 difficulty=2 began",
+      "ROOM: Quick Start -- firing Start Match tab=0",
+      "MENU\\.GRAPH\\.FIRE source=room edge=start_match",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
+      "MODE\\.PLAN: stage_reset mode=[a-z_]+:[a-z_]+ scenario=[0-9]+ modules=[1-9][0-9]*",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
+      "MODE\\.PARITY: smoke_exit mode=[a-z_]+:[a-z_]+ compared=[1-9][0-9]* differ=0\\b",
+      "SMOKE: result=scripted_exit"
+    ],
+    "required_sequences": [
+      {
+        "name": "agent-room-quick-start",
+        "patterns": [
+          "BOOT: --launch-load-agent consumed: name='smoke' result=OK",
+          "BOOT: --launch-offline-room entered the offline Room agent='smoke' room_active=1",
+          "MENUPOOL: acquired room",
+          "ROOM: Quick Start mode='Players and Simulants' humans=1 sims=3 of 3 ",
+          "ROOM: --debug-room-quick-start mode=1 sims=3 difficulty=2 began",
+          "ROOM: Quick Start -- firing Start Match tab=0",
+          "MENU\\.GRAPH\\.FIRE source=room edge=start_match",
+          "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
+          "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready"
+        ]
+      }
+    ],
+    "forbidden_patterns": [
+      "ROOM: --debug-room-quick-start .* refused",
+      "ROOM: --debug-room-quick-start expects",
+      "ROOM: Quick Start -- not firing",
+      "ROOM: --debug-auto-start-match -- firing",
+      "MENU: watchdog",
+      "INPUTCTX watchdog",
+      "MENUPOOL: released [1-9][0-9]* legacy-stack leak slot",
+      "MENUPOOL legacy-stack leak: \\[",
+      "MENUPOOL: drift",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "filemgrSaveOrLoad",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "SMOKE: result=wait_timeout",
+      "BOOT: --launch-offline-room has no active agent",
+      "BOOT: --launch-offline-room ignored",
+      "MODE\\.PARITY: differ",
+      "LOUDFAIL\\.MODE"
+    ],
+    "required_counts": []
+  }
+}

@@ -1,0 +1,130 @@
+{
+  "scenario_name": "room_load_preset_smoke",
+  "description": "The Room's Load Preset (Mike, 2026-11-21: presets get a working MP menu entry; T-MENUS-009, B-1295). The staged agent 'unlocked' is a v2 profile with the stored Unlock All flag, so all 14 of the original's preset games are unlocked and slot 0 is No Shield. --launch-load-agent and --launch-offline-room open the offline Room from CI without Agent Select or the Main Menu (B-1278); --debug-room-tab combat shows the Combat Simulator tab; --debug-room-load-preset 0 calls the same roomLoadPreset as the preset list (scenarioLoadPreset: the preset as a Room document through the saved setup's plan and commit), and --debug-auto-start-match fires the Room's own Start Match a frame later. The preset's name comes without the language file's line terminator (B-1295), so the Room's and the planner's lines each stay on one line. The match must start with the preset's settings and reach controllable gameplay; the mode program's plan and parity lines are checked at the scripted exit.",
+  "tags": [
+    "combatsim",
+    "room",
+    "preset",
+    "offline",
+    "menu",
+    "smoke",
+    "t-menus-009",
+    "b-1295"
+  ],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_menu_room.cpp",
+    "port/src/scenario_save.c",
+    "src/game/mplayer/mplayer.c",
+    "port/src/main.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 600,
+  "install_state": "clean",
+  "remove_paths": [
+    "room-preset-home"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/agent_unlocked.json",
+      "dst": "room-preset-home/agent_unlocked.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--savedir",
+    "./room-preset-home",
+    "--launch-load-agent",
+    "unlocked",
+    "--launch-offline-room",
+    "--debug-room-tab",
+    "combat",
+    "--debug-room-load-preset",
+    "0",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait_until",
+      "condition": "offline_gameplay_ready",
+      "timeout_ms": 420000,
+      "stable_ms": 2000,
+      "assist_action": "ACTION_SKIP_CUTSCENE",
+      "assist_condition": "cutscene_skip_ready",
+      "assist_hold_ms": 900,
+      "comment": "Boot, the staged agent, the offline Room from CI on its Combat Simulator tab, the preset loaded by the hook and the Room's own Start Match a frame later, then the match live and controllable, with one bounded Skip if an intro owns input."
+    },
+    {
+      "at_ms": 3000,
+      "type": "exit",
+      "comment": "Scripted clean exit 3 s (script time) after gameplay is ready."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=room_load_preset_smoke",
+      "SAVE: initialized .*room-preset-home",
+      "BOOT: --debug-room-tab armed: tab=0",
+      "BOOT: --launch-offline-room armed",
+      "BOOT: --launch-load-agent consumed: name='unlocked' result=OK",
+      "AGENT\\.SESSION: activation committed name='unlocked' source=json",
+      "BOOT: --launch-offline-room entered the offline Room agent='unlocked' room_active=1",
+      "MENUPOOL: acquired room",
+      "BOOT: --debug-room-tab consumed: tab=0",
+      "ROOM: --debug-room-load-preset armed slot=0",
+      "ROOM: --debug-room-load-preset slot=0 of 14 unlocked",
+      "SCENARIO\\.PRESET committed slot=0 config=[0-9]+ name='No Shield' arena='[^']+' mode='[^']+' bots=[0-9]+ humans=1",
+      "ROOM: preset loaded slot=0 name='No Shield' humans=1",
+      "ROOM: --debug-auto-start-match -- firing Start Match tab=0",
+      "MENU\\.GRAPH\\.FIRE source=room edge=start_match",
+      "PLAYER\\.INIT\\.COMMIT match players=1 bots=[0-9]+",
+      "MODE\\.PLAN: stage_reset mode=[a-z_]+:[a-z_]+ scenario=[0-9]+ modules=[1-9][0-9]*",
+      "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready",
+      "MODE\\.PARITY: smoke_exit mode=[a-z_]+:[a-z_]+ compared=[1-9][0-9]* differ=0\\b",
+      "SMOKE: result=scripted_exit"
+    ],
+    "required_sequences": [
+      {
+        "name": "agent-room-preset-start",
+        "patterns": [
+          "BOOT: --launch-load-agent consumed: name='unlocked' result=OK",
+          "BOOT: --launch-offline-room entered the offline Room agent='unlocked' room_active=1",
+          "MENUPOOL: acquired room",
+          "ROOM: --debug-room-load-preset slot=0 of 14 unlocked",
+          "SCENARIO\\.PRESET committed slot=0 ",
+          "ROOM: preset loaded slot=0 ",
+          "ROOM: --debug-auto-start-match -- firing Start Match tab=0",
+          "MENU\\.GRAPH\\.FIRE source=room edge=start_match",
+          "PLAYER\\.INIT\\.COMMIT match players=1 ",
+          "SMOKE\\.WAIT: satisfied condition=offline_gameplay_ready"
+        ]
+      }
+    ],
+    "forbidden_patterns": [
+      "SCENARIO\\.PRESET rejected",
+      "ROOM: preset load failed",
+      "ROOM: --debug-room-load-preset expects",
+      "MENU: watchdog",
+      "INPUTCTX watchdog",
+      "MENUPOOL: released [1-9][0-9]* legacy-stack leak slot",
+      "MENUPOOL legacy-stack leak: \\[",
+      "MENUPOOL: drift",
+      "PLAYER\\.INIT\\.ROLLBACK",
+      "filemgrSaveOrLoad",
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "SMOKE: result=wait_timeout",
+      "BOOT: --launch-offline-room has no active agent",
+      "BOOT: --launch-offline-room ignored",
+      "MODE\\.PARITY: differ",
+      "LOUDFAIL\\.MODE"
+    ],
+    "required_counts": []
+  }
+}

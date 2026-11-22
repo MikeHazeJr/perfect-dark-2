@@ -4590,6 +4590,29 @@ char *mpGetPresetNameBySlot(s32 slot)
 	return "";
 }
 
+/* PC (B-1295, the Room's Load Preset): the slot-th preset's name as
+ * mpGetPresetNameBySlot gives it, without the line terminator the language
+ * file ends each menu item with ("No Shield\n"), for the Room's list and the
+ * logs. Writes "" when the slot holds no unlocked preset. */
+void mpCopyPresetNameBySlot(s32 slot, char *out, s32 size)
+{
+	const char *name;
+	s32 len = 0;
+
+	if (out == NULL || size <= 0) {
+		return;
+	}
+
+	name = slot >= 0 ? mpGetPresetNameBySlot(slot) : "";
+
+	while (name != NULL && name[len] != '\0' && name[len] != '\n' && len < size - 1) {
+		out[len] = name[len];
+		len++;
+	}
+
+	out[len] = '\0';
+}
+
 #if VERSION >= VERSION_NTSC_1_0
 const char var7f1b8c40[] = "bot %d headId %d bodyId %d\n";
 const char var7f1b8c5c[] = "team change %s %d\n";

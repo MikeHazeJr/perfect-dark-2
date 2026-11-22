@@ -1,5 +1,22 @@
 # Bug Tracker
 
+## 2026-11-21 B-1295 The Room's preset names carry the language file's line feed into its logs and the preset's setup name (T-MENUS-009, fixed on week-pd/mp-rules, found in review, not seen in a game)
+
+Found while writing the finalization smoke for the Room's Load Preset (claude-pd-mp-rules-20261121).
+`mpGetPresetNameBySlot` returns the language file's text, and the language file ends each of these menu
+items with a line feed (`"No Shield\n"`, `src/assets/*/lang/mpweapons.json`), which the original menus read as
+the end of the item. PR 27 (09052ace) used it as it came: the `ROOM: preset loaded` and
+`SCENARIO.PRESET committed` lines broke across two log lines, so no smoke could match them, and the preset's Room
+document took the name with the line feed. The list itself looked right: ImGui measures and draws a trailing line
+feed as nothing. Fix: `mpCopyPresetNameBySlot` (`src/game/mplayer/mplayer.c`) copies the name up to the line
+feed; the Room's list, its label, its logs and `scenarioLoadPreset` use it, and the Room no longer calls
+`mpGetPresetNameBySlot`. Propagation: the arena names (`mpmenu.json`) and simulant names (`misc.json`) the Room
+lists carry no line feed, and the end screen already cuts names at one (`pdgui_menu_endscreen.cpp`). Tests:
+`[preset]` in `tests/test_scenario_save_transaction_static.cpp`. In the game: `room_load_preset_smoke` (finalization
+batch) requires both lines whole.
+
+Severity low.
+
 ## 2026-11-21 B-1292 A refused mod game mode stays in the legacy mode picker, whose ASSET.CHAIN check would stop the game (T-MODDING-026, open, found in review, not seen in a game)
 
 Found while writing gamemode-graphs slice 2 (claude-pd-mp-rules-20261121). When a `.pdgamemode` does not

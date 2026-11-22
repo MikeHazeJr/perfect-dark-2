@@ -998,7 +998,6 @@ s32 scenarioLoadPreset(s32 slot, s32 humanCount)
 	scenario_load_plan_t plan;
 	u8 teams[SCENARIO_CODEC_MAX_BOTS];
 	char detail[192];
-	const char *name;
 	s32 diffindex;
 	s32 i;
 
@@ -1022,8 +1021,11 @@ s32 scenarioLoadPreset(s32 slot, s32 humanCount)
 		| SCENARIO_DOC_TIMELIMIT | SCENARIO_DOC_SCORELIMIT
 		| SCENARIO_DOC_TEAMSCORELIMIT | SCENARIO_DOC_OPTIONS | SCENARIO_DOC_BOTS;
 	document.version = SCENARIO_SAVE_VERSION;
-	name = mpGetPresetNameBySlot(slot);
-	strncpy(document.name, name && name[0] ? name : "preset", sizeof(document.name) - 1);
+	/* B-1295: the name without the language file's line terminator. */
+	mpCopyPresetNameBySlot(slot, document.name, (s32)sizeof(document.name));
+	if (!document.name[0]) {
+		strncpy(document.name, "preset", sizeof(document.name) - 1);
+	}
 
 	/* The original table names its stage and mode by number; the planner's
 	 * legacy migration resolves each to its one catalog entry or refuses. */
