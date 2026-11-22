@@ -80,6 +80,11 @@ void smokeHarnessTick(void);
 void smokeHarnessExit(int code, const char *reason);
 int  smokeHarnessIsActive(void);
 
+/* B-1310: nonzero while the ledge or tabletop smoke holds this simulant;
+ * botFindPickup then offers it no items, so its hold is its only goal. */
+struct chrdata;
+int  smokeHarnessBotPickupsHeld(const struct chrdata *chr);
+
 #ifdef __cplusplus
 }
 #endif

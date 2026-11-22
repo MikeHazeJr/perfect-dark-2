@@ -189,6 +189,8 @@
 #include "forge_level_io.h"
 #include "game/setuputils.h"
 #include "lib/meshcollision.h"
+#include "lib/collision.h" /* cdFindGroundAtCyl (B-1310 table approach) */
+#include "lib/mtx.h"       /* mtx4TransformVec (B-1310 table bounds) */
 #include "scenario_source_runtime.h"
 #include "projectile_events.h"
 #include "mode_events.h"
@@ -319,10 +321,16 @@ typedef struct {
     f32 lower_return_max_z;
     s32 table_command;
     s32 table_pad;
+    /* B-1310: move the authored approach onto the live table's collision
+     * bounds (the authored tabletop numbers were never checked in a game). */
+    s32 measure_table;
 } SmokeSupportFixture;
 
 typedef struct {
     const SmokeSupportFixture *fixture;
+    SmokeSupportFixture measured; /* B-1310: the fixture moved onto the live table */
+    s32 trace_frames;             /* B-1310: samples logged after takeoff */
+    f32 peak_feet;                /* B-1310: highest feet after takeoff */
     struct prop *actor_prop;
     struct defaultobj *table;
     struct prop *table_prop;
@@ -3314,18 +3322,34 @@ static const SmokeSupportFixture s_SmokeSupportFixtures[] = {
         .upper_min_z = 2326.0f, .upper_max_z = 2370.0f,
         .upper_goal_z = 2348.0f, .lower_goal_z = 2235.0f,
         .lower_return_max_z = 2270.0f, .table_command = 492, .table_pad = 428,
+        .measure_table = 1,
     },
 };
+
+/* B-1310: samples of the actor after takeoff, so a missed landing shows its
+ * arc (feet, velocity, position) and not only the verdict. */
+#define SMOKE_LEDGE_TRACE_FRAMES 150
+
+/* B-1310: while the ledge harness holds a simulant, the simulant takes no
+ * items: an unarmed simulant otherwise leaves its hold for the nearest weapon
+ * first, as the original orders its choices (botTickUnpaused). */
+int smokeHarnessBotPickupsHeld(const struct chrdata *chr)
+{
+    const SmokeLedge *ledge = &s_State.ledge;
+
+    return s_State.active && chr && ledge->bot_slot >= 0 && ledge->actor_prop
+        && chr->prop == ledge->actor_prop;
+}
 
 static s32 smokeLedgeFail(const char *reason)
 {
     const SmokeLedge *ledge = &s_State.ledge;
 
     sysLogPrintf(LOG_ERROR,
-        "%s: result=fail reason=%s chrnum=%d takeoff=%d descended=%d landed=%d stayed=%d walk_off=%d dropped=%d lower_landed=%d",
+        "%s: result=fail reason=%s chrnum=%d takeoff=%d descended=%d landed=%d stayed=%d walk_off=%d dropped=%d lower_landed=%d peak_feet=%.2f",
         ledge->fixture->marker, reason, ledge->actor_chrnum, ledge->took_off, ledge->descended,
         ledge->landed, ledge->stayed, ledge->walk_off, ledge->dropped,
-        ledge->lower_landed);
+        ledge->lower_landed, ledge->peak_feet);
     smokeHarnessExit(1, "movement_ledge_failed");
     return 0;
 }
@@ -3387,6 +3411,85 @@ static s32 smokeLedgeTableContact(const SmokeLedge *ledge, const struct coord *p
         && fabsf(6.0f - 12.0f * fraction) <= 3.0f;
 }
 
+/* B-1310: the live table's collision bounds in world space: its mesh's local
+ * box through the prop's transform (conservative for a turned table). */
+static s32 smokeLedgeTableBounds(struct prop *prop, struct coord *mn, struct coord *mx)
+{
+    struct colmesh *mesh = meshGetFromProp(prop);
+    Mtxf mtx;
+
+    if (!mesh || mesh->numtris <= 0 || !meshBuildPropTransform(prop, &mtx)) {
+        return 0;
+    }
+
+    for (s32 i = 0; i < 8; i++) {
+        struct coord local = {
+            (i & 1) ? mesh->bboxmax.x : mesh->bboxmin.x,
+            (i & 2) ? mesh->bboxmax.y : mesh->bboxmin.y,
+            (i & 4) ? mesh->bboxmax.z : mesh->bboxmin.z,
+        };
+        struct coord world;
+        mtx4TransformVec(&mtx, &local, &world);
+        if (i == 0) {
+            *mn = world;
+            *mx = world;
+            continue;
+        }
+        mn->x = world.x < mn->x ? world.x : mn->x;
+        mn->y = world.y < mn->y ? world.y : mn->y;
+        mn->z = world.z < mn->z ? world.z : mn->z;
+        mx->x = world.x > mx->x ? world.x : mx->x;
+        mx->y = world.y > mx->y ? world.y : mx->y;
+        mx->z = world.z > mx->z ? world.z : mx->z;
+    }
+    return 1;
+}
+
+/* B-1310: keep the authored approach (start, edge, goals along +Z) but move it
+ * onto the live table: its centre line, its near edge, its top, and the floor
+ * the start stands on. Every number is logged, so a blocked approach shows. */
+static s32 smokeLedgeMeasureTable(SmokeLedge *ledge, const SmokeSupportFixture *authored)
+{
+    struct coord mn;
+    struct coord mx;
+
+    if (!smokeLedgeTableBounds(ledge->table_prop, &mn, &mx)) {
+        return smokeLedgeFail("table_bounds_unavailable");
+    }
+
+    SmokeSupportFixture *m = &ledge->measured;
+    const f32 dz = mn.z - authored->edge_z;
+    *m = *authored;
+    m->x = (mn.x + mx.x) * 0.5f;
+    m->lane_half_width = (mx.x - mn.x) * 0.5f - 4.0f < authored->lane_half_width
+        ? (mx.x - mn.x) * 0.5f - 4.0f : authored->lane_half_width;
+    m->upper_y = mx.y;
+    m->edge_z = mn.z;
+    m->start_z = authored->start_z + dz;
+    m->upper_min_z = authored->upper_min_z + dz;
+    m->upper_max_z = authored->upper_max_z + dz < mx.z - 4.0f ? authored->upper_max_z + dz : mx.z - 4.0f;
+    m->upper_goal_z = (m->upper_min_z + m->upper_max_z) * 0.5f;
+    m->lower_goal_z = authored->lower_goal_z + dz;
+    m->lower_return_max_z = authored->lower_return_max_z + dz;
+
+    RoomNum rooms[] = { authored->room, -1 };
+    struct coord start = { m->x, mx.y + 40.0f, m->start_z };
+    m->lower_y = cdFindGroundAtCyl(&start, 20.0f, rooms, NULL, NULL);
+
+    sysLogPrintf(LOG_NOTE,
+        "%s: phase=table_measured pos=(%.1f,%.1f,%.1f) x=[%.1f,%.1f] y=[%.1f,%.1f] z=[%.1f,%.1f] lane_x=%.1f half=%.1f floor=%.1f top=%.1f start_z=%.1f edge_z=%.1f upper_z=[%.1f,%.1f] authored_top=%.1f authored_edge_z=%.1f",
+        authored->marker, ledge->table_pos.x, ledge->table_pos.y, ledge->table_pos.z,
+        mn.x, mx.x, mn.y, mx.y, mn.z, mx.z, m->x, m->lane_half_width, m->lower_y, m->upper_y,
+        m->start_z, m->edge_z, m->upper_min_z, m->upper_max_z, authored->upper_y, authored->edge_z);
+
+    if (m->lane_half_width < 4.0f || m->upper_max_z <= m->upper_min_z
+            || m->upper_y - m->lower_y < 10.0f || m->upper_y - m->lower_y > 100.0f) {
+        return smokeLedgeFail("table_measure_unusable");
+    }
+    ledge->fixture = m;
+    return 1;
+}
+
 static s32 smokeLedgeBindTable(SmokeLedge *ledge, struct prop *actor)
 {
     const SmokeSupportFixture *fixture = ledge->fixture;
@@ -3402,6 +3505,11 @@ static s32 smokeLedgeBindTable(SmokeLedge *ledge, struct prop *actor)
     ledge->table_pos = obj->prop->pos;
     memcpy(ledge->table_rotation, obj->realrot, sizeof(ledge->table_rotation));
     if (!smokeLedgeTableStable(ledge)) return smokeLedgeFail("table_collision_unavailable");
+
+    if (fixture->measure_table) {
+        if (!smokeLedgeMeasureTable(ledge, fixture)) return 0;
+        fixture = ledge->fixture;
+    }
 
     const struct coord target = { fixture->x, fixture->upper_y, fixture->upper_goal_z };
     if (!smokeLedgeTableContact(ledge, &target, fixture->upper_y, actor)) {
@@ -3461,6 +3569,16 @@ static s32 smokeLedgeObserve(void)
     if (ledge->took_off && feet > fixture->upper_y + 2.0f && velocity < -0.25f) {
         ledge->descended = 1;
     }
+    if (ledge->took_off) {
+        if (feet > ledge->peak_feet) ledge->peak_feet = feet;
+        if (ledge->trace_frames < SMOKE_LEDGE_TRACE_FRAMES) {
+            ledge->trace_frames++;
+            sysLogPrintf(LOG_NOTE,
+                "%s: sample n=%d frame=%d feet=%.2f ground=%.2f velocity=%.2f x=%.1f z=%.1f room=%d settled=%d on_ledge=%d descended=%d",
+                fixture->marker, ledge->trace_frames, frame, feet, ground, velocity, pos->x, pos->z,
+                floorroom, settled, on_ledge, ledge->descended);
+        }
+    }
     if (!ledge->walk_off) {
         if (!on_ledge && ledge->landed) return smokeLedgeFail("lost_ledge_before_walk_off");
         if (!on_ledge || !ledge->descended) return 1;
@@ -3507,8 +3625,14 @@ static s32 smokeLedgeApply(SmokeSupportFixtureId fixture_id, SmokeLedgeCommand c
     const SmokeSupportFixture *fixture = &s_SmokeSupportFixtures[fixture_id];
     RoomNum rooms[] = { fixture->room, -1 };
 
-    if (ledge->fixture && ledge->fixture != fixture) return smokeLedgeFail("fixture_changed");
-    ledge->fixture = fixture;
+    /* B-1310: once bound, a measured table fixture lives in ledge->measured;
+     * the same authored fixture keeps it, by its marker. */
+    if (ledge->fixture && ledge->fixture != fixture
+            && (ledge->fixture != &ledge->measured || ledge->measured.marker != fixture->marker)) {
+        return smokeLedgeFail("fixture_changed");
+    }
+    if (!ledge->fixture) ledge->fixture = fixture;
+    fixture = ledge->fixture;
     if (!smokeLedgeStageActive(fixture)) return smokeLedgeFail("wrong_stage");
     if (command == SMOKE_LEDGE_PLACE_PLAYER || command == SMOKE_LEDGE_PLACE_BOT) {
         const s32 bot_slot = command == SMOKE_LEDGE_PLACE_BOT ? 0 : -1;
@@ -3519,6 +3643,7 @@ static s32 smokeLedgeApply(SmokeSupportFixtureId fixture_id, SmokeLedgeCommand c
         struct chrdata *chr = smokeLedgeActor(bot_slot);
         if (!chr) return smokeLedgeFail("actor_missing");
         if (fixture->table_command >= 0 && !smokeLedgeBindTable(ledge, chr->prop)) return 0;
+        fixture = ledge->fixture;
 
         struct coord start = { fixture->x, fixture->lower_y + 4.0f, fixture->start_z };
         const s32 previous_player = g_Vars.currentplayernum;
@@ -3564,6 +3689,16 @@ static s32 smokeLedgeApply(SmokeSupportFixtureId fixture_id, SmokeLedgeCommand c
                 return smokeLedgeFail("actor_changed");
             }
             botApplyHold(chr, &lower, rooms, M_BADPI);
+        } else {
+            /* B-1310: a smoke can only press the movement axis forward
+             * (actionmapInjectStateForSmoke sets +1.0), so the player walks
+             * off facing back down the approach (-Z), as the simulant's hold
+             * does (M_BADPI). */
+            struct player *player = g_Vars.players[0];
+            if (!player || player->prop != ledge->actor_prop) return smokeLedgeFail("actor_changed");
+            player->vv_theta = 180.0f;
+            sysLogPrintf(LOG_NOTE, "%s: phase=turn actor=player theta=%.1f",
+                fixture->marker, player->vv_theta);
         }
         ledge->walk_off = 1;
         return 1;

@@ -155,7 +155,13 @@ STUCK line, and **B-1305** fixed the two fixture assumptions it exposed (objecti
 offline start without the unlock, so the local Combat smoke has a 600 s backstop instead). R2 passed, and its
 Capture the Case STUCK lines gave **B-1306**: the stuck watchdog moved simulants standing on station (a SAVECASE
 guard on its own case, nine times in 150 s); it now skips a simulant in the main loop, off a route, within 50 of
-its go-to position. Integration takes B-1306 into candidate 3 before G2 to G4. **B-1303**: my six local mode fixtures required a respawn; they now accept `spawn=0`.
+its go-to position. Integration takes B-1306 into candidate 3 before G2 to G4. Candidate 3's R1' to R2' passed
+(STUCK 21 → 1 in CTC, 22 → 0 in KOH). G2's first runs gave **B-1310**: D-052's four ledge and tabletop smokes had
+never run and could not pass as written. The player fixtures pressed the digital forward action, which player
+movement does not read; the Villa table numbers missed the live table; the held simulant left for a weapon. The
+fixed smokes (axis inputs and a turn for the walk-off, a table measured from the live table, a pickup-free hold,
+per-frame traces) go to the next candidate; candidate 3 ships without them, and Integration's release notes say the
+ledge and tabletop landings are unproven (Mike's call if they must pass first). **B-1303**: my six local mode fixtures required a respawn; they now accept `spawn=0`.
 Pattern SP-101. Integration holds G1 to G4 (everything with simulant movement) for the rerun; base 15 stays
 (no data change). Lesson: D-052 went on by default with only its own feature smokes listed; an option that
 changes every simulant's movement needs the ordinary mode smokes before it is the default.

@@ -449,3 +449,56 @@ TEST_CASE("walking simulants keep the original ground search; only a jump's flig
     REQUIRE(climbLoop != std::string::npos);
     REQUIRE(climbLand < climbLoop);
 }
+
+TEST_CASE("the ledge and tabletop smokes drive the movement they test (B-1310)",
+          "[physics][jump][smokes][static]")
+{
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string header = readTextFile("port/include/smoke_harness.h");
+    const std::string bot = readTextFile("src/game/bot.c");
+
+    REQUIRE_FALSE(harness.empty());
+    REQUIRE_FALSE(header.empty());
+    REQUIRE_FALSE(bot.empty());
+
+    // Player movement reads the analog axis, not the digital forward action, so
+    // the player fixtures press the axis; the walk-off turns the player back.
+    for (const char *name : {"complex_ledge_player_smoke", "villa_tabletop_player_smoke"}) {
+        INFO(name);
+        const std::string fixture = readTextFile((std::string("tools/smoke-verify/tests/") + name + ".json").c_str());
+        REQUIRE_FALSE(fixture.empty());
+        requireContains(fixture, "\"name\": \"ACTION_AXIS_MOVE_Y\", \"action\": \"press\"");
+        requireNotContains(fixture, "ACTION_MOVE_FORWARD");
+        requireNotContains(fixture, "ACTION_MOVE_BACKWARD");
+        requireContains(fixture, "phase=turn actor=player theta=180");
+    }
+    requireContains(harness, "player->vv_theta = 180.0f;");
+    requireContains(harness, "\"%s: phase=turn actor=player theta=%.1f\"");
+
+    // The tabletop is measured from the live table, and its fixtures expect it.
+    requireContains(harness, ".measure_table = 1,");
+    requireContains(harness, "static s32 smokeLedgeMeasureTable(SmokeLedge *ledge, const SmokeSupportFixture *authored)");
+    requireContains(harness, "\"%s: phase=table_measured pos=");
+    requireContains(harness, "if (fixture->measure_table) {");
+    for (const char *name : {"villa_tabletop_player_smoke", "villa_tabletop_simulant_smoke"}) {
+        INFO(name);
+        const std::string fixture = readTextFile((std::string("tools/smoke-verify/tests/") + name + ".json").c_str());
+        REQUIRE_FALSE(fixture.empty());
+        requireContains(fixture, "SMOKE\\\\.TABLETOP: phase=table_measured pos=");
+        requireNotContains(fixture, "feet=(?:-24[0-2]|-23[89])");
+    }
+
+    // A held simulant takes no items while the smoke holds it.
+    requireContains(header, "int  smokeHarnessBotPickupsHeld(const struct chrdata *chr);");
+    requireContains(harness, "int smokeHarnessBotPickupsHeld(const struct chrdata *chr)");
+    const size_t pickup = bot.find("struct prop *botFindPickup(struct chrdata *chr, s32 criteria)");
+    REQUIRE(pickup != std::string::npos);
+    const size_t held = bot.find("if (smokeHarnessBotPickupsHeld(chr)) {\n\t\treturn NULL;", pickup);
+    REQUIRE(held != std::string::npos);
+    REQUIRE(held < bot.find("if (&aibot);", pickup));
+
+    // After takeoff the arc is traced, and the failure line names its peak.
+    requireContains(harness, "#define SMOKE_LEDGE_TRACE_FRAMES 150");
+    requireContains(harness, "\"%s: sample n=%d frame=%d feet=%.2f");
+    requireContains(harness, "lower_landed=%d peak_feet=%.2f\"");
+}
