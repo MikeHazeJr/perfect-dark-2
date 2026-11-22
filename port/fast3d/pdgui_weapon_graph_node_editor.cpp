@@ -7,7 +7,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <algorithm>
+#include <stdlib.h>
 #include <string>
+#include <vector>
 
 #include "imgui/imgui.h"
 #include "imgui_node_editor.h"
@@ -674,6 +676,234 @@ static void renderNodeParamControls(PdWeaponGraphNodeEdit &node,
 	}
 }
 
+/* held-weapon-events.md slice 8a: a program node's settings as named
+ * inputs. A setting left out is the function's own and stays out until it is
+ * set; Reset leaves it out again. A "$name" setting reads a weapon variable
+ * and is edited as text. Settings the inspector does not list keep their
+ * text. */
+static std::vector<std::string> splitChoices(const char *choices)
+{
+	std::vector<std::string> out;
+	std::string word;
+
+	for (const char *p = choices ? choices : ""; ; p++) {
+		if (*p == '|' || *p == '\0') {
+			if (!word.empty()) out.push_back(word);
+			word.clear();
+			if (*p == '\0') break;
+		} else {
+			word += *p;
+		}
+	}
+	return out;
+}
+
+static bool textIsDigits(const std::string &text)
+{
+	if (text.empty()) return false;
+	for (char c : text) {
+		if (c < '0' || c > '9') return false;
+	}
+	return true;
+}
+
+static crude_json::value choiceValue(const std::string &choice)
+{
+	if (textIsDigits(choice)) return crude_json::value((crude_json::number)atoi(choice.c_str()));
+	return crude_json::value(choice);
+}
+
+static crude_json::value initialSettingValue(const weapon_graph_designer_setting_t &setting)
+{
+	switch (setting.input) {
+	case WEAPON_GRAPH_INPUT_WHOLE:
+		return crude_json::value((crude_json::number)setting.lo);
+	case WEAPON_GRAPH_INPUT_NUMBER:
+		if (strcmp(setting.key, "rate") == 0 || strcmp(setting.key, "start_rate") == 0) {
+			return crude_json::value((crude_json::number)600);
+		}
+		return crude_json::value((crude_json::number)(setting.hi < 1.0f ? setting.hi : 1.0f));
+	case WEAPON_GRAPH_INPUT_SWITCH:
+		return crude_json::value(true);
+	case WEAPON_GRAPH_INPUT_KINDS:
+		return crude_json::value(std::string("all"));
+	case WEAPON_GRAPH_INPUT_NAME:
+		return crude_json::value(std::string("state"));
+	default: {
+		const std::vector<std::string> choices = splitChoices(setting.choices);
+		return choices.empty() ? crude_json::value(std::string()) : choiceValue(choices[0]);
+	}
+	}
+}
+
+/* An edited setting: true when it changed. */
+static bool renderSettingInput(const weapon_graph_designer_setting_t &setting, crude_json::value &value)
+{
+	if (value.is_string()) {
+		const std::string text = value.get<crude_json::string>();
+		if (!text.empty() && text[0] == '$') {
+			char buf[64];
+			snprintf(buf, sizeof(buf), "%s", text.c_str());
+			ImGui::SetNextItemWidth(-1.0f);
+			if (ImGui::InputText("##variable", buf, sizeof(buf))) {
+				value = crude_json::string(buf);
+				return true;
+			}
+			return false;
+		}
+	}
+	switch (setting.input) {
+	case WEAPON_GRAPH_INPUT_WHOLE: {
+		int v = value.is_number() ? (int)value.get<crude_json::number>() : (int)setting.lo;
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::InputInt("##whole", &v)) {
+			if (v < (int)setting.lo) v = (int)setting.lo;
+			if (v > (int)setting.hi) v = (int)setting.hi;
+			value = (crude_json::number)v;
+			return true;
+		}
+		return false;
+	}
+	case WEAPON_GRAPH_INPUT_NUMBER: {
+		float v = value.is_number() ? (float)value.get<crude_json::number>() : setting.hi;
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::InputFloat("##number", &v, 0.0f, 0.0f, "%.3f")) {
+			const float floor = setting.lo_included ? setting.lo : setting.lo + 0.001f;
+			if (v < floor) v = floor;
+			if (v > setting.hi) v = setting.hi;
+			value = (crude_json::number)v;
+			return true;
+		}
+		return false;
+	}
+	case WEAPON_GRAPH_INPUT_SWITCH: {
+		bool v = value.is_boolean() ? value.get<crude_json::boolean>() : false;
+		if (ImGui::Checkbox("##switch", &v)) {
+			value = v;
+			return true;
+		}
+		return false;
+	}
+	case WEAPON_GRAPH_INPUT_CHOICE: {
+		const std::vector<std::string> choices = splitChoices(setting.choices);
+		const std::string current = value.is_string() ? value.get<crude_json::string>()
+			: value.is_number() ? std::to_string((int)value.get<crude_json::number>()) : std::string();
+		bool changed = false;
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::BeginCombo("##choice", current.c_str())) {
+			for (const std::string &choice : choices) {
+				if (ImGui::Selectable(choice.c_str(), choice == current)) {
+					value = choiceValue(choice);
+					changed = true;
+				}
+			}
+			ImGui::EndCombo();
+		}
+		return changed;
+	}
+	case WEAPON_GRAPH_INPUT_KINDS: {
+		const std::vector<std::string> kinds = splitChoices(setting.choices);
+		std::string current = value.is_string() ? value.get<crude_json::string>() : std::string();
+		const bool all = current == "all";
+		bool changed = false;
+		std::string next;
+		for (const std::string &kind : kinds) {
+			bool on = all || (std::string(",") + current + ",").find("," + kind + ",") != std::string::npos;
+			ImGui::PushID(kind.c_str());
+			if (ImGui::Checkbox(kind.c_str(), &on)) changed = true;
+			ImGui::PopID();
+			if (on) next += (next.empty() ? "" : ",") + kind;
+		}
+		if (changed) value = crude_json::string(next.empty() ? kinds[0] : next);
+		return changed;
+	}
+	default: {
+		char buf[64];
+		snprintf(buf, sizeof(buf), "%s", value.is_string() ? value.get<crude_json::string>().c_str() : "");
+		ImGui::SetNextItemWidth(-1.0f);
+		if (ImGui::InputText("##text", buf, sizeof(buf))) {
+			value = crude_json::string(buf);
+			return true;
+		}
+		if (setting.input == WEAPON_GRAPH_INPUT_ID && setting.choices) {
+			for (const std::string &choice : splitChoices(setting.choices)) {
+				ImGui::SameLine();
+				if (ImGui::SmallButton(choice.c_str())) {
+					value = crude_json::string(choice);
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+	}
+}
+
+static void renderProgramSettings(PdWeaponGraphNodeEdit &node, PdWeaponGraphEditorResult *result)
+{
+	crude_json::value root = crude_json::value::parse(std::string("{") + node.extra + "}");
+	if (!root.is_object()) {
+		ImGui::TextDisabled("These settings are not valid JSON; edit them as text below.");
+		return;
+	}
+	crude_json::object &obj = root.get<crude_json::object>();
+	weapon_graph_designer_setting_t settings[32];
+	const s32 count = weaponGraphDesignerSettings(node.kind, settings, 32);
+	bool changed = false;
+
+	ImGui::TextUnformatted("Settings");
+	if (count == 0) ImGui::TextDisabled("This node has no settings.");
+	for (s32 i = 0; i < count && i < 32; i++) {
+		const weapon_graph_designer_setting_t &setting = settings[i];
+		auto found = obj.find(setting.key);
+		ImGui::PushID(setting.key);
+		if (found == obj.end()) {
+			ImGui::TextDisabled("%s: the function's own", setting.label);
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Set")) {
+				obj[setting.key] = initialSettingValue(setting);
+				changed = true;
+			}
+		} else {
+			ImGui::TextUnformatted(setting.label);
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Reset")) {
+				obj.erase(found);
+				changed = true;
+			} else if (renderSettingInput(setting, found->second)) {
+				changed = true;
+			}
+		}
+		ImGui::PopID();
+	}
+	for (const auto &entry : obj) {
+		bool listed = false;
+		for (s32 i = 0; i < count && i < 32; i++) {
+			if (entry.first == settings[i].key) listed = true;
+		}
+		if (!listed) ImGui::TextDisabled("%s: kept as written", entry.first.c_str());
+	}
+	if (changed) {
+		std::string extra;
+		for (const auto &entry : obj) {
+			std::string escaped;
+			for (char c : entry.first) {
+				if (c == '"' || c == '\\') escaped += '\\';
+				escaped += c;
+			}
+			if (!extra.empty()) extra += ", ";
+			extra += "\"" + escaped + "\": " + weaponGraphEditorValueText(entry.second);
+		}
+		if (extra.size() < sizeof(node.extra)) {
+			snprintf(node.extra, sizeof(node.extra), "%s", extra.c_str());
+			result->model_changed = true;
+			editorSetStatus(result, true, "Node setting updated");
+		} else {
+			editorSetStatus(result, false, "Node settings are too large after the edit");
+		}
+	}
+}
+
 static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 		PdWeaponGraphEditorResult *result,
 		float width,
@@ -708,15 +938,27 @@ static void renderInspector(const PdWeaponGraphEditorDesc *desc,
 		}
 		ImGui::EndCombo();
 	}
-	renderNodeParamControls(node, result);
-	ImGui::Separator();
-	ImGui::TextUnformatted("Advanced JSON");
-	if (ImGui::InputTextMultiline("Params", node.params, sizeof(node.params),
-			ImVec2(-1.0f, 112.0f * desc->scale),
-			ImGuiInputTextFlags_AllowTabInput)) {
-		result->model_changed = true;
+	const bool program = weaponGraphNodeIsProgram(node.kind) != 0;
+	if (program) {
+		/* slice 8a: a program node's settings are its own members. */
+		renderProgramSettings(node, result);
+		if (ImGui::CollapsingHeader("Settings as text")) {
+			if (ImGui::InputTextMultiline("##program_settings", node.extra, sizeof(node.extra),
+					ImVec2(-1.0f, 96.0f * desc->scale), ImGuiInputTextFlags_AllowTabInput)) {
+				result->model_changed = true;
+			}
+		}
+	} else {
+		renderNodeParamControls(node, result);
+		ImGui::Separator();
+		ImGui::TextUnformatted("Advanced JSON");
+		if (ImGui::InputTextMultiline("Params", node.params, sizeof(node.params),
+				ImVec2(-1.0f, 112.0f * desc->scale),
+				ImGuiInputTextFlags_AllowTabInput)) {
+			result->model_changed = true;
+		}
 	}
-	if (ImGui::CollapsingHeader("Node Context Refs")) {
+	if (!program && ImGui::CollapsingHeader("Node Context Refs")) {
 		for (int i = 0; i < desc->context_count; i++) {
 			const char *name = desc->contexts[i].name;
 			bool checked = paramsHasContext(node.params, name);

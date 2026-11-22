@@ -18,6 +18,10 @@
 #include "modasset_gltf_document.h"
 #include "weapon_graph_editor_io.h"
 
+extern "C" {
+#include "weapon_rules.h"
+}
+
 namespace {
 
 using Json = crude_json::value;
@@ -761,4 +765,178 @@ extern "C" const char *weaponGraphNodeOutputName(const char *kind, s32 index)
     if (!weaponGraphNodeIsProgram(kind)) return "";
     if (std::strncmp(kind, "gate.weapon.", 12) == 0) return index == 0 ? "pass" : "fail";
     return "out";
+}
+
+/* ---- held-weapon-events.md slice 8a: the designer settings ------------- */
+
+namespace {
+
+struct DesignerLabel {
+    const char *key;
+    const char *label;
+};
+
+const DesignerLabel kDesignerLabels[] = {
+    { "count", "Rounds per burst" }, { "gap", "Gap after a burst (ticks)" },
+    { "rate", "Rate (rounds per minute)" }, { "start_rate", "Starting rate (rounds per minute)" },
+    { "spin_up", "Spin-up (ticks)" }, { "spin_down", "Spin-down (ticks)" },
+    { "burst", "Burst (rounds; 0 for none)" }, { "aimed_burst", "Burst while aiming" },
+    { "rounds", "Rounds" }, { "pellets", "Pellets" }, { "through_walls", "Through walls" },
+    { "shield_damage", "Shield damage" }, { "range", "Range" }, { "item", "Item" },
+    { "item_function", "Item's function" }, { "give_up_gun", "Give up the gun" },
+    { "action", "Action" }, { "mode", "Mode" }, { "drain", "Drain per second" }, { "style", "Style" },
+    { "regrow_time", "Regrow time (ticks)" }, { "start", "Starts" }, { "time", "Time (ticks)" },
+    { "steps", "Steps" }, { "ammo_per_step", "Ammo per step" }, { "min_clip", "Minimum clip" },
+    { "fall_time", "Fall time (ticks)" }, { "release", "Release" }, { "damage_per_step", "Damage per step" },
+    { "fuse", "Fuse (ticks)" }, { "locks", "Locks" }, { "aim_follows", "Aim follows the lock" },
+    { "kick", "Kick (frames)" }, { "return", "Return (frames)" }, { "recovery", "Recovery (frames)" },
+    { "refire_early", "Refire early" }, { "cut_after", "Cut after (frames)" },
+    { "cut_return", "Cut return (frames)" }, { "distance", "Distance" }, { "angle", "Angle (degrees)" },
+    { "slide", "Slide" }, { "shake_x", "Shake X" }, { "shake_y", "Shake Y" }, { "shake_z", "Shake Z" },
+    { "spin_shake_from", "Shake at no spin" }, { "spin_shake_to", "Shake at full spin" },
+    { "type", "Type" }, { "on", "On" }, { "sound", "Sound" }, { "duration", "Fire slot (frames)" },
+    { "animation", "Animation" }, { "key", "State" }, { "equals", "Equals" }, { "value", "Value" },
+    { "kinds", "Kinds" }, { "sight_targets_only", "Sight targets only" }, { "vehicles", "Vehicles" },
+    { "relation", "Relation" }, { "alive", "Alive only" }, { "cloaked", "Cloaked" },
+};
+
+const char *designerLabel(const char *key)
+{
+    for (const DesignerLabel &row : kDesignerLabels) {
+        if (std::strcmp(row.key, key) == 0) return row.label;
+    }
+    return key;
+}
+
+const weapon_graph_designer_setting_t kHasAmmoSettings[] = {
+    { WEAPON_RULE_ROUNDS_PARAM, "Rounds", WEAPON_GRAPH_INPUT_WHOLE, 1.0f, (f32)WEAPON_RULE_MAX_ROUNDS, 1, nullptr },
+};
+const weapon_graph_designer_setting_t kStateIsSettings[] = {
+    { WEAPON_RULE_KEY_PARAM, "State", WEAPON_GRAPH_INPUT_NAME, 0.0f, 0.0f, 0, nullptr },
+    { WEAPON_RULE_EQUALS_PARAM, "Equals", WEAPON_GRAPH_INPUT_SWITCH, 0.0f, 0.0f, 0, nullptr },
+};
+const weapon_graph_designer_setting_t kSetStateSettings[] = {
+    { WEAPON_RULE_KEY_PARAM, "State", WEAPON_GRAPH_INPUT_NAME, 0.0f, 0.0f, 0, nullptr },
+    { WEAPON_RULE_VALUE_PARAM, "Value", WEAPON_GRAPH_INPUT_SWITCH, 0.0f, 0.0f, 0, nullptr },
+};
+const weapon_graph_designer_setting_t kTargetFilterSettings[] = {
+    { TARGET_FILTER_KINDS_PARAM, "Kinds", WEAPON_GRAPH_INPUT_KINDS, 0.0f, 0.0f, 0,
+        "player|simulant|guard|vehicle|sentry|object" },
+    { TARGET_FILTER_SIGHT_TARGETS_PARAM, "Sight targets only", WEAPON_GRAPH_INPUT_SWITCH, 0.0f, 0.0f, 0, nullptr },
+    { TARGET_FILTER_VEHICLES_PARAM, "Vehicles", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0, "any|occupied" },
+    { TARGET_FILTER_RELATION_PARAM, "Relation", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0,
+        "anyone|enemy|friend|owner|not_owner|not_friend" },
+    { TARGET_FILTER_ALIVE_PARAM, "Alive only", WEAPON_GRAPH_INPUT_SWITCH, 0.0f, 0.0f, 0, nullptr },
+    { TARGET_FILTER_CLOAKED_PARAM, "Cloaked", WEAPON_GRAPH_INPUT_CHOICE, 0.0f, 0.0f, 0, "never|with_ir|always" },
+};
+
+/* A rule table setting as the inspector takes it. */
+weapon_graph_designer_setting_t designerSettingOf(const weapon_rule_setting_t *rule)
+{
+    weapon_graph_designer_setting_t out;
+
+    std::memset(&out, 0, sizeof(out));
+    out.key = rule->key;
+    out.label = designerLabel(rule->key);
+    out.lo = (f32)rule->lo;
+    out.hi = (f32)rule->hi;
+    switch (rule->type) {
+    case WEAPON_RULE_SETTING_WHOLE:
+        out.input = WEAPON_GRAPH_INPUT_WHOLE;
+        out.lo_included = 1;
+        break;
+    case WEAPON_RULE_SETTING_RATE:
+        out.input = WEAPON_GRAPH_INPUT_NUMBER;
+        out.lo = 0.0f;
+        out.hi = (f32)WEAPON_RULE_MAX_RATE;
+        break;
+    case WEAPON_RULE_SETTING_BOOL:
+        out.input = WEAPON_GRAPH_INPUT_SWITCH;
+        break;
+    case WEAPON_RULE_SETTING_NUMBER:
+        out.input = WEAPON_GRAPH_INPUT_NUMBER;
+        out.lo = 0.0f;
+        break;
+    case WEAPON_RULE_SETTING_NONNEG:
+        out.input = WEAPON_GRAPH_INPUT_NUMBER;
+        out.lo = 0.0f;
+        out.lo_included = 1;
+        break;
+    case WEAPON_RULE_SETTING_ITEM:
+        out.input = WEAPON_GRAPH_INPUT_ID;
+        out.choices = "own";
+        break;
+    case WEAPON_RULE_SETTING_SOUND:
+    case WEAPON_RULE_SETTING_ANIMATION:
+        out.input = WEAPON_GRAPH_INPUT_ID;
+        out.choices = "none";
+        break;
+    case WEAPON_RULE_SETTING_ITEM_FUNCTION:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "gun|0|1|2";
+        break;
+    case WEAPON_RULE_SETTING_ACTION:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "detonate|boost|revert_boost|crouch|uplink";
+        break;
+    case WEAPON_RULE_SETTING_MODE:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "cloak";
+        break;
+    case WEAPON_RULE_SETTING_STYLE:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "magazine|one_at_a_time|regrow";
+        break;
+    case WEAPON_RULE_SETTING_CHARGE_START:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "while_selected|on_press";
+        break;
+    case WEAPON_RULE_SETTING_RELEASE:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "on_press|on_full";
+        break;
+    case WEAPON_RULE_SETTING_CASING:
+        out.input = WEAPON_GRAPH_INPUT_CHOICE;
+        out.choices = "none|standard|reaper|rifle|shotgun";
+        break;
+    default:
+        out.input = WEAPON_GRAPH_INPUT_NAME;
+        break;
+    }
+    return out;
+}
+
+} // namespace
+
+extern "C" s32 weaponGraphDesignerSettings(const char *kind, weapon_graph_designer_setting_t *out, s32 cap)
+{
+    s32 n = 0;
+    auto put = [&](const weapon_graph_designer_setting_t &setting) {
+        if (out && n < cap) out[n] = setting;
+        n++;
+    };
+
+    if (!kind) return 0;
+    if (std::strcmp(kind, WEAPON_GATE_HAS_AMMO_KIND) == 0) {
+        for (const weapon_graph_designer_setting_t &s : kHasAmmoSettings) put(s);
+        return n;
+    }
+    if (std::strcmp(kind, WEAPON_GATE_STATE_IS_KIND) == 0) {
+        for (const weapon_graph_designer_setting_t &s : kStateIsSettings) put(s);
+        return n;
+    }
+    const u32 bit = weaponRulesModuleBit(kind);
+    if (bit == WEAPON_MODULE_SET_STATE) {
+        for (const weapon_graph_designer_setting_t &s : kSetStateSettings) put(s);
+        return n;
+    }
+    if (!bit) return 0;
+    for (s32 i = 0; weaponRulesSettingAt(i); i++) {
+        const weapon_rule_setting_t *rule = weaponRulesSettingAt(i);
+        if (rule->module == bit) put(designerSettingOf(rule));
+    }
+    if (bit == WEAPON_MODULE_LOCK_ON) {
+        for (const weapon_graph_designer_setting_t &s : kTargetFilterSettings) put(s);
+    }
+    return n;
 }

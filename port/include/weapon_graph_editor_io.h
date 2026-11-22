@@ -97,6 +97,34 @@ s32 weaponGraphNodeOutputCount(const char *kind);
 /* The output's port: "" for a record node's; NULL past the last. */
 const char *weaponGraphNodeOutputName(const char *kind, s32 index);
 
+/* held-weapon-events.md slice 8a: what a designer node's setting takes. */
+#define WEAPON_GRAPH_INPUT_WHOLE  1 /* a whole number from lo to hi */
+#define WEAPON_GRAPH_INPUT_NUMBER 2 /* a number up to hi: above lo, or from lo when lo_included */
+#define WEAPON_GRAPH_INPUT_SWITCH 3 /* true or false */
+#define WEAPON_GRAPH_INPUT_CHOICE 4 /* one of `choices` ('|' between; a choice of digits is a number) */
+#define WEAPON_GRAPH_INPUT_ID     5 /* a catalog id (namespace:name), or one of `choices` */
+#define WEAPON_GRAPH_INPUT_NAME   6 /* a name: a state's key */
+#define WEAPON_GRAPH_INPUT_KINDS  7 /* some of `choices`, written with commas between */
+
+typedef struct weapon_graph_designer_setting {
+	const char *key;      /* "rate" */
+	const char *label;    /* "Rate (rounds per minute)" */
+	s32 input;            /* WEAPON_GRAPH_INPUT_* */
+	f32 lo;
+	f32 hi;
+	s32 lo_included;      /* a NUMBER's: whether lo itself is allowed */
+	const char *choices;  /* a CHOICE's, an ID's and KINDS' */
+} weapon_graph_designer_setting_t;
+
+/*
+ * A designer node's settings, in the order the inspector lists them: the
+ * rule table's for a module (weaponRulesSettingAt), has_ammo's rounds,
+ * state_is's and set_state's key and value, and the lock's target filter.
+ * Fills up to `cap` of `out` (which may be NULL) and returns how many there
+ * are.
+ */
+s32 weaponGraphDesignerSettings(const char *kind, weapon_graph_designer_setting_t *out, s32 cap);
+
 #ifdef __cplusplus
 }
 

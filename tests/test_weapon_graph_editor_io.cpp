@@ -29,6 +29,7 @@ extern "C" {
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -1056,4 +1057,117 @@ TEST_CASE("the creator's designer nodes are the runtime's program nodes, with th
 	REQUIRE(hub.find("weaponGraphBuilderAddEdge(result.a, result.b, false, result.port);") != std::string::npos);
 	REQUIRE(hub.find("row.group = \"Function record\";") != std::string::npos);
 	CHECK(hub.find("desc.modules = s_WeaponGraphModules;") == std::string::npos);
+}
+
+// held-weapon-events.md slice 8a: the inspector's named inputs for a
+// program node are the runtime's own settings, and each choice it offers is
+// one the runtime takes.
+TEST_CASE("the creator's named inputs are the rule tables' settings", "[weapon-graph][editor][held-weapon]")
+{
+	weapon_graph_designer_setting_t settings[32];
+	for (s32 m = 0; m < WEAPON_MODULE_COUNT; m++) {
+		const u32 bit = 1u << m;
+		const char *kind = weaponRulesModuleKind(bit);
+		INFO(kind);
+		const s32 count = weaponGraphDesignerSettings(kind, settings, 32);
+		REQUIRE(count <= 32);
+		CHECK(weaponGraphDesignerSettings(kind, nullptr, 0) == count);
+		std::set<std::string> listed;
+		for (s32 i = 0; i < count; i++) {
+			CHECK(listed.insert(settings[i].key).second);
+			CHECK(settings[i].label[0] != '\0');
+		}
+		for (s32 i = 0; weaponRulesSettingAt(i); i++) {
+			const weapon_rule_setting_t *rule = weaponRulesSettingAt(i);
+			if (rule->module != bit) continue;
+			INFO(rule->key);
+			CHECK(listed.count(rule->key) == 1);
+			for (s32 j = 0; j < count; j++) {
+				if (std::string(settings[j].key) != rule->key) continue;
+				const weapon_graph_designer_setting_t &s = settings[j];
+				if (rule->type == WEAPON_RULE_SETTING_WHOLE) {
+					CHECK(s.input == WEAPON_GRAPH_INPUT_WHOLE);
+					CHECK(weaponRulesSettingValid(rule, std::to_string((int)s.lo).c_str()) == 1);
+					CHECK(weaponRulesSettingValid(rule, std::to_string((int)s.hi).c_str()) == 1);
+				} else if (rule->type == WEAPON_RULE_SETTING_BOOL) {
+					CHECK(s.input == WEAPON_GRAPH_INPUT_SWITCH);
+				} else if (s.input == WEAPON_GRAPH_INPUT_NUMBER) {
+					char hi[32];
+					std::snprintf(hi, sizeof(hi), "%g", (double)s.hi);
+					CHECK(weaponRulesSettingValid(rule, hi) == 1);
+					CHECK(weaponRulesSettingValid(rule, "0") == (s.lo_included ? 1 : 0));
+				} else {
+					CHECK((s.input == WEAPON_GRAPH_INPUT_CHOICE || s.input == WEAPON_GRAPH_INPUT_ID));
+					REQUIRE(s.choices != nullptr);
+					std::string word;
+					for (const char *p = s.choices; ; p++) {
+						if (*p == '|' || *p == '\0') {
+							INFO(word);
+							CHECK(weaponRulesSettingValid(rule, word.c_str()) == 1);
+							word.clear();
+							if (*p == '\0') break;
+						} else {
+							word += *p;
+						}
+					}
+					if (s.input == WEAPON_GRAPH_INPUT_ID) {
+						CHECK(weaponRulesSettingValid(rule, "base:test_id") == 1);
+					}
+				}
+			}
+		}
+	}
+	// A gate's, set_state's and the lock's own.
+	REQUIRE(weaponGraphDesignerSettings("gate.weapon.has_ammo", settings, 32) == 1);
+	CHECK(std::string(settings[0].key) == "rounds");
+	CHECK(settings[0].lo == 1.0f);
+	REQUIRE(weaponGraphDesignerSettings("gate.weapon.state_is", settings, 32) == 2);
+	CHECK(std::string(settings[0].key) == "key");
+	CHECK(std::string(settings[1].key) == "equals");
+	REQUIRE(weaponGraphDesignerSettings("og.weapon.set_state", settings, 32) == 2);
+	CHECK(std::string(settings[1].key) == "value");
+	const s32 lock = weaponGraphDesignerSettings("og.weapon.lock_on", settings, 32);
+	std::set<std::string> lockKeys;
+	for (s32 i = 0; i < lock; i++) lockKeys.insert(settings[i].key);
+	CHECK(lockKeys == std::set<std::string>{ "locks", "aim_follows", "kinds", "sight_targets_only", "vehicles",
+		"relation", "alive", "cloaked" });
+	CHECK(weaponGraphDesignerSettings("event.weapon.trigger_pressed", settings, 32) == 0);
+	CHECK(weaponGraphDesignerSettings("gate.weapon.ready_to_fire", settings, 32) == 0);
+	CHECK(weaponGraphDesignerSettings("fire.hitscan", settings, 32) == 0);
+	CHECK(weaponGraphDesignerSettings(nullptr, settings, 32) == 0);
+
+	// The lock's filter choices are the ones the lock's settings parse.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	for (s32 i = 0; i < lock; i++) {
+		if (settings[i].input != WEAPON_GRAPH_INPUT_CHOICE && settings[i].input != WEAPON_GRAPH_INPUT_KINDS) continue;
+		std::string word;
+		for (const char *p = settings[i].choices; ; p++) {
+			if (*p == '|' || *p == '\0') {
+				Texts texts;
+				texts.values = { { settings[i].key, word } };
+				weapon_rule_lock_t parsed;
+				INFO(settings[i].key << "=" << word);
+				CHECK(weaponRulesApplyLockSettings(Texts::get, &texts, &parsed) == 1);
+				word.clear();
+				if (*p == '\0') break;
+			} else {
+				word += *p;
+			}
+		}
+	}
+
+	// The inspector edits a program node's settings by these inputs and
+	// leaves the record's params editor to record nodes.
+	const std::string canvas = ioReadFile(fs::path(PD_SOURCE_DIR) / "port/fast3d/pdgui_weapon_graph_node_editor.cpp");
+	REQUIRE(canvas.find("const s32 count = weaponGraphDesignerSettings(node.kind, settings, 32);") != std::string::npos);
+	REQUIRE(canvas.find("renderProgramSettings(node, result);") != std::string::npos);
+	REQUIRE(canvas.find("ImGui::TextDisabled(\"%s: the function's own\", setting.label);") != std::string::npos);
 }
