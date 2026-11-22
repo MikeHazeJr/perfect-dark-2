@@ -67,6 +67,7 @@
 
 extern "C" int gfxDebugCullModeGet(void);
 extern "C" int gfxDebugWireframeGet(void);
+extern "C" int gfxDebugConstantNoiseGet(void);
 
 namespace {
 
@@ -657,8 +658,10 @@ static void gfx_bgfx_unload_shader(struct ShaderProgram *old_prg)
  * loaded again. */
 static void snapshotProgramUniforms(BgfxProgram &prg)
 {
-    prg.frameU[0] = (float)s_frameCount;
-    prg.frameU[1] = s_noiseScale;
+    /* --debug-renderer-constant-noise (gfx_pc.cpp): noise inputs of zero. */
+    const bool constantNoise = gfxDebugConstantNoiseGet() != 0;
+    prg.frameU[0] = constantNoise ? 0.0f : (float)s_frameCount;
+    prg.frameU[1] = constantNoise ? 0.0f : s_noiseScale;
     prg.frameU[2] = s_unitLinear[0] ? 1.0f : 0.0f;
     prg.frameU[3] = s_unitLinear[1] ? 1.0f : 0.0f;
 }

@@ -1,0 +1,48 @@
+{
+  "schema": "pd2.bgfx-dependency-audit.v1",
+  "source": {
+    "files": 253,
+    "reviewed": 31,
+    "failures": [],
+    "stale_reviews": []
+  },
+  "binary": {
+    "forbidden_strings": [],
+    "imports": [
+      "advapi32.dll",
+      "bcrypt.dll",
+      "crypt32.dll",
+      "dbghelp.dll",
+      "gdi32.dll",
+      "imm32.dll",
+      "iphlpapi.dll",
+      "kernel32.dll",
+      "msvcrt.dll",
+      "ole32.dll",
+      "oleaut32.dll",
+      "secur32.dll",
+      "setupapi.dll",
+      "shell32.dll",
+      "user32.dll",
+      "version.dll",
+      "winmm.dll",
+      "wldap32.dll",
+      "ws2_32.dll"
+    ],
+    "unexpected_imports": [],
+    "archive_dll_names": {
+      "libpd_bgfx.a": [
+        "interception.dll",
+        "opengl32.dll",
+        "xntdll.dll"
+      ],
+      "libpd_bimg.a": [],
+      "libpd_bx.a": [
+        "dbghelp.dll",
+        "kernel32.dll"
+      ]
+    },
+    "unreviewed_archive_dll_names": []
+  },
+  "passed": true
+}

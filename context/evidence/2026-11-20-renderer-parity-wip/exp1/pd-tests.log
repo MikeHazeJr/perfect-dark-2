@@ -1,0 +1,765 @@
+Build env: TEMP=C:\Users\mikeh\AppData\Local\Temp | mingw64 on PATH | ccache sloppy
+
+  Perfect Dark PC Port - Targeted Tests
+  Session:  bgfx-classic
+  BuildDir: D:\PD2-wt\bgfx-classic\.claude\session-builds\bgfx-classic
+  Selector: <all>
+
+[stub-log L2] VOICE: opus_encoder_create failed err=-7
+[stub-log L2] VOICE: SDL_OpenAudioDevice (playback) failed: 
+[stub-log L2] VOICE: SDL_OpenAudioDevice (capture) failed: 
+[stub-log L2] CATALOG.STAGE.CUSTOM_SLOT_FAIL: id="mod_x:stage_overflow" no private custom stage slots available (32)
+[stub-log L2] CATALOG.ANIM.CUSTOM_SLOT_FAIL: id="mod_x:anim_overflow" no private custom anim slots available (31561)
+[stub-log L2] CATALOG.TEXTURE.CUSTOM_SLOT_FAIL: id="mod_x:tex_overflow" no private custom texture slots available (62032)
+[stub-log L2] CATALOG.TEXTURE.CUSTOM_SLOT_FAIL: id="mod:cannot_steal" no private custom texture slots available (62032)
+[stub-log L2] CATALOG.SOUND.CUSTOM_SLOT_FAIL: id="mod_x:sfx_overflow" no private custom sound slots available (502)
+[stub-log L2] ASSET.FALLBACK: 3 fallback(s) since last checkpoint, at test-clear:
+[stub-log L2] ASSET.FALLBACK:   animation count=1 first(num=7, anim fallback)
+[stub-log L2] ASSET.FALLBACK:   texture count=2 first(num=42, test fallback)
+[stub-log L2] ASSET.FALLBACK: 2 fallback(s) since last checkpoint, at test-checkpoint:
+[stub-log L2] ASSET.FALLBACK:   music count=2 first(num=11, seq fallback)
+[stub-log L2] ASSET.FALLBACK: 2 fallback(s) since last checkpoint, at test-clear:
+[stub-log L2] ASSET.FALLBACK:   file count=2 first(num=1, bogus family)
+[stub-log L2] ASSET.FALLBACK: 1 fallback(s) since last checkpoint, at (unnamed):
+[stub-log L2] ASSET.FALLBACK:   scenario count=1 first(num=3, )
+[stub-log L3] CATALOG.WEAPON.SLOT_RESTORE_FAIL: live identity slot=86
+[stub-log L3] CATALOG.WEAPON.SLOT_RESTORE_FAIL: live identity slot=86
+[stub-log L3] CATALOG.WEAPON.SLOT_PIN_FAIL: exact identity required slot=86
+[stub-log L3] CATALOG.WEAPON.SLOT_PIN_FAIL: exact identity required slot=86
+[stub-log L3] CATALOG.WEAPON.SLOT_PIN_FAIL: exact identity required slot=109
+[stub-log L3] CATALOG.WEAPON.SLOT_RELEASE_FAIL: matching live pin required slot=86
+[stub-log L3] CATALOG.WEAPON.SLOT_RELEASE_FAIL: matching live pin required slot=86
+[stub-log L3] CATALOG.WEAPON.SLOT_RELEASE_FAIL: matching live pin required slot=86
+[stub-log L3] CATALOG.MODEL.SLOT_RESTORE_FAIL: live source identity at slot=441
+[stub-log L3] CATALOG.MODEL.SLOT_RESTORE_FAIL: live source would move slot=441
+[stub-log L3] CATALOG.MODEL.SLOT_PIN_FAIL: exact source identity required slot=441
+[stub-log L3] CATALOG.MODEL.SLOT_PIN_FAIL: exact source identity required slot=441
+[stub-log L3] CATALOG.MODEL.SLOT_PIN_FAIL: exact source identity required slot=473
+[stub-log L3] CATALOG.MODEL.SLOT_RELEASE_FAIL: no matching live pin slot=441
+[stub-log L3] CATALOG.MODEL.SLOT_RELEASE_FAIL: no matching live pin slot=441
+[stub-log L3] CATALOG.MODEL.SLOT_RELEASE_FAIL: no matching live pin slot=441
+[stub-log L2] CATALOG.MODEL.CUSTOM_SLOT_FAIL: id="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" no private custom model slots available (32)
+[stub-log L2] CATALOG.MODEL.CUSTOM_SLOT_FAIL: id="mod_a:mesh_overflow" no private custom model slots available (32)
+[stub-log L2] CATALOG.BODY.CUSTOM_SLOT_FAIL: id="mod_x:body_overflow" no private custom body slots available (32)
+[stub-log L2] CATALOG.HEAD.CUSTOM_SLOT_FAIL: id="mod_x:head_31" no private custom head slots available (32)
+[stub-log L2] CATALOG.HEAD.CUSTOM_SLOT_FAIL: id="mod_x:head_overflow" no private custom head slots available (32)
+[stub-log L2] modmusic: OGG 'fixture:bounded.ogg' failed: invalid input size (decoder=0)
+[stub-log L2] modmusic: OGG 'fixture:bounded.ogg' failed: PCM exceeds SDL byte limit (decoder=0)
+[stub-log L2] modmusic: OGG 'fixture:bounded.ogg' failed: PCM exceeds SDL byte limit (decoder=0)
+[stub-log L2] modmusic: OGG 'fixture:bounded.ogg' failed: PCM exceeds SDL byte limit (decoder=0)
+[stub-log L2] modmusic: OGG 'fixture:bounded_mono.ogg' failed: PCM exceeds SDL byte limit (decoder=0)
+[stub-log L2] modmusic: OGG 'fixture:invalid.ogg' failed: decoder open (decoder=30)
+[stub-log L2] modmusic: OGG 'fixture:invalid.ogg' failed: decoder open (decoder=34)
+[stub-log L2] modmusic: OGG 'fixture:invalid.ogg' failed: decoder open (decoder=10)
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:side-info.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:side-info.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:side-info.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:side-info.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-appended.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-appended.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-appended.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-appended.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-appended.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-appended.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-appended.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-appended.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:broken.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-id3.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-id3.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-id3.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-id3.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-id3.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-id3.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-id3.mp3'
+[stub-log L2] modmusic: MP3 decode/format/size failure 'fixture:bad-id3.mp3'
+[stub-log L2] modmusic: OGG 'fixture:invalid.ogg' failed: decoder open (decoder=30)
+[stub-log L2] modmusic: failed to decode WAV 'snapshot:invalid.wav': Could not read RIFF header
+[stub-log L2] modmusic: OGG 'D:/PD2-wt/bgfx-classic/tests/fixtures/audio/vorbis/tone_mono_22050.ogg' failed: decoder open (decoder=30)
+[stub-log L2] modmusic: MP3 decode/format/size failure 'D:/PD2-wt/bgfx-classic/tests/fixtures/audio/mp3/tone_mpeg25_mono_11025.mp3'
+[stub-log L2] EFFECT.INSTANCE: update failed for modx:instance_fx: effect modx:instance_fx dispatch begin failed
+[stub-log L2] EFFECTGRAPH.PARSE: schema 'pd2.effect.graph.v1' is deprecated; use 'pd.effect_graph.v1'
+[stub-log L2] WEAPONGRAPH.EFFECT.SCAN: embedded effect dependencies/assets/effects/replace.pdeffect failed to register: embedded effect modx:replace_fx runtime is not owned by its selected catalog row
+[stub-log L2] WEAPONGRAPH.EFFECT.SCAN: embedded effect dependencies/assets/effects/absent.pdeffect has a bad effect.ini; skipped: nested archive missing effect.ini
+[stub-log L3] CATALOG.WEAPON.SLOT_PIN_FAIL: exact identity required slot=86
+[stub-log L2] VEHICLE.SWAP: 'mod:vehicle_not_in_this_catalog' is not a placeable vehicle (runtime index -1); the hoverbike keeps modelnum 58
+[stub-log L2] VEHICLE.SWAP: 'mod:vehicle_smoke_hover' is not a placeable vehicle (runtime index 512); the hoverbike keeps modelnum 58
+[stub-log L2] VEHICLE.SWAP: 'mod:vehicle_smoke_hover' is not a placeable vehicle (runtime index -1); the hoverbike keeps modelnum 58
+[stub-log L2] VEHICLE.SWAP: 'mod:vehicle_smoke_hover' did not load for this stage; the hoverbike keeps modelnum 58
+[stub-log L2] modarchive: could not flush derived archive "C:\Users\mikeh\AppData\Local\Temp\pd2-b1110-refused-1795192233146813800\fonts\locked.pdfont"
+[stub-log L2] WEAPONGRAPH.RUNTIME: detonator_ref 'base:remotemine' unresolved at signal time; remote signal rejected
+[stub-log L2] WEAPONGRAPH.SETTINGS: schema 'pd.weapon.settings.v1' is deprecated; use 'pd.weapon_settings.v1' (B6.4)
+[stub-log L2] WEAPONGRAPH.SETTINGS: schema 'pd.weapon.variables.v1' is deprecated; use 'pd.weapon_variables.v1' (B6.4)
+[stub-log L2] CATALOG-DEPS: conflicting typed edge 'mod:fx' -> 'mod:blast' (20 vs 18)
+[stub-log L3] SAVE.ATOMIC: could not open candidate 'C:\Users\mikeh\AppData\Local\Temp\pd2-modmgr-state-1795192241571244300\missing\mods-enabled.json.pd2tmp-28480-35': errno=2
+[stub-log L3] SAVE.ATOMIC: could not open candidate 'C:\Users\mikeh\AppData\Local\Temp\pd2-actionmap-profile-15140425019500-1\missing-parent\profile.ini.pd2tmp-28480-39': errno=2
+[stub-log L3] arenaEnsure(small): need 544 elements (8192 bytes) exceeds reservation of 4096 bytes -- raise the reserve cap for this pool
+[stub-log L3] arenaPoolGrow(small): cannot grow past 480 slots (reservation exhausted)
+[stub-log L3] arenaEnsure(capped): need 100000 elements (802816 bytes) exceeds reservation of 8192 bytes -- raise the reserve cap for this pool
+[stub-log L2] NET: could not read 1 bytes (rp=15 wp=15)
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=missing_head_entry
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=invalid_argument
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=empty_body_id
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=unterminated_head_id
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity runtime=reject status=unbound_head_runtime_index body=17 head=-1
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=invalid_argument
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity runtime=reject status=invalid_argument body=18 head=29
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=empty_head_id
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity runtime=reject status=unbound_head_runtime_index body=17 head=-1
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=missing_body_entry
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=missing_body_entry
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=missing_body_entry
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=disabled_body_entry
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity runtime=reject status=disabled_body_entry body=17 head=-1
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=missing_body_entry
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity runtime=reject status=inconsistent_body_binding body=17 head=-1
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=invalid_argument
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=invalid_argument
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity runtime=reject status=invalid_argument body=17 head=-1
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity runtime=reject status=invalid_argument body=17 head=-2
+[stub-log L3] SAVEMIGRATE: No migration found for v2 → v3 (pd_test_savemigrate_gap.json)
+[stub-log L2] SAVEMIGRATE: pd_test_savemigrate_down.json is version 9, game is version 4 — loading read-only (cannot downgrade)
+[stub-log L2] AI.EDGES: differ list 0x0401 command 0 (opcode 0x00b6 at +0; edges next->1, flags none): went on to command 2 (+5)
+[stub-log L2] AI.EDGES: untracked: list 0x0bad has no edge table (opcode 0x0004 at +0)
+[stub-log L2] AI.EDGES: untracked: list 0x0401 has no command at +1 (opcode 0x0002 there)
+[stub-log L2] AI.EDGES: untracked: list 0x0401 command 0 at +0 is opcode 0x00b6 in its table and 0x0004 in its bytes
+[stub-log L2] AI.EDGES: untracked: list 0x0bad has no edge table (opcode 0x00b6 at +0)
+[stub-log L2] NET: could not read 2 bytes (rp=0 wp=0)
+[stub-log L2] NET: could not read 2 bytes (rp=0 wp=1)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=2)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=3)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=4)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=5)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=6)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=7)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=8)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=9)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=10)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=11)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=12)
+[stub-log L2] NET: could not read 12 bytes (rp=2 wp=13)
+[stub-log L2] NET: could not read 1 bytes (rp=14 wp=14)
+[stub-log L2] NET: could not read 2 bytes (rp=15 wp=15)
+[stub-log L2] NET: could not read 2 bytes (rp=15 wp=16)
+[stub-log L2] NET: could not read 8 bytes (rp=17 wp=17)
+[stub-log L2] NET: could not read 8 bytes (rp=17 wp=18)
+[stub-log L2] NET: could not read 8 bytes (rp=17 wp=19)
+[stub-log L2] NET: could not read 8 bytes (rp=17 wp=20)
+[stub-log L2] NET: could not read 8 bytes (rp=17 wp=21)
+[stub-log L2] NET: could not read 8 bytes (rp=17 wp=22)
+[stub-log L2] NET: could not read 8 bytes (rp=17 wp=23)
+[stub-log L2] NET: could not read 8 bytes (rp=17 wp=24)
+[stub-log L2] NET: could not read 1 bytes (rp=25 wp=25)
+[stub-log L2] NET: could not read 1 bytes (rp=26 wp=26)
+[stub-log L2] NET: could not read 1 bytes (rp=27 wp=27)
+[stub-log L2] NET: could not read 1 bytes (rp=28 wp=28)
+[stub-log L2] NET: could not read 2 bytes (rp=29 wp=29)
+[stub-log L2] NET: could not read 2 bytes (rp=29 wp=30)
+[stub-log L2] NET: could not read 4 bytes (rp=31 wp=31)
+[stub-log L2] NET: could not read 4 bytes (rp=31 wp=32)
+[stub-log L2] NET: could not read 4 bytes (rp=31 wp=33)
+[stub-log L2] NET: could not read 4 bytes (rp=31 wp=34)
+[stub-log L2] NET: could not read 1 bytes (rp=35 wp=35)
+[stub-log L2] NET: could not read 1 bytes (rp=36 wp=36)
+[stub-log L2] NET: could not read 2 bytes (rp=37 wp=37)
+[stub-log L2] NET: could not read 2 bytes (rp=37 wp=38)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=39)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=40)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=41)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=42)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=43)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=44)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=45)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=46)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=47)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=48)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=49)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=50)
+[stub-log L2] NET: could not read 13 bytes (rp=39 wp=51)
+[stub-log L2] NET: could not read 2 bytes (rp=52 wp=52)
+[stub-log L2] NET: could not read 2 bytes (rp=52 wp=53)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=54)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=55)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=56)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=57)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=58)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=59)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=60)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=61)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=62)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=63)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=64)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=65)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=66)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=67)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=68)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=69)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=70)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=71)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=72)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=73)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=74)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=75)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=76)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=77)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=78)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=79)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=80)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=81)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=82)
+[stub-log L2] NET: could not read 30 bytes (rp=54 wp=83)
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] CHAT: failed to write unused-chat-fixture/social/chat/000007d2.json
+[stub-log L2] NET: could not read 1 bytes (rp=0 wp=0)
+[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)
+[stub-log L2] NET: could not read 1 bytes (rp=2 wp=2)
+[stub-log L2] NET: could not read 1 bytes (rp=3 wp=3)
+[stub-log L2] NET: could not read 1 bytes (rp=4 wp=4)
+[stub-log L2] NET: could not read 1 bytes (rp=5 wp=5)
+[stub-log L2] NET: could not read 2 bytes (rp=6 wp=6)
+[stub-log L2] NET: could not read 2 bytes (rp=6 wp=7)
+[stub-log L2] NET: could not read 9 bytes (rp=8 wp=8)
+[stub-log L2] NET: could not read 9 bytes (rp=8 wp=9)
+[stub-log L2] NET: could not read 9 bytes (rp=8 wp=10)
+[stub-log L2] NET: could not read 9 bytes (rp=8 wp=11)
+[stub-log L2] NET: could not read 9 bytes (rp=8 wp=12)
+[stub-log L2] NET: could not read 9 bytes (rp=8 wp=13)
+[stub-log L2] NET: could not read 9 bytes (rp=8 wp=14)
+[stub-log L2] NET: could not read 9 bytes (rp=8 wp=15)
+[stub-log L2] NET: could not read 9 bytes (rp=8 wp=16)
+[stub-log L2] NET: could not read 2 bytes (rp=17 wp=17)
+[stub-log L2] NET: could not read 2 bytes (rp=17 wp=18)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=19)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=20)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=21)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=22)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=23)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=24)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=25)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=26)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=27)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=28)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=29)
+[stub-log L2] NET: could not read 12 bytes (rp=19 wp=30)
+[stub-log L2] NET: could not read 2 bytes (rp=31 wp=31)
+[stub-log L2] NET: could not read 2 bytes (rp=31 wp=32)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=33)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=34)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=35)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=36)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=37)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=38)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=39)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=40)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=41)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=42)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=43)
+[stub-log L2] NET: could not read 12 bytes (rp=33 wp=44)
+[stub-log L2] NET: could not read 1 bytes (rp=45 wp=45)
+[stub-log L2] NET: could not read 1 bytes (rp=46 wp=46)
+[stub-log L2] NET: could not read 1 bytes (rp=47 wp=47)
+[stub-log L2] NET: could not read 1 bytes (rp=48 wp=48)
+[stub-log L2] NET: could not read 1 bytes (rp=49 wp=49)
+[stub-log L2] NET: could not read 2 bytes (rp=50 wp=50)
+[stub-log L2] NET: could not read 2 bytes (rp=50 wp=51)
+[stub-log L2] NET: could not read 9 bytes (rp=52 wp=52)
+[stub-log L2] NET: could not read 9 bytes (rp=52 wp=53)
+[stub-log L2] NET: could not read 9 bytes (rp=52 wp=54)
+[stub-log L2] NET: could not read 9 bytes (rp=52 wp=55)
+[stub-log L2] NET: could not read 9 bytes (rp=52 wp=56)
+[stub-log L2] NET: could not read 9 bytes (rp=52 wp=57)
+[stub-log L2] NET: could not read 9 bytes (rp=52 wp=58)
+[stub-log L2] NET: could not read 9 bytes (rp=52 wp=59)
+[stub-log L2] NET: could not read 9 bytes (rp=52 wp=60)
+[stub-log L2] NET: could not read 2 bytes (rp=61 wp=61)
+[stub-log L2] NET: could not read 2 bytes (rp=61 wp=62)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=63)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=64)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=65)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=66)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=67)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=68)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=69)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=70)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=71)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=72)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=73)
+[stub-log L2] NET: could not read 12 bytes (rp=63 wp=74)
+[stub-log L2] NET: could not read 2 bytes (rp=75 wp=75)
+[stub-log L2] NET: could not read 2 bytes (rp=75 wp=76)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=77)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=78)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=79)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=80)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=81)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=82)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=83)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=84)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=85)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=86)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=87)
+[stub-log L2] NET: could not read 12 bytes (rp=77 wp=88)
+[stub-log L2] NET: could not read 1 bytes (rp=89 wp=89)
+[stub-log L2] NET: could not read 1 bytes (rp=90 wp=90)
+[stub-log L2] NET: could not read 1 bytes (rp=91 wp=91)
+[stub-log L2] NET: could not read 1 bytes (rp=92 wp=92)
+[stub-log L2] NET: could not read 1 bytes (rp=93 wp=93)
+[stub-log L2] NET: could not read 2 bytes (rp=94 wp=94)
+[stub-log L2] NET: could not read 2 bytes (rp=94 wp=95)
+[stub-log L2] NET: could not read 9 bytes (rp=96 wp=96)
+[stub-log L2] NET: could not read 9 bytes (rp=96 wp=97)
+[stub-log L2] NET: could not read 9 bytes (rp=96 wp=98)
+[stub-log L2] NET: could not read 9 bytes (rp=96 wp=99)
+[stub-log L2] NET: could not read 9 bytes (rp=96 wp=100)
+[stub-log L2] NET: could not read 9 bytes (rp=96 wp=101)
+[stub-log L2] NET: could not read 9 bytes (rp=96 wp=102)
+[stub-log L2] NET: could not read 9 bytes (rp=96 wp=103)
+[stub-log L2] NET: could not read 9 bytes (rp=96 wp=104)
+[stub-log L2] NET: could not read 2 bytes (rp=105 wp=105)
+[stub-log L2] NET: could not read 2 bytes (rp=105 wp=106)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=107)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=108)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=109)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=110)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=111)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=112)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=113)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=114)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=115)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=116)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=117)
+[stub-log L2] NET: could not read 12 bytes (rp=107 wp=118)
+[stub-log L2] NET: could not read 2 bytes (rp=119 wp=119)
+[stub-log L2] NET: could not read 2 bytes (rp=119 wp=120)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=121)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=122)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=123)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=124)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=125)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=126)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=127)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=128)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=129)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=130)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=131)
+[stub-log L2] NET: could not read 12 bytes (rp=121 wp=132)
+[stub-log L2] NET: could not read 1 bytes (rp=133 wp=133)
+[stub-log L2] HUB ROOM: no free slots (max 4)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=0)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=1)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=2)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=4)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=5)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=6)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=7)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=8)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=9)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=10)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=11)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=12)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=13)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=14)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=15)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=16)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=17)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=18)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=19)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=20)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=21)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=22)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=23)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=24)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=25)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=26)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=27)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=28)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=29)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=30)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=31)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=32)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=33)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=34)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=35)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=36)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=37)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=38)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=39)
+[stub-log L2] NET: could not read 1 bytes (rp=40 wp=40)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=41)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=42)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=43)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=44)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=45)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=46)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=47)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=48)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=49)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=50)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=51)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=52)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=0)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=1)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=2)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=4)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=5)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=6)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=7)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=8)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=9)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=10)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=11)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=12)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=13)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=14)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=15)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=16)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=17)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=18)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=19)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=20)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=21)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=22)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=23)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=24)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=25)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=26)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=27)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=28)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=29)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=30)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=31)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=32)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=33)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=34)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=35)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=36)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=37)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=38)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=39)
+[stub-log L2] NET: could not read 1 bytes (rp=40 wp=40)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=41)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=42)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=43)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=44)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=45)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=46)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=47)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=48)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=49)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=50)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=51)
+[stub-log L2] NET: could not read 12 bytes (rp=41 wp=52)
+[stub-log L2] NET: could not read 4 bytes (rp=53 wp=53)
+[stub-log L2] NET: could not read 4 bytes (rp=53 wp=54)
+[stub-log L2] NET: could not read 4 bytes (rp=53 wp=55)
+[stub-log L2] NET: could not read 4 bytes (rp=53 wp=56)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=0)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=1)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=2)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=4)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=5)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=6)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=7)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=8)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=9)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=10)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=11)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=12)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=13)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=14)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=15)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=16)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=17)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=18)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=19)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=20)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=21)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=22)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=23)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=24)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=25)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=26)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=27)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=28)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=29)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=30)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=31)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=32)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=33)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=34)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=35)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=36)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=37)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=38)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=39)
+[stub-log L2] NET: could not read 2 bytes (rp=40 wp=40)
+[stub-log L2] NET: could not read 2 bytes (rp=40 wp=41)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=42)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=43)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=44)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=45)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=46)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=47)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=48)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=49)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=50)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=51)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=52)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=53)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=0)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=1)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=2)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=4)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=5)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=6)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=7)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=8)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=9)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=10)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=11)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=12)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=13)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=14)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=15)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=16)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=17)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=18)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=19)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=20)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=21)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=22)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=23)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=24)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=25)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=26)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=27)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=28)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=29)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=30)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=31)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=32)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=33)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=34)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=35)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=36)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=37)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=38)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=39)
+[stub-log L2] NET: could not read 2 bytes (rp=40 wp=40)
+[stub-log L2] NET: could not read 2 bytes (rp=40 wp=41)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=42)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=43)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=44)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=45)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=46)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=47)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=48)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=49)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=50)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=51)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=52)
+[stub-log L2] NET: could not read 12 bytes (rp=42 wp=53)
+[stub-log L2] NET: could not read 4 bytes (rp=54 wp=54)
+[stub-log L2] NET: could not read 4 bytes (rp=54 wp=55)
+[stub-log L2] NET: could not read 4 bytes (rp=54 wp=56)
+[stub-log L2] NET: could not read 4 bytes (rp=54 wp=57)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=0)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=1)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=2)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=4)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=5)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=6)
+[stub-log L2] NET: could not read 4 bytes (rp=4 wp=7)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=8)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=9)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=10)
+[stub-log L2] NET: could not read 4 bytes (rp=8 wp=11)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=12)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=13)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=14)
+[stub-log L2] NET: could not read 4 bytes (rp=12 wp=15)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=16)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=17)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=18)
+[stub-log L2] NET: could not read 4 bytes (rp=16 wp=19)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=20)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=21)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=22)
+[stub-log L2] NET: could not read 4 bytes (rp=20 wp=23)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=24)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=25)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=26)
+[stub-log L2] NET: could not read 4 bytes (rp=24 wp=27)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=28)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=29)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=30)
+[stub-log L2] NET: could not read 4 bytes (rp=28 wp=31)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=32)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=33)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=34)
+[stub-log L2] NET: could not read 4 bytes (rp=32 wp=35)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=36)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=37)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=38)
+[stub-log L2] NET: could not read 4 bytes (rp=36 wp=39)
+[stub-log L2] NET: could not read 4 bytes (rp=40 wp=40)
+[stub-log L2] NET: could not read 4 bytes (rp=40 wp=41)
+[stub-log L2] NET: could not read 4 bytes (rp=40 wp=42)
+[stub-log L2] NET: could not read 4 bytes (rp=40 wp=43)
+[stub-log L2] NET: could not read 1 bytes (rp=44 wp=44)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=45)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=46)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=47)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=48)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=49)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=50)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=51)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=52)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=53)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=54)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=55)
+[stub-log L2] NET: could not read 12 bytes (rp=45 wp=56)
+[stub-log L2] NET: could not read 4 bytes (rp=57 wp=57)
+[stub-log L2] NET: could not read 4 bytes (rp=57 wp=58)
+[stub-log L2] NET: could not read 4 bytes (rp=57 wp=59)
+[stub-log L2] NET: could not read 4 bytes (rp=57 wp=60)
+[stub-log L2] NET: could not read 1 bytes (rp=0 wp=0)
+[stub-log L2] NET: could not read 4 bytes (rp=1 wp=1)
+[stub-log L2] NET: could not read 4 bytes (rp=1 wp=2)
+[stub-log L2] NET: could not read 4 bytes (rp=1 wp=3)
+[stub-log L2] NET: could not read 4 bytes (rp=1 wp=4)
+[stub-log L2] NET: could not read 4 bytes (rp=5 wp=5)
+[stub-log L2] NET: could not read 4 bytes (rp=5 wp=6)
+[stub-log L2] NET: could not read 4 bytes (rp=5 wp=7)
+[stub-log L2] NET: could not read 4 bytes (rp=5 wp=8)
+[stub-log L2] NET: could not read 4 bytes (rp=9 wp=9)
+[stub-log L2] NET: could not read 4 bytes (rp=9 wp=10)
+[stub-log L2] NET: could not read 4 bytes (rp=9 wp=11)
+[stub-log L2] NET: could not read 4 bytes (rp=9 wp=12)
+[stub-log L2] NET: could not read 4 bytes (rp=13 wp=13)
+[stub-log L2] NET: could not read 4 bytes (rp=13 wp=14)
+[stub-log L2] NET: could not read 4 bytes (rp=13 wp=15)
+[stub-log L2] NET: could not read 4 bytes (rp=13 wp=16)
+[stub-log L2] NET: could not read 4 bytes (rp=17 wp=17)
+[stub-log L2] NET: could not read 4 bytes (rp=17 wp=18)
+[stub-log L2] NET: could not read 4 bytes (rp=17 wp=19)
+[stub-log L2] NET: could not read 4 bytes (rp=17 wp=20)
+[stub-log L2] NET: could not read 4 bytes (rp=21 wp=21)
+[stub-log L2] NET: could not read 4 bytes (rp=21 wp=22)
+[stub-log L2] NET: could not read 4 bytes (rp=21 wp=23)
+[stub-log L2] NET: could not read 4 bytes (rp=21 wp=24)
+[stub-log L2] NET: could not read 4 bytes (rp=25 wp=25)
+[stub-log L2] NET: could not read 4 bytes (rp=25 wp=26)
+[stub-log L2] NET: could not read 4 bytes (rp=25 wp=27)
+[stub-log L2] NET: could not read 4 bytes (rp=25 wp=28)
+[stub-log L2] NET: could not read 4 bytes (rp=29 wp=29)
+[stub-log L2] NET: could not read 4 bytes (rp=29 wp=30)
+[stub-log L2] NET: could not read 4 bytes (rp=29 wp=31)
+[stub-log L2] NET: could not read 4 bytes (rp=29 wp=32)
+[stub-log L2] NET: could not read 4 bytes (rp=33 wp=33)
+[stub-log L2] NET: could not read 4 bytes (rp=33 wp=34)
+[stub-log L2] NET: could not read 4 bytes (rp=33 wp=35)
+[stub-log L2] NET: could not read 4 bytes (rp=33 wp=36)
+[stub-log L2] NET: could not read 4 bytes (rp=37 wp=37)
+[stub-log L2] NET: could not read 4 bytes (rp=37 wp=38)
+[stub-log L2] NET: could not read 4 bytes (rp=37 wp=39)
+[stub-log L2] NET: could not read 4 bytes (rp=37 wp=40)
+[stub-log L2] NET: could not read 4 bytes (rp=41 wp=41)
+[stub-log L2] NET: could not read 4 bytes (rp=41 wp=42)
+[stub-log L2] NET: could not read 4 bytes (rp=41 wp=43)
+[stub-log L2] NET: could not read 4 bytes (rp=41 wp=44)
+[stub-log L2] NET: could not read 1 bytes (rp=45 wp=45)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=46)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=47)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=48)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=49)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=50)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=51)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=52)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=53)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=54)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=55)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=56)
+[stub-log L2] NET: could not read 12 bytes (rp=46 wp=57)
+[stub-log L2] NET: could not read 4 bytes (rp=58 wp=58)
+[stub-log L2] NET: could not read 4 bytes (rp=58 wp=59)
+[stub-log L2] NET: could not read 4 bytes (rp=58 wp=60)
+[stub-log L2] NET: could not read 4 bytes (rp=58 wp=61)
+[stub-log L2] NET: could not read 2 bytes (rp=62 wp=62)
+[stub-log L2] NET: could not read 2 bytes (rp=62 wp=63)
+[stub-log L2] NET: could not read 2 bytes (rp=64 wp=64)
+[stub-log L2] NET: could not read 2 bytes (rp=64 wp=65)
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=wrong_body_type
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=empty_body_rig_class
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=incompatible_rig_class
+[stub-log L2] NET: could not read 12 bytes (rp=54 wp=65)
+[stub-log L3] PLAYER.INIT.PREFLIGHT phase=identity status=wrong_body_type
+[stub-log L2] NET: malformed string missing terminator (len=5 rp=2)
+[stub-log L2] NET: could not read 2 bytes (rp=65 wp=66)
+[stub-log L2] NET: could not read 1 bytes (rp=1 wp=1)
+[stub-log L2] NET: could not read 4 bytes (rp=0 wp=3)
+[stub-log L2] NET: could not read 28 bytes (rp=180 wp=206)
+[stub-log L2] NET: could not read 4 bytes (rp=74 wp=77)
+===============================================================================
+All tests passed (583079 assertions in 2552 test cases)
+
+
+  Session build cleanup:
+    .\devtools\build-session.ps1 -Remove -Session bgfx-classic

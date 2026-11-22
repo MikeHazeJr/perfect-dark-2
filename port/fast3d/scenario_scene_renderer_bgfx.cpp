@@ -17,6 +17,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <string>
+
 #include <bgfx/bgfx.h>
 
 #include "glad/glad.h"
@@ -59,6 +61,190 @@ bgfx::TextureHandle s_roomLight = BGFX_INVALID_HANDLE;
 bool s_loggedRoomLight = false;
 
 const uint32_t kRoomLightSampler = BGFX_SAMPLER_POINT | BGFX_SAMPLER_UVW_CLAMP;
+
+/* --debug-bgfx-scene-classic-glsl: a developer-only parity experiment
+ * (2.0 renderer, Workbench D-041). The scene program is built from the GL
+ * path's own GLSL 1.30 text (sceneRendererClassicShaderSource), which bgfx's
+ * GL loader compiles verbatim because it starts with #version. Only what bgfx
+ * needs changes: the attribute names (bgfx binds a_position, a_texcoord0 and
+ * so on by name), and every float, vec2 or vec3 uniform becomes a vec4 read
+ * through a swizzle, because bgfx uploads float uniforms with glUniform4fv.
+ * Int uniforms stay int: bgfx sets them with glUniform1iv as its Sampler
+ * type. The arithmetic is the GL path's, character for character, so a
+ * difference left in parity does not come from the shader text. */
+struct ClassicUniforms {
+    bgfx::UniformHandle vp = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle skyOffset = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle roomLight = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle roomLightCount = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle fog = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle texGen = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle texGenUv = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle lookX = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle lookY = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle tex = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle tex2 = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle hasTex2 = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle primaryTexcoord = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle secondaryTexcoord = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle alphaCutoff = BGFX_INVALID_HANDLE;
+    bgfx::UniformHandle fogColor = BGFX_INVALID_HANDLE;
+};
+ClassicUniforms s_cu;
+bgfx::ProgramHandle s_classicProgram = BGFX_INVALID_HANDLE;
+/* The bgfx shader binary's varying hash: the vertex shader's output must
+ * equal the fragment shader's input (bgfx_p.h createProgram). */
+const uint32_t kClassicVaryingHash = 0x50443253u;
+
+bool isIdentChar(char c)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+/* Replaces every whole-word `from` with `to`; with `unswizzledOnly`, only
+ * the occurrences not followed by '.'. Returns the number replaced. */
+int replaceWord(std::string &text, const std::string &from, const std::string &to, bool unswizzledOnly)
+{
+    int n = 0;
+    size_t at = 0;
+    while ((at = text.find(from, at)) != std::string::npos) {
+        const size_t end = at + from.size();
+        const bool wordStart = at == 0 || !isIdentChar(text[at - 1]);
+        const bool wordEnd = end >= text.size()
+            || (!isIdentChar(text[end]) && !(unswizzledOnly && text[end] == '.'));
+        if (wordStart && wordEnd) {
+            text.replace(at, from.size(), to);
+            at += to.size();
+            n++;
+        } else {
+            at = end;
+        }
+    }
+    return n;
+}
+
+int countWord(const std::string &text, const std::string &word)
+{
+    std::string copy(text);
+    return replaceWord(copy, word, word, false);
+}
+
+/* float, vec2 and vec3 uniforms to vec4: every use without a swizzle gets
+ * one, and the declaration becomes vec4. Returns false when a declaration is
+ * malformed or the uniform is never used, which would mean the text was not
+ * read as expected. */
+bool widenUniforms(std::string &text)
+{
+    static const struct { const char *type; const char *swizzle; } kTypes[] = {
+        { "float", ".x" }, { "vec2", ".xy" }, { "vec3", ".xyz" },
+    };
+    for (const auto &t : kTypes) {
+        const std::string prefix = std::string("uniform ") + t.type + " ";
+        size_t at;
+        while ((at = text.find(prefix)) != std::string::npos) {
+            const size_t nameAt = at + prefix.size();
+            const size_t semi = text.find(';', nameAt);
+            if (semi == std::string::npos || semi == nameAt) {
+                return false;
+            }
+            const std::string name = text.substr(nameAt, semi - nameAt);
+            for (char c : name) {
+                if (!isIdentChar(c)) {
+                    return false;
+                }
+            }
+            /* The declaration is among the unswizzled occurrences. */
+            replaceWord(text, name, name + t.swizzle, true);
+            const std::string widened = prefix + name + t.swizzle + ";";
+            const size_t decl = text.find(widened);
+            if (decl == std::string::npos) {
+                return false;
+            }
+            text.replace(decl, widened.size(), "uniform vec4 " + name + ";");
+            if (countWord(text, name) < 2) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+const bgfx::Memory *glslShaderBinary(char kind, const std::string &text)
+{
+    /* bgfx shader binary version 11, the raw GLSL form shaderc writes:
+     * magic, input hash, output hash, no uniform table, size, text, NUL. */
+    const uint32_t magic = (uint32_t)(uint8_t)kind | ((uint32_t)'S' << 8) | ((uint32_t)'H' << 16) | (11u << 24);
+    const uint32_t hashIn = kind == 'F' ? kClassicVaryingHash : 0u;
+    const uint32_t hashOut = kind == 'V' ? kClassicVaryingHash : 0u;
+    const uint16_t uniforms = 0;
+    const uint32_t size = (uint32_t)text.size();
+    const bgfx::Memory *mem = bgfx::alloc(4 + 4 + 4 + 2 + 4 + size + 1);
+    uint8_t *p = mem->data;
+    memcpy(p, &magic, 4); p += 4;
+    memcpy(p, &hashIn, 4); p += 4;
+    memcpy(p, &hashOut, 4); p += 4;
+    memcpy(p, &uniforms, 2); p += 2;
+    memcpy(p, &size, 4); p += 4;
+    memcpy(p, text.data(), size); p += size;
+    *p = 0;
+    return mem;
+}
+
+/* Builds s_classicProgram; on any surprise logs why and leaves the normal
+ * program in use. */
+void createClassicProgram(void)
+{
+    const char *glVs = nullptr;
+    const char *glFs = nullptr;
+    sceneRendererClassicShaderSource(&glVs, &glFs);
+    if (!glVs || !glFs || strncmp(glVs, "#version", 8) != 0 || strncmp(glFs, "#version", 8) != 0) {
+        sysLogPrintf(LOG_ERROR, "SCENARIO.RENDER: --debug-bgfx-scene-classic-glsl: GL scene shader source unavailable");
+        return;
+    }
+    std::string vs(glVs);
+    std::string fs(glFs);
+    static const char *const kAttribs[][2] = {
+        { "a_Pos", "a_position" }, { "a_Uv0", "a_texcoord0" }, { "a_Uv1", "a_texcoord1" },
+        { "a_Color", "a_color0" }, { "a_Sky", "a_texcoord2" }, { "a_Room", "a_texcoord3" },
+    };
+    for (const auto &a : kAttribs) {
+        if (replaceWord(vs, a[0], a[1], false) < 2) {
+            sysLogPrintf(LOG_ERROR, "SCENARIO.RENDER: --debug-bgfx-scene-classic-glsl: attribute %s not found", a[0]);
+            return;
+        }
+    }
+    if (!widenUniforms(vs) || !widenUniforms(fs)) {
+        sysLogPrintf(LOG_ERROR, "SCENARIO.RENDER: --debug-bgfx-scene-classic-glsl: uniform declarations not as expected");
+        return;
+    }
+    /* Uniforms before the program (no uniform table in the binary). */
+    s_cu.vp = bgfx::createUniform("u_VP", bgfx::UniformType::Mat4);
+    s_cu.skyOffset = bgfx::createUniform("u_SkyOffset", bgfx::UniformType::Vec4);
+    s_cu.roomLight = bgfx::createUniform("u_RoomLight", bgfx::UniformType::Sampler);
+    s_cu.roomLightCount = bgfx::createUniform("u_RoomLightCount", bgfx::UniformType::Sampler);
+    s_cu.fog = bgfx::createUniform("u_Fog", bgfx::UniformType::Vec4);
+    s_cu.texGen = bgfx::createUniform("u_TexGen", bgfx::UniformType::Vec4);
+    s_cu.texGenUv = bgfx::createUniform("u_TexGenUv", bgfx::UniformType::Vec4);
+    s_cu.lookX = bgfx::createUniform("u_LookX", bgfx::UniformType::Vec4);
+    s_cu.lookY = bgfx::createUniform("u_LookY", bgfx::UniformType::Vec4);
+    s_cu.tex = bgfx::createUniform("u_Tex", bgfx::UniformType::Sampler);
+    s_cu.tex2 = bgfx::createUniform("u_Tex2", bgfx::UniformType::Sampler);
+    s_cu.hasTex2 = bgfx::createUniform("u_HasTex2", bgfx::UniformType::Sampler);
+    s_cu.primaryTexcoord = bgfx::createUniform("u_PrimaryTexcoord", bgfx::UniformType::Sampler);
+    s_cu.secondaryTexcoord = bgfx::createUniform("u_SecondaryTexcoord", bgfx::UniformType::Sampler);
+    s_cu.alphaCutoff = bgfx::createUniform("u_AlphaCutoff", bgfx::UniformType::Vec4);
+    s_cu.fogColor = bgfx::createUniform("u_FogColor", bgfx::UniformType::Vec4);
+    bgfx::ShaderHandle v = bgfx::createShader(glslShaderBinary('V', vs));
+    bgfx::ShaderHandle f = bgfx::createShader(glslShaderBinary('F', fs));
+    s_classicProgram = bgfx::createProgram(v, f, true);
+    if (!bgfx::isValid(s_classicProgram)) {
+        sysLogPrintf(LOG_ERROR, "SCENARIO.RENDER: --debug-bgfx-scene-classic-glsl: program not created");
+        return;
+    }
+    sysLogPrintf(LOG_NOTE,
+        "SCENARIO.RENDER: --debug-bgfx-scene-classic-glsl: bgfx scene program from the GL path's GLSL text (vs %u bytes, fs %u bytes)",
+        (unsigned)vs.size(), (unsigned)fs.size());
+}
 
 bool ensureProgram(void)
 {
@@ -106,6 +292,9 @@ bool ensureProgram(void)
     const float zero[8] = {};
     s_noRoomLight = bgfx::createTexture2D(1, 2, false, 1, bgfx::TextureFormat::RGBA32F, BGFX_TEXTURE_NONE,
                                           bgfx::copy(zero, sizeof(zero)));
+    if (sysArgCheck("--debug-bgfx-scene-classic-glsl")) {
+        createClassicProgram();
+    }
     return true;
 }
 
@@ -252,6 +441,38 @@ extern "C" void sceneBgfxDraw(uint32_t vb, uint32_t first, uint32_t count,
         state |= BGFX_STATE_CULL_CW;
     } else if (cull == 2) {
         state |= BGFX_STATE_CULL_CCW;
+    }
+    if (bgfx::isValid(s_classicProgram)) {
+        /* --debug-bgfx-scene-classic-glsl: the GL path's uniforms, by its
+         * names, with the values the GL path sets. */
+        const float noTexGen[8] = {};
+        const float *tg = texgen ? texgen : noTexGen;
+        const bgfx::TextureHandle roomLight = bgfx::isValid(s_roomLight) ? s_roomLight : s_noRoomLight;
+        const int32_t roomCount = (int32_t)s_fog[3];
+        const int32_t has2 = hasTex2;
+        const int32_t primary = primaryTexcoord;
+        const int32_t secondary = secondaryTexcoord;
+        const float cutoff[4] = { alphaCutoff, 0.0f, 0.0f, 0.0f };
+        bgfx::setUniform(s_cu.vp, s_vp);
+        bgfx::setUniform(s_cu.skyOffset, s_sky);
+        bgfx::setUniform(s_cu.roomLightCount, &roomCount);
+        bgfx::setUniform(s_cu.fog, s_fog);
+        bgfx::setUniform(s_cu.texGen, tg);
+        bgfx::setUniform(s_cu.texGenUv, tg + 4);
+        bgfx::setUniform(s_cu.lookX, s_lookX);
+        bgfx::setUniform(s_cu.lookY, s_lookY);
+        bgfx::setUniform(s_cu.hasTex2, &has2);
+        bgfx::setUniform(s_cu.primaryTexcoord, &primary);
+        bgfx::setUniform(s_cu.secondaryTexcoord, &secondary);
+        bgfx::setUniform(s_cu.alphaCutoff, cutoff);
+        bgfx::setUniform(s_cu.fogColor, s_fogColor);
+        bgfx::setTexture(0, s_cu.tex, bgfx::TextureHandle{ (uint16_t)(tex - 1) }, wrapFlags(wrapS, wrapT));
+        bgfx::setTexture(1, s_cu.tex2, bgfx::TextureHandle{ (uint16_t)(tex2 - 1) }, wrapFlags(wrap2S, wrap2T));
+        bgfx::setTexture(2, s_cu.roomLight, roomLight, kRoomLightSampler);
+        bgfx::setVertexBuffer(0, bgfx::DynamicVertexBufferHandle{ (uint16_t)(vb - 1) }, first, count);
+        bgfx::setState(state);
+        bgfx::submit(s_view, s_classicProgram);
+        return;
     }
     bgfx::setUniform(s_uVP, s_vp);
     bgfx::setUniform(s_uParams, params);
