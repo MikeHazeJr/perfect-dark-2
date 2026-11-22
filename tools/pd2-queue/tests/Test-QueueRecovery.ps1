@@ -49,6 +49,9 @@ function Start-Worker([hashtable] $Env = @{}) {
             -PassThru -WindowStyle Hidden -RedirectStandardOutput (Join-Path $root "worker-$([guid]::NewGuid().ToString('N').Substring(0,6)).log") -RedirectStandardError (Join-Path $root "worker-$([guid]::NewGuid().ToString('N').Substring(0,6)).err")
     } finally { foreach ($k in $Env.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) } }
 }
+$ps51 = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+$hubScript = Join-Path $Source 'Tools\CodexCoordination\CodexCoordination.ps1'
+function HubCmd([string[]] $A) { $ErrorActionPreference = 'Continue'; (& $ps51 -NoProfile -ExecutionPolicy Bypass -File $hubScript @A 2>&1 | Out-String).Trim() }
 function Get-Descendants([int] $RootPid) {
     $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, CreationDate, Name)
     $found = @(); $frontier = @($RootPid)
@@ -130,6 +133,36 @@ try {
     $running = @($hubState.queue | Where-Object { $_.sessionId -eq 'pd2-queue-m5test' -and $_.status -eq 'running' })
     Check ($running.Count -eq 0) "its hub slot was finished, not leaked ($($running.Count) running)"
     Check (@(Get-ChildItem -LiteralPath (Join-Path $root 'jobs') -Force).Count -eq 0) 'the jobs folder is empty'
+
+    # 4. Cancelled while it waits for the build slot, which another session
+    # holds: the cancel gets through between short admission polls, the job
+    # ends cancelled and its hub item is finished. Meanwhile the worker's
+    # heartbeat keeps its hub session fresh (the hub drops a session's items
+    # after 6 hours without one). Polls and heartbeats are shortened here.
+    $holder = 'pd2-queue-m5holder'
+    $hq = ([regex]::Match((HubCmd @('queue', '-SessionId', $holder, '-Type', 'build', '-Resource', 'build', '-Title', 'Test-QueueRecovery.ps1: hold the build slot', '-Eta', '5m', '-Details', 'Milestone 5 cancel-while-waiting check')), 'q_[0-9a-f_]+')).Value
+    Check ([bool]$hq) 'the test queued its own build-slot holder'
+    [void](HubCmd @('wait-turn', '-SessionId', $holder, '-QueueId', $hq, '-WaitTimeoutSeconds', '1800'))
+    [void](HubCmd @('start', '-SessionId', $holder, '-QueueId', $hq))
+    try {
+        $jD = Submit 'T-M5-004' 'm5-d' $sleeper.Id 'pd2q Milestone 5 cancel while waiting' 'port/src/fs_path.c'
+        $w = Start-Worker @{ PD2Q_ADMISSION_POLL_SECONDS = '10'; PD2Q_HEARTBEAT_SECONDS = '5' }
+        Check (Wait-Event $jD 'preparing' 300) 'job 4 is preparing while another session holds the build slot'
+        $waitStart = [DateTime]::UtcNow
+        Start-Sleep -Seconds 25  # into its admission wait
+        $r = Q @('cancel', $jD, '-Reason', 'Milestone 5 test: cancel while waiting for the build slot')
+        Check ($r.Code -eq 0) "the cancel is accepted for the running job`n$($r.Out)"
+        $w.WaitForExit()
+        $lastD = Get-Content -LiteralPath (Join-Path $root "queue\journal\$jD.jsonl") | Select-Object -Last 1 | ConvertFrom-Json
+        Check ($lastD.event -eq 'cancelled' -and $lastD.detail -match 'cancelled while it waited for the build slot') "a cancel ends a job that waits for the build slot: $($lastD.event) $($lastD.detail)"
+        $hubState = Get-Content -LiteralPath (Join-Path $Source '.codex-coordination\state.json') -Raw -Encoding utf8 | ConvertFrom-Json -DateKind String
+        $left = @($hubState.queue | Where-Object { $_.sessionId -eq 'pd2-queue-m5test' -and $_.status -in @('queued', 'running') })
+        Check ($left.Count -eq 0) "and its hub item is finished ($($left.Count) left)"
+        $seen = @($hubState.sessions | Where-Object { $_.sessionId -eq 'pd2-queue-m5test' })[0].lastSeenUtc
+        Check ([DateTimeOffset]::Parse([string]$seen).UtcDateTime -gt $waitStart.AddSeconds(10)) "the worker's heartbeat refreshed its hub session while it waited (last seen $seen)"
+    } finally {
+        [void](HubCmd @('finish', '-SessionId', $holder, '-QueueId', $hq, '-Result', 'done', '-Summary', 'Test-QueueRecovery.ps1 released its build-slot holder', '-Evidence', 'tools/pd2-queue/tests/Test-QueueRecovery.ps1'))
+    }
 } finally {
     if ($sleeper) { try { Stop-Process -Id $sleeper.Id -Force } catch { } }
     Remove-Item Env:PD2Q_ROOT, Env:PD2Q_SUBMODULE_SOURCE, Env:PD2Q_CANONICAL -ErrorAction SilentlyContinue

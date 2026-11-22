@@ -46,6 +46,11 @@ $hub = Join-Path $canonical 'Tools\CodexCoordination\CodexCoordination.ps1'
 $slowSeconds = 152  # Mike's 2:32 for a cold, clean, full build of client, updater and tests
 $script:JobHubId = $null     # the hub item a running job holds, so every exit path finishes it
 $script:NotAdmitted = $false # the hub refused the last job; wait before the next try
+$script:CancelledWaiting = $false  # the job was cancelled while it waited for the build slot
+$script:LastHeartbeat = [datetime]::MinValue
+# Tests shorten these two; the defaults suit the service.
+$heartbeatSeconds = if ($env:PD2Q_HEARTBEAT_SECONDS) { [int]$env:PD2Q_HEARTBEAT_SECONDS } else { 300 }
+$admissionPollSeconds = if ($env:PD2Q_ADMISSION_POLL_SECONDS) { [int]$env:PD2Q_ADMISSION_POLL_SECONDS } else { 60 }
 
 function Git([string] $Dir, [string[]] $GitArgs, [switch] $AllowFailure) {
     $out = & $git -C $Dir @GitArgs 2>&1
@@ -120,17 +125,41 @@ function Invoke-Hub([string[]] $HubArgs) {
     }
 }
 
+function Send-HubHeartbeat([string] $Task) {
+    # The hub calls a session dead after 6 hours without a heartbeat and then
+    # drops its queue items, running ones included; queue, start and finish do
+    # not count. A long-lived worker says it is alive every few minutes: idle,
+    # waiting for the build slot, and during each job step.
+    if (-not (Test-Path -LiteralPath $hub)) { return }
+    if (((Get-Date) - $script:LastHeartbeat).TotalSeconds -lt $heartbeatSeconds) { return }
+    $script:LastHeartbeat = Get-Date
+    [void](Invoke-Hub @('heartbeat', '-SessionId', $HubSession, '-Status', 'active', '-CurrentTask', $Task, '-Eta', 'always'))
+}
+
 function Enter-HubBuildSlot([string] $JobId, [string] $Title) {
     # Anything still using the hub sees the build slot as busy while a job runs.
     # An unreachable hub is a warning and the job goes on (spec: the queue is
     # the PC's builder). A hub that answers but does not admit the job stops
     # it: building then would overlap a build the hub gave someone else.
+    # The wait is a series of short wait-turn calls, so a cancel and the
+    # heartbeat get through while another session holds the slot.
+    $script:CancelledWaiting = $false
     if (-not (Test-Path -LiteralPath $hub)) { Write-Pd2qLog 'hub warning: coordination script not found; going on'; return $null }
     for ($try = 1; $try -le 3; $try++) {
         $q = Invoke-Hub @('queue', '-SessionId', $HubSession, '-Type', 'build', '-Resource', 'build', '-Title', "pd2q $JobId`: $Title", '-Eta', '5m', '-Details', 'build queue job')
         $id = ([regex]::Match($q.Out, 'q_[0-9a-f_]+')).Value
         if ($q.Code -ne 0 -or -not $id) { Write-Pd2qLog "hub warning: no queue id (exit $($q.Code): $($q.Out)); going on"; return $null }
-        $w = Invoke-Hub @('wait-turn', '-SessionId', $HubSession, '-QueueId', $id, '-WaitTimeoutSeconds', '7200')
+        $waitUntil = (Get-Date).AddSeconds(7200)
+        while ($true) {
+            Send-HubHeartbeat "job $JobId waiting for the build slot"
+            if (Test-CancelRequested $JobId) {
+                [void](Invoke-Hub @('finish', '-SessionId', $HubSession, '-QueueId', $id, '-Result', 'cancelled', '-Summary', "pd2q $JobId cancelled while it waited", '-Evidence', $paths.Reports))
+                $script:CancelledWaiting = $true
+                return $null
+            }
+            $w = Invoke-Hub @('wait-turn', '-SessionId', $HubSession, '-QueueId', $id, '-WaitTimeoutSeconds', [string]$admissionPollSeconds)
+            if ($w.Code -ne 3 -or (Get-Date) -gt $waitUntil) { break }  # 3: this poll timed out, still queued
+        }
         if ($w.Code -eq 2) { Write-Pd2qLog "hub: item $id was removed before its turn; queueing again"; continue }
         if ($w.Code -ne 0) {
             [void](Invoke-Hub @('finish', '-SessionId', $HubSession, '-QueueId', $id, '-Result', 'cancelled', '-Summary', "pd2q $JobId was not admitted", '-Evidence', $paths.Reports))
@@ -195,6 +224,7 @@ function Invoke-JobStep([string] $JobId, [string] $Exe, [string[]] $Arguments, [
         $proc = [Diagnostics.Process]::Start($psi)
         $copies = [Threading.Tasks.Task[]]@($proc.StandardOutput.BaseStream.CopyToAsync($outFile), $proc.StandardError.BaseStream.CopyToAsync($errFile))
         while (-not $proc.WaitForExit(2000)) {
+            Send-HubHeartbeat "job $JobId running $(Split-Path -Leaf $Log)"
             if (Test-CancelRequested $JobId) { $why = 'cancelled'; break }
             if ((Get-Date) -gt $Deadline) { $why = 'timeout'; break }
         }
@@ -404,6 +434,7 @@ function Invoke-Job($Job) {
         $script:NotAdmitted = $true
         return
     }
+    if ($script:CancelledWaiting) { $info.detail = 'cancelled while it waited for the build slot'; Complete-Job $jobId $request 'cancelled' $info; return }
     if (Test-CancelRequested $jobId) { $info.detail = 'cancelled before building'; Complete-Job $jobId $request 'cancelled' $info; return }
 
     # ---- Building (clean, ccache off, the job folder's own scripts)
@@ -648,12 +679,14 @@ try {
     Set-ServiceState @{ pid = $PID; pidStartUtc = (Get-Pd2qProcessStartUtc $PID); startedUtc = Format-Pd2qTime (Get-Pd2qNow); state = 'starting'; job = $null; remote = (Get-OriginUrl) }
     if (Test-Path -LiteralPath $hub) {
         [void](Invoke-Hub @('register', '-SessionId', $HubSession, '-Goal', 'PD2 build queue service: one clean build per submitted patch', '-CurrentTask', 'waiting for jobs', '-Eta', 'always', '-Plan', 'pd2q jobs'))
+        $script:LastHeartbeat = Get-Date  # register counts as one
         Clear-HubStaleSlots
     }
     Invoke-Recovery
     [void](Invoke-Pd2qLocked { Update-Pd2qBoardFromGit })
     $idleSince = Get-Date
     while ($true) {
+        Send-HubHeartbeat 'waiting for jobs'
         [void](Invoke-Pd2qLocked { Update-Pd2qLeases })
         $service = Read-Pd2qJson $paths.Service @{}
         $next = if ($service.ContainsKey('paused') -and $service.paused) { $null } else { Invoke-Pd2qLocked { Get-Pd2qNextJob } }
