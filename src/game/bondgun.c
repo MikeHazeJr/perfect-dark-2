@@ -2037,6 +2037,45 @@ static void bgunRuleFunctionOf(struct hand *hand, struct weaponfunc *func, weapo
 		out->decel = graph && graph->has_turret_decel ? graph->turret_decel
 			: (autofunc ? autofunc->turretdecel : 0);
 	}
+
+	/* held-weapon-events.md slice 7a: its recoil, the held graph's first,
+	 * as bgun0f09aba4, the slide and the jitter read it. */
+	if ((functype & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+		const struct weaponfunc_shoot *shoot = func && (func->type & 0xff) == INVENTORYFUNCTYPE_SHOOT
+			? (const struct weaponfunc_shoot *) func : NULL;
+		const struct weaponfunc_shootauto *autoshoot = shoot && (func->type & 0xff00) == 0x100
+			? (const struct weaponfunc_shootauto *) func : NULL;
+
+		out->recoil_kick = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : (shoot ? shoot->unk24 : 0);
+		out->recoil_return = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : (shoot ? shoot->unk25 : 0);
+		out->recoil_cut_after = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : (shoot ? shoot->unk26 : 0);
+		out->recoil_cut_return = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : (shoot ? shoot->unk27 : 0);
+		out->recoil_recovery = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60
+			: (shoot ? shoot->recoverytime60 : 0);
+		out->recoil_distance = graph && graph->has_recoildist ? graph->recoildist : (shoot ? shoot->recoildist : 0.0f);
+		out->recoil_angle = graph && graph->has_recoilangle ? graph->recoilangle : (shoot ? shoot->recoilangle : 0.0f);
+		out->recoil_slide = graph && graph->has_slidemax ? graph->slidemax : (shoot ? shoot->slidemax : 0.0f);
+		if (graph && graph->has_recoil_shake) {
+			out->recoil_has_shake = 1;
+			out->recoil_shake[0] = graph->recoil_shake[0];
+			out->recoil_shake[1] = graph->recoil_shake[1];
+			out->recoil_shake[2] = graph->recoil_shake[2];
+		} else if (shoot && shoot->recoilsettings) {
+			out->recoil_has_shake = 1;
+			out->recoil_shake[0] = shoot->recoilsettings->xrange;
+			out->recoil_shake[1] = shoot->recoilsettings->yrange;
+			out->recoil_shake[2] = shoot->recoilsettings->zrange;
+		}
+		if (graph && graph->has_spin_shake) {
+			out->recoil_has_spin_shake = 1;
+			out->recoil_spin_from = graph->spin_shake_from;
+			out->recoil_spin_to = graph->spin_shake_to;
+		} else if (autoshoot && autoshoot->vibrationstart && autoshoot->vibrationmax) {
+			out->recoil_has_spin_shake = 1;
+			out->recoil_spin_from = autoshoot->vibrationstart[0];
+			out->recoil_spin_to = autoshoot->vibrationmax[0];
+		}
+	}
 }
 
 static const weapon_graph_projectile_runtime_t *bgunGetProjectileGraph(
@@ -2538,14 +2577,16 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 	f32 recoilangle;
 	f32 mult2;
 	u32 stack;
-	const weapon_graph_held_function_t *graph = bgunGetHeldGraph(&hand->gset);
+	/* held-weapon-events.md slice 7a: the attack's recoil (og.weapon.recoil,
+	 * else the function's own, graph first). */
+	const weapon_rule_trigger_t *plan = bgunHandPlan(handnum);
 
 #if PAL
-	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
-	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
-	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
-	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
-	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
+	unk24 = plan->recoil_kick;
+	unk25 = plan->recoil_return;
+	unk26 = weaponRulesRecoilCutAfter(plan);
+	unk27 = weaponRulesRecoilCutReturn(plan);
+	recoverytime60 = plan->recoil_recovery;
 	weapondef = info->definition;
 
 	if (unk24 >= 4) {
@@ -2570,20 +2611,20 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 
 	sum = unk24 + unk25;
 #elif VERSION >= VERSION_JPN_FINAL
-	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
-	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
-	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
-	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
-	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
+	unk24 = plan->recoil_kick;
+	unk25 = plan->recoil_return;
+	unk26 = weaponRulesRecoilCutAfter(plan);
+	unk27 = weaponRulesRecoilCutReturn(plan);
+	recoverytime60 = plan->recoil_recovery;
 	weapondef = info->definition;
 	sum = unk24 + unk25;
 #else
-	unk24 = graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24;
-	unk25 = graph && graph->has_recoil_anim_unk25 ? graph->recoil_anim_unk25 : func->unk25;
+	unk24 = plan->recoil_kick;
+	unk25 = plan->recoil_return;
 	sum = unk24 + unk25;
-	unk26 = graph && graph->has_recoil_anim_unk26 ? graph->recoil_anim_unk26 : func->unk26;
-	unk27 = graph && graph->has_recoil_anim_unk27 ? graph->recoil_anim_unk27 : func->unk27;
-	recoverytime60 = graph && graph->has_recoverytime_ticks60 ? graph->recoverytime_ticks60 : func->recoverytime60;
+	unk26 = weaponRulesRecoilCutAfter(plan);
+	unk27 = weaponRulesRecoilCutReturn(plan);
+	recoverytime60 = plan->recoil_recovery;
 	weapondef = info->definition;
 #endif
 
@@ -2635,8 +2676,8 @@ bool bgun0f09aba4(struct hand *hand, struct handweaponinfo *info, s32 handnum, s
 		}
 
 		if (frames < sum && (hand->stateflags & HANDSTATEFLAG_00000040) == 0) {
-			recoildist = graph && graph->has_recoildist ? graph->recoildist : func->recoildist;
-			recoilangle = graph && graph->has_recoilangle ? graph->recoilangle : func->recoilangle;
+			recoildist = plan->recoil_distance;
+			recoilangle = plan->recoil_angle;
 
 			if ((hand->stateflags & HANDSTATEFLAG_00000080) == 0) {
 				hand->stateflags |= HANDSTATEFLAG_00000080;
@@ -2728,8 +2769,15 @@ bool bgunTickIncAttackingShoot(struct handweaponinfo *info, s32 handnum, struct 
 			struct weaponfunc_shootauto *autofunc = (struct weaponfunc_shootauto *) func;
 			f32 floats[12];
 
-			if (autofunc->vibrationstart != NULL && autofunc->vibrationmax != NULL) {
-				func0f097b64(autofunc->vibrationstart, autofunc->vibrationmax, hand->gs_float1, floats);
+			/* slice 7a: the jitter's multiplier from no spin to full
+			 * (og.weapon.recoil spin_shake_from/to; the Reaper's
+			 * vibration arrays, whose element 0 is the only one read). */
+			const weapon_rule_trigger_t *spinplan = bgunHandPlan(handnum);
+
+			(void)autofunc;
+			if (spinplan->recoil_has_spin_shake) {
+				floats[0] = floats[1] = (spinplan->recoil_spin_to - spinplan->recoil_spin_from) * hand->gs_float1
+					+ spinplan->recoil_spin_from;
 				func0f097b40(hand->upgrademult, floats, hand->finalmult);
 			}
 		}
@@ -7756,8 +7804,9 @@ void bgunUpdateSlide(s32 handnum)
 	struct player *player = g_Vars.currentplayer;
 
 	if (funcdef && ((funcdef->type & 0xff) == INVENTORYFUNCTYPE_SHOOT)) {
-		struct weaponfunc_shoot *shootfunc = (struct weaponfunc_shoot *)funcdef;
-		slidemax = shootfunc->slidemax;
+		/* held-weapon-events.md slice 7a: the attack's slide
+		 * (og.weapon.recoil slide, else the function's own). */
+		slidemax = bgunHandPlan(handnum)->recoil_slide;
 	}
 
 	if (player->hands[handnum].slideinc) {
@@ -9425,10 +9474,14 @@ void bgun0f0a5550(s32 handnum)
 	sp274.y -= bgunGetFovOffsetY();
 	sp274.z += bgunGetFovOffsetZ();
 
-	if (hand->firing && shootfunc && g_Vars.lvupdate240 != 0 && shootfunc->recoilsettings != NULL) {
-		sp274.x += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->xrange * hand->finalmult[0];
-		sp274.y += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->yrange * hand->finalmult[0];
-		sp274.z += (RANDOMFRAC() - 0.5f) * shootfunc->recoilsettings->zrange * hand->finalmult[0];
+	/* held-weapon-events.md slice 7a: the attack's jitter (og.weapon.recoil
+	 * shake_x/y/z, else the function's recoilsettings, graph first). */
+	if (hand->firing && shootfunc && g_Vars.lvupdate240 != 0 && bgunHandPlan(handnum)->recoil_has_shake) {
+		const f32 *shake = bgunHandPlan(handnum)->recoil_shake;
+
+		sp274.x += (RANDOMFRAC() - 0.5f) * shake[0] * hand->finalmult[0];
+		sp274.y += (RANDOMFRAC() - 0.5f) * shake[1] * hand->finalmult[0];
+		sp274.z += (RANDOMFRAC() - 0.5f) * shake[2] * hand->finalmult[0];
 	}
 
 	hand->fspare1 = (player->crosspos2[0] - camGetScreenLeft() - camGetScreenWidth() * 0.5f) * weapondef->aimsettings->guntransside / (camGetScreenWidth() * 0.5f);

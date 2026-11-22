@@ -56,7 +56,10 @@ extern "C" {
 #define WEAPON_MODULE_COOK        (1u << 15) /* og.weapon.cook ("fuse") */
 /* Slice 6b: the sight's lock while the player aims (event.weapon.aiming). */
 #define WEAPON_MODULE_LOCK_ON     (1u << 16) /* og.weapon.lock_on ("locks", "aim_follows", the target filter) */
-#define WEAPON_MODULE_COUNT 17
+/* Slice 7: how each shot of the attack feels. */
+#define WEAPON_MODULE_RECOIL      (1u << 17) /* og.weapon.recoil ("kick", "return", "recovery", the cut, travel, shake) */
+#define WEAPON_MODULE_COUNT 18
+#define WEAPON_MODULE_FEEL (WEAPON_MODULE_RECOIL)
 #define WEAPON_MODULE_ALL ((1u << WEAPON_MODULE_COUNT) - 1)
 #define WEAPON_MODULE_TRIGGERS (WEAPON_MODULE_FIRE_ONCE | WEAPON_MODULE_BURST | WEAPON_MODULE_AUTOMATIC \
 	| WEAPON_MODULE_CHARGE | WEAPON_MODULE_COOK)
@@ -111,7 +114,7 @@ static inline const char *weaponRulesModuleKind(u32 bit)
 		"og.weapon.burst", "og.weapon.automatic", "og.weapon.use_ammo",
 		"og.weapon.hitscan", "og.weapon.beam", "og.weapon.launch", "og.weapon.throw",
 		"og.weapon.melee", "og.weapon.special", "og.weapon.mode_toggle",
-		"og.weapon.charge", "og.weapon.cook", "og.weapon.lock_on",
+		"og.weapon.charge", "og.weapon.cook", "og.weapon.lock_on", "og.weapon.recoil",
 	};
 	for (s32 i = 0; i < WEAPON_MODULE_COUNT; i++) {
 		if (bit == (1u << i)) return kinds[i];
@@ -194,7 +197,7 @@ static inline const char *weaponRulesEventName(s32 event_kind)
 
 /* The modules the event's seam applies. The idle seam's three rule events
  * (trigger_pressed, ready_while_held, clip_empty) apply the idle actions,
- * use_ammo and the shot modules (the attack a trigger starts) and set_state;
+ * use_ammo, the shot and feel modules (the attack a trigger starts) and set_state;
  * the records (trigger_released, reload_done) apply set_state only; aiming
  * (slice 6b) the sight's lock. */
 static inline u32 weaponRulesEventModules(s32 event_kind)
@@ -203,7 +206,8 @@ static inline u32 weaponRulesEventModules(s32 event_kind)
 	case MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED:
 	case MISSION_GRAPH_EVENT_WEAPON_READY_WHILE_HELD:
 	case MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY:
-		return WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_SET_STATE;
+		return WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_FEEL
+			| WEAPON_MODULE_SET_STATE;
 	case MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED:
 	case MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE:
 		return WEAPON_MODULE_SET_STATE;
@@ -377,6 +381,22 @@ typedef struct weapon_rule_trigger {
 	s32 charge_release;  /* WEAPON_RULE_RELEASE_ON_PRESS or _ON_FULL */
 	f32 charge_damage;   /* each step adds this many times the shot's damage */
 	s32 cook_fuse;       /* cook: 60 Hz ticks the throw may be held before it goes off in the hand */
+	/* slice 7a: og.weapon.recoil, a shooting function's (all 0 for others). */
+	s32 recoil;            /* the attack has a recoil */
+	s32 recoil_kick;       /* 60 Hz frames the gun kicks */
+	s32 recoil_return;     /* frames it returns */
+	s32 recoil_recovery;   /* frames after the recoil before the attack ends */
+	s32 recoil_refire;     /* a new press ends the recovery early (and may cut the recoil short) */
+	s32 recoil_cut_after;  /* a press after this many frames cuts the recoil short; 0 never */
+	s32 recoil_cut_return; /* that cut's return frames */
+	f32 recoil_distance;   /* the kick's distance, thousandths of the gun's offset from the aim */
+	f32 recoil_angle;      /* the kick's angle, degrees */
+	f32 recoil_slide;      /* the slide's travel */
+	s32 recoil_has_shake;  /* the jitter while firing */
+	f32 recoil_shake[3];   /* its x, y and z ranges */
+	s32 recoil_has_spin_shake; /* the jitter's multiplier follows an automatic's spin */
+	f32 recoil_spin_from;  /* at no spin */
+	f32 recoil_spin_to;    /* at full spin */
 } weapon_rule_trigger_t;
 
 #define WEAPON_RULE_ITEM_OWN (-1)              /* the function's own projectile object */
@@ -414,6 +434,20 @@ typedef struct weapon_rule_function {
 	f32 max_rpm;
 	s32 accel;
 	s32 decel;
+	/* slice 7a: its recoil as the original keeps it (weaponRulesNativeRecoil). */
+	s32 recoil_kick;       /* unk24 */
+	s32 recoil_return;     /* unk25 */
+	s32 recoil_cut_after;  /* unk26 */
+	s32 recoil_cut_return; /* unk27 */
+	s32 recoil_recovery;   /* recoverytime60 */
+	f32 recoil_distance;   /* recoildist */
+	f32 recoil_angle;      /* recoilangle */
+	f32 recoil_slide;      /* slidemax */
+	s32 recoil_has_shake;  /* recoilsettings */
+	f32 recoil_shake[3];
+	s32 recoil_has_spin_shake; /* vibrationstart and vibrationmax, element 0 */
+	f32 recoil_spin_from;
+	f32 recoil_spin_to;
 } weapon_rule_function_t;
 
 #define WEAPON_RULE_FUNCFLAG_BURST3  0x00000002u /* FUNCFLAG_BURST3 */
@@ -648,11 +682,86 @@ static inline void weaponRulesCommittedCharge(const weapon_rule_function_t *f, w
 	out->charge_damage = 0.0f;
 }
 
+/*
+ * held-weapon-events.md slice 7a: the recoil a shooting function's record
+ * gives it (bgun0f09aba4, bgunUpdateSlide, the jitter): `unk24` frames of
+ * kick and `unk25` of return; with `unk27` 0 or more a new press ends the
+ * recovery early, and one after `unk26` frames (above 0) cuts the recoil
+ * short with an `unk27`-frame return; `recoverytime60` frames of recovery;
+ * the kick's distance and angle; the slide's travel; the jitter's ranges
+ * (`recoilsettings`) and, for the Reaper, its multiplier from no spin to full
+ * (`vibrationstart`/`vibrationmax`, element 0). A function that does not
+ * shoot has none.
+ */
+static inline void weaponRulesNativeRecoil(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
+{
+	out->recoil = 0;
+	out->recoil_kick = 0;
+	out->recoil_return = 0;
+	out->recoil_recovery = 0;
+	out->recoil_refire = 0;
+	out->recoil_cut_after = 0;
+	out->recoil_cut_return = 0;
+	out->recoil_distance = 0.0f;
+	out->recoil_angle = 0.0f;
+	out->recoil_slide = 0.0f;
+	out->recoil_has_shake = 0;
+	out->recoil_shake[0] = out->recoil_shake[1] = out->recoil_shake[2] = 0.0f;
+	out->recoil_has_spin_shake = 0;
+	out->recoil_spin_from = 0.0f;
+	out->recoil_spin_to = 0.0f;
+	if (!f || !weaponRulesFunctionShoots(f)) return;
+	out->recoil = 1;
+	out->recoil_kick = f->recoil_kick;
+	out->recoil_return = f->recoil_return;
+	out->recoil_recovery = f->recoil_recovery;
+	out->recoil_refire = f->recoil_cut_return >= 0;
+	out->recoil_cut_after = f->recoil_cut_after > 0 ? f->recoil_cut_after : 0;
+	out->recoil_cut_return = f->recoil_cut_return >= 0 ? f->recoil_cut_return : 0;
+	out->recoil_distance = f->recoil_distance;
+	out->recoil_angle = f->recoil_angle;
+	out->recoil_slide = f->recoil_slide;
+	out->recoil_has_shake = f->recoil_has_shake;
+	out->recoil_shake[0] = f->recoil_shake[0];
+	out->recoil_shake[1] = f->recoil_shake[1];
+	out->recoil_shake[2] = f->recoil_shake[2];
+	out->recoil_has_spin_shake = f->recoil_has_spin_shake;
+	out->recoil_spin_from = f->recoil_spin_from;
+	out->recoil_spin_to = f->recoil_spin_to;
+}
+
+/* What the seam reads: unk26 and unk27 as the original keeps them (unk27
+ * below 0 when no press refires early). */
+static inline s32 weaponRulesRecoilCutAfter(const weapon_rule_trigger_t *plan)
+{
+	return plan->recoil_cut_after;
+}
+
+static inline s32 weaponRulesRecoilCutReturn(const weapon_rule_trigger_t *plan)
+{
+	return plan->recoil_refire ? plan->recoil_cut_return : -1;
+}
+
+static inline s32 weaponRulesRecoilEqual(const weapon_rule_trigger_t *a, const weapon_rule_trigger_t *b)
+{
+	return a->recoil == b->recoil && a->recoil_kick == b->recoil_kick && a->recoil_return == b->recoil_return
+		&& a->recoil_recovery == b->recoil_recovery && a->recoil_refire == b->recoil_refire
+		&& a->recoil_cut_after == b->recoil_cut_after && a->recoil_cut_return == b->recoil_cut_return
+		&& a->recoil_distance == b->recoil_distance && a->recoil_angle == b->recoil_angle
+		&& a->recoil_slide == b->recoil_slide && a->recoil_has_shake == b->recoil_has_shake
+		&& (!a->recoil_has_shake || (a->recoil_shake[0] == b->recoil_shake[0]
+			&& a->recoil_shake[1] == b->recoil_shake[1] && a->recoil_shake[2] == b->recoil_shake[2]))
+		&& a->recoil_has_spin_shake == b->recoil_has_spin_shake
+		&& (!a->recoil_has_spin_shake || (a->recoil_spin_from == b->recoil_spin_from
+			&& a->recoil_spin_to == b->recoil_spin_to));
+}
+
 static inline void weaponRulesNativeTrigger(const weapon_rule_function_t *f, weapon_rule_trigger_t *out)
 {
 	memset(out, 0, sizeof(*out));
 	out->aimed_burst = 1;
 	weaponRulesNativeShot(f, out);
+	weaponRulesNativeRecoil(f, out);
 	if (f && f->has_charge && f->weaponnum >= WEAPON_CUSTOM_START) {
 		/* slice 5: the committed charge spends its own rounds on release. */
 		weaponRulesCommittedCharge(f, out);
@@ -775,6 +884,23 @@ static inline f32 weaponRulesRateFromText(const char *text, f32 dflt)
 #define WEAPON_RULE_LOCKS_PARAM "locks"             /* og.weapon.lock_on (slice 6b) */
 #define WEAPON_RULE_AIM_FOLLOWS_PARAM "aim_follows"
 #define WEAPON_RULE_MAX_LOCKS 4                     /* the player's tracked props */
+#define WEAPON_RULE_KICK_PARAM "kick"               /* og.weapon.recoil (slice 7a) */
+#define WEAPON_RULE_RETURN_PARAM "return"
+#define WEAPON_RULE_RECOVERY_PARAM "recovery"
+#define WEAPON_RULE_REFIRE_EARLY_PARAM "refire_early"
+#define WEAPON_RULE_CUT_AFTER_PARAM "cut_after"
+#define WEAPON_RULE_CUT_RETURN_PARAM "cut_return"
+#define WEAPON_RULE_DISTANCE_PARAM "distance"
+#define WEAPON_RULE_ANGLE_PARAM "angle"
+#define WEAPON_RULE_SLIDE_PARAM "slide"
+#define WEAPON_RULE_SHAKE_X_PARAM "shake_x"
+#define WEAPON_RULE_SHAKE_Y_PARAM "shake_y"
+#define WEAPON_RULE_SHAKE_Z_PARAM "shake_z"
+#define WEAPON_RULE_SPIN_SHAKE_FROM_PARAM "spin_shake_from"
+#define WEAPON_RULE_SPIN_SHAKE_TO_PARAM "spin_shake_to"
+#define WEAPON_RULE_MAX_RECOIL_FRAMES 127           /* the record's signed bytes */
+#define WEAPON_RULE_MAX_RECOIL_TRAVEL 1000.0f
+#define WEAPON_RULE_MAX_SHAKE 100.0f
 typedef struct weapon_rule_setting {
 	u32 module;
 	const char *key;
@@ -782,7 +908,7 @@ typedef struct weapon_rule_setting {
 	s32 lo;
 	s32 hi;
 } weapon_rule_setting_t;
-#define WEAPON_RULE_SETTING_COUNT 32
+#define WEAPON_RULE_SETTING_COUNT 46
 
 static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 {
@@ -821,6 +947,20 @@ static inline const weapon_rule_setting_t *weaponRulesSettingAt(s32 index)
 		{ WEAPON_MODULE_COOK, WEAPON_RULE_FUSE_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_SPIN },
 		{ WEAPON_MODULE_LOCK_ON, WEAPON_RULE_LOCKS_PARAM, WEAPON_RULE_SETTING_WHOLE, 1, WEAPON_RULE_MAX_LOCKS },
 		{ WEAPON_MODULE_LOCK_ON, WEAPON_RULE_AIM_FOLLOWS_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_KICK_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_RECOIL_FRAMES },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_RETURN_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_RECOIL_FRAMES },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_RECOVERY_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_RECOIL_FRAMES },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_REFIRE_EARLY_PARAM, WEAPON_RULE_SETTING_BOOL, 0, 0 },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_CUT_AFTER_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_RECOIL_FRAMES },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_CUT_RETURN_PARAM, WEAPON_RULE_SETTING_WHOLE, 0, WEAPON_RULE_MAX_RECOIL_FRAMES },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_DISTANCE_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_RECOIL_TRAVEL },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_ANGLE_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, 360 },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SLIDE_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_RECOIL_TRAVEL },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SHAKE_X_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SHAKE_Y_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SHAKE_Z_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SPIN_SHAKE_FROM_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
+		{ WEAPON_MODULE_RECOIL, WEAPON_RULE_SPIN_SHAKE_TO_PARAM, WEAPON_RULE_SETTING_NONNEG, 0, (s32)WEAPON_RULE_MAX_SHAKE },
 	};
 	return index >= 0 && index < WEAPON_RULE_SETTING_COUNT ? &settings[index] : NULL;
 }
@@ -836,6 +976,20 @@ static inline f32 weaponRulesNumberFromText(const char *text, f32 hi, f32 dflt)
 	if (!text[0] || text[0] == '+' || text[0] == '-' || text[0] == ' ') return -1.0f;
 	value = strtod(text, &end);
 	if (!end || *end || !(value > 0.0) || value > hi) return -1.0f;
+	return (f32)value;
+}
+
+/* A number of 0 or more, up to hi: the number, `dflt` for NULL, -1 for
+ * anything else. */
+static inline f32 weaponRulesNonNegFromText(const char *text, f32 hi, f32 dflt)
+{
+	char *end = NULL;
+	double value;
+
+	if (!text) return dflt;
+	if (!text[0] || text[0] == '+' || text[0] == '-' || text[0] == ' ') return -1.0f;
+	value = strtod(text, &end);
+	if (!end || *end || !(value >= 0.0) || value > hi) return -1.0f;
 	return (f32)value;
 }
 
@@ -994,7 +1148,7 @@ static inline s32 weaponRulesSettingValid(const weapon_rule_setting_t *setting, 
 	case WEAPON_RULE_SETTING_RELEASE:
 		return strcmp(text, "on_press") == 0 || strcmp(text, "on_full") == 0;
 	case WEAPON_RULE_SETTING_NONNEG:
-		return strcmp(text, "0") == 0 || weaponRulesNumberFromText(text, (f32)setting->hi, -1.0f) > 0.0f;
+		return weaponRulesNonNegFromText(text, (f32)setting->hi, -1.0f) >= 0.0f;
 	}
 	return 0;
 }
@@ -1089,12 +1243,11 @@ static inline s32 weaponRulesApplySettings(u32 module, weapon_rule_text_fn get, 
 		if (v < 0) ok = 0; else plan->charge_fall = v;
 		damage_text = get(WEAPON_RULE_DAMAGE_PER_STEP_PARAM, user);
 		if (damage_text) {
-			if (strcmp(damage_text, "0") == 0) {
-				plan->charge_damage = 0.0f;
-			} else {
-				const f32 d = weaponRulesNumberFromText(damage_text, 100.0f, -1.0f);
+			{
+				/* slice 7a: any number from 0, as registration reads it. */
+				const f32 d = weaponRulesNonNegFromText(damage_text, 100.0f, -1.0f);
 
-				if (d > 0.0f) plan->charge_damage = d;
+				if (d >= 0.0f) plan->charge_damage = d;
 				else ok = 0;
 			}
 		}
@@ -1150,7 +1303,98 @@ static inline s32 weaponRulesTriggerEqual(const weapon_rule_trigger_t *a, const 
 		&& a->charge_steps == b->charge_steps && a->charge_ammo == b->charge_ammo
 		&& a->charge_min_clip == b->charge_min_clip && a->charge_fall == b->charge_fall
 		&& a->charge_release == b->charge_release && a->charge_damage == b->charge_damage
-		&& a->cook_fuse == b->cook_fuse;
+		&& a->cook_fuse == b->cook_fuse && weaponRulesRecoilEqual(a, b);
+}
+
+/*
+ * held-weapon-events.md slice 7a: og.weapon.recoil's settings, read by
+ * `get`, over the function's own recoil (a setting left out is the
+ * record's). Frames: "kick", "return", "recovery", "cut_after", "cut_return"
+ * (0 to WEAPON_RULE_MAX_RECOIL_FRAMES); "refire_early" (true: a new press
+ * ends the recovery early, and one after cut_after frames, above 0, cuts the
+ * recoil short with a cut_return-frame return); "distance" and "slide"
+ * (0 to WEAPON_RULE_MAX_RECOIL_TRAVEL); "angle" (degrees, 0 to 360);
+ * "shake_x", "shake_y", "shake_z" (the jitter's ranges, 0 to
+ * WEAPON_RULE_MAX_SHAKE; naming one gives the function a jitter); and
+ * "spin_shake_from", "spin_shake_to" (the jitter's multiplier from no spin to
+ * full spin, an automatic's; naming one gives it the spin's). Returns 1, or
+ * 0 when a setting is malformed (it then keeps its default).
+ */
+static inline s32 weaponRulesApplyRecoilSettings(weapon_rule_text_fn get, void *user,
+	const weapon_rule_function_t *record, weapon_rule_trigger_t *plan)
+{
+	static const char *const shake_keys[3] = {
+		WEAPON_RULE_SHAKE_X_PARAM, WEAPON_RULE_SHAKE_Y_PARAM, WEAPON_RULE_SHAKE_Z_PARAM,
+	};
+	const char *text;
+	s32 ok = 1;
+	s32 v;
+	f32 f;
+
+	weaponRulesNativeRecoil(record, plan);
+	plan->recoil = 1;
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_KICK_PARAM, user), 0, WEAPON_RULE_MAX_RECOIL_FRAMES, plan->recoil_kick);
+	if (v < 0) ok = 0; else plan->recoil_kick = v;
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_RETURN_PARAM, user), 0, WEAPON_RULE_MAX_RECOIL_FRAMES, plan->recoil_return);
+	if (v < 0) ok = 0; else plan->recoil_return = v;
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_RECOVERY_PARAM, user), 0, WEAPON_RULE_MAX_RECOIL_FRAMES,
+		plan->recoil_recovery);
+	if (v < 0) ok = 0; else plan->recoil_recovery = v;
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_CUT_AFTER_PARAM, user), 0, WEAPON_RULE_MAX_RECOIL_FRAMES,
+		plan->recoil_cut_after);
+	if (v < 0) ok = 0; else plan->recoil_cut_after = v;
+	v = weaponRulesWholeFromText(get(WEAPON_RULE_CUT_RETURN_PARAM, user), 0, WEAPON_RULE_MAX_RECOIL_FRAMES,
+		plan->recoil_cut_return);
+	if (v < 0) ok = 0; else plan->recoil_cut_return = v;
+	if ((text = get(WEAPON_RULE_REFIRE_EARLY_PARAM, user)) != NULL) {
+		v = weaponRulesBoolFromText(text);
+		if (v < 0) ok = 0; else plan->recoil_refire = v;
+	}
+	f = weaponRulesNonNegFromText(get(WEAPON_RULE_DISTANCE_PARAM, user), WEAPON_RULE_MAX_RECOIL_TRAVEL,
+		plan->recoil_distance);
+	if (f < 0.0f) ok = 0; else plan->recoil_distance = f;
+	f = weaponRulesNonNegFromText(get(WEAPON_RULE_ANGLE_PARAM, user), 360.0f, plan->recoil_angle);
+	if (f < 0.0f) ok = 0; else plan->recoil_angle = f;
+	f = weaponRulesNonNegFromText(get(WEAPON_RULE_SLIDE_PARAM, user), WEAPON_RULE_MAX_RECOIL_TRAVEL, plan->recoil_slide);
+	if (f < 0.0f) ok = 0; else plan->recoil_slide = f;
+	for (s32 i = 0; i < 3; i++) {
+		if ((text = get(shake_keys[i], user)) != NULL) {
+			f = weaponRulesNonNegFromText(text, WEAPON_RULE_MAX_SHAKE, -1.0f);
+			if (f < 0.0f) {
+				ok = 0;
+			} else {
+				plan->recoil_shake[i] = f;
+				plan->recoil_has_shake = 1;
+			}
+		}
+	}
+	if ((text = get(WEAPON_RULE_SPIN_SHAKE_FROM_PARAM, user)) != NULL) {
+		f = weaponRulesNonNegFromText(text, WEAPON_RULE_MAX_SHAKE, -1.0f);
+		if (f < 0.0f) {
+			ok = 0;
+		} else {
+			if (!plan->recoil_has_spin_shake) plan->recoil_spin_to = 1.0f;
+			plan->recoil_spin_from = f;
+			plan->recoil_has_spin_shake = 1;
+		}
+	}
+	if ((text = get(WEAPON_RULE_SPIN_SHAKE_TO_PARAM, user)) != NULL) {
+		f = weaponRulesNonNegFromText(text, WEAPON_RULE_MAX_SHAKE, -1.0f);
+		if (f < 0.0f) {
+			ok = 0;
+		} else {
+			if (!plan->recoil_has_spin_shake) plan->recoil_spin_from = 1.0f;
+			plan->recoil_spin_to = f;
+			plan->recoil_has_spin_shake = 1;
+		}
+	}
+	return ok;
+}
+
+/* Whether og.weapon.recoil fits a function: one that shoots. */
+static inline s32 weaponRulesRecoilFits(s32 functype)
+{
+	return (functype & 0xff) == 1;
 }
 
 /* A catalog id's weapon number, -1 for none (the game reads its weapon
@@ -1702,6 +1946,19 @@ static inline s32 weaponRulesWalkModule(const char *kind, const char *node_id,
 		walk->modules |= bit;
 		return 1;
 	}
+	if (bit == WEAPON_MODULE_RECOIL) {
+		/* slice 7a: the first recoil reached is the attack's. */
+		if (!(walk->modules & WEAPON_MODULE_RECOIL)) {
+			weapon_rule_setting_read_t read;
+
+			read.walk = walk;
+			read.params = params;
+			read.next = 0;
+			weaponRulesApplyRecoilSettings(weaponRulesWalkSettingText, &read, walk->function, &walk->plan);
+		}
+		walk->modules |= bit;
+		return 1;
+	}
 	if (bit & WEAPON_MODULE_SHOTS) {
 		/* slice 4: the first shot reached is the attack's. */
 		if (!(walk->modules & WEAPON_MODULE_SHOTS)) {
@@ -1779,6 +2036,10 @@ static inline s32 weaponRulesWalk(const mission_graph_program_t *program, s32 ev
 		if (!(walk->modules & WEAPON_MODULE_SHOTS)) {
 			/* A shot left out is the function's own. */
 			weaponRulesNativeShot(walk->function, &walk->plan);
+		}
+		if (!(walk->modules & WEAPON_MODULE_RECOIL)) {
+			/* slice 7a: and so is a recoil. */
+			weaponRulesNativeRecoil(walk->function, &walk->plan);
 		}
 	}
 	return 1;

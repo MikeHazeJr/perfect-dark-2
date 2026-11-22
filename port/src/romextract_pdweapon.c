@@ -64,7 +64,10 @@
  * CMP150's held programs carry their lock (event.weapon.aiming,
  * og.weapon.lock_on), which an older one lacks: its lock would not show as
  * settings. */
-#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v23"
+/* v24 (slice 7a): every shooting function's program carries its recoil
+ * (og.weapon.recoil), which an older one lacks: its feel would not show as
+ * settings. */
+#define PDWEAPON_DEPENDENCY_CLOSURE_MARKER "embedded.v24"
 /* _fuseprogram: projectile and entity archives are pd.*_graph.v2 with the
  * fuse wired (projectile-events.md slice 2), so installs re-extract them.
  * _contactrules: projectile archives also wire the contact rules (slice 3). */
@@ -73,8 +76,9 @@
  * and use_ammo nodes (slice 3). _heldshots: and their shot nodes (slice 4). _heldreloads: and their reload
  * styles (slice 4b). _flightrules: projectile archives wire the flight rule
  * (projectile-events.md slice 7). _heldlocks: the held programs carry their
- * weapon's lock (slice 6b). */
-#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules_heldlocks"
+ * weapon's lock (slice 6b). _heldrecoil: and a shooting function's recoil
+ * (slice 7a). */
+#define PDWEAPON_FAST_CACHE_KIND "pdweapon_embedded_v14_clean_public_b943fields_projref_fuseprogram_contactrules_devicerules_sentryrules_armrules_heldprograms_heldtriggers_heldshots_heldreloads_heldcharges_flightrules_heldlocks_heldrecoil"
 #define PDWEAPON_MAX_ANIM_DEPS 128
 #define PDWEAPON_MAX_AUDIO_DEPS 128
 #define PDWEAPON_PRIMARY_GRAPH_ENTRY "behavior/primary.graph.json"
@@ -2715,6 +2719,30 @@ static void s_heldNativeTrigger(const struct weaponfunc *f, s32 weapon_id, s32 m
 			record.max_rpm = sa->maxrpm;
 			record.accel = sa->turretaccel;
 			record.decel = sa->turretdecel;
+			if (sa->vibrationstart && sa->vibrationmax) {
+				record.recoil_has_spin_shake = 1;
+				record.recoil_spin_from = sa->vibrationstart[0];
+				record.recoil_spin_to = sa->vibrationmax[0];
+			}
+		}
+		if ((f->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+			/* slice 7a: its recoil, as the record's params write it. */
+			const struct weaponfunc_shoot *sh = (const struct weaponfunc_shoot *)f;
+
+			record.recoil_kick = sh->unk24;
+			record.recoil_return = sh->unk25;
+			record.recoil_cut_after = sh->unk26;
+			record.recoil_cut_return = sh->unk27;
+			record.recoil_recovery = sh->recoverytime60;
+			record.recoil_distance = sh->recoildist;
+			record.recoil_angle = sh->recoilangle;
+			record.recoil_slide = sh->slidemax;
+			if (sh->recoilsettings) {
+				record.recoil_has_shake = 1;
+				record.recoil_shake[0] = sh->recoilsettings->xrange;
+				record.recoil_shake[1] = sh->recoilsettings->yrange;
+				record.recoil_shake[2] = sh->recoilsettings->zrange;
+			}
 		}
 	}
 	weaponRulesNativeTrigger(&record, out);
@@ -2757,21 +2785,47 @@ static void s_emitHeldReloadNode(jw_t *w, const char *id, const weapon_rule_relo
  * the table for every hand state, so a base program and the original agree
  * by construction.
  */
-#define PDWEAPON_HELD_PROGRAM_NODES 10
+/* held-weapon-events.md slice 7a: og.weapon.recoil with every setting of
+ * the function's own recoil, its floats as the record's params are written
+ * (%.7g), so the held graph reads both alike. */
+static void s_emitHeldRecoilNode(jw_t *w, const char *id, const weapon_rule_trigger_t *plan, s32 last)
+{
+	jw_indent(w);
+	fprintf(w->fp, "{ \"id\": \"%s\", \"kind\": \"%s\", \"" WEAPON_RULE_KICK_PARAM "\": %d, \"" WEAPON_RULE_RETURN_PARAM
+		"\": %d, \"" WEAPON_RULE_RECOVERY_PARAM "\": %d, \"" WEAPON_RULE_REFIRE_EARLY_PARAM "\": %s, \""
+		WEAPON_RULE_CUT_AFTER_PARAM "\": %d, \"" WEAPON_RULE_CUT_RETURN_PARAM "\": %d, \"" WEAPON_RULE_DISTANCE_PARAM
+		"\": %.7g, \"" WEAPON_RULE_ANGLE_PARAM "\": %.7g, \"" WEAPON_RULE_SLIDE_PARAM "\": %.7g",
+		id, weaponRulesModuleKind(WEAPON_MODULE_RECOIL), plan->recoil_kick, plan->recoil_return,
+		plan->recoil_recovery, plan->recoil_refire ? "true" : "false", plan->recoil_cut_after,
+		plan->recoil_cut_return, (double)plan->recoil_distance, (double)plan->recoil_angle,
+		(double)plan->recoil_slide);
+	if (plan->recoil_has_shake) {
+		fprintf(w->fp, ", \"" WEAPON_RULE_SHAKE_X_PARAM "\": %.7g, \"" WEAPON_RULE_SHAKE_Y_PARAM "\": %.7g, \""
+			WEAPON_RULE_SHAKE_Z_PARAM "\": %.7g", (double)plan->recoil_shake[0], (double)plan->recoil_shake[1],
+			(double)plan->recoil_shake[2]);
+	}
+	if (plan->recoil_has_spin_shake) {
+		fprintf(w->fp, ", \"" WEAPON_RULE_SPIN_SHAKE_FROM_PARAM "\": %.7g, \"" WEAPON_RULE_SPIN_SHAKE_TO_PARAM
+			"\": %.7g", (double)plan->recoil_spin_from, (double)plan->recoil_spin_to);
+	}
+	fputs(last ? " }\n" : " },\n", w->fp);
+}
+
+#define PDWEAPON_HELD_PROGRAM_NODES 11
 static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
                                    const weapon_rule_trigger_t *plan, const weapon_rule_reload_t *reload)
 {
 	char ids[PDWEAPON_HELD_PROGRAM_NODES][48];
 	static const char *const suffix[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"pressed", "held", "has_ammo", "has_reserve", "attack", "dry_fire", "clip_empty", "reload",
-		"use_ammo", "shot",
+		"use_ammo", "shot", "recoil",
 	};
 	static const char *const kind[PDWEAPON_HELD_PROGRAM_NODES] = {
 		"event.weapon.trigger_pressed", "event.weapon.ready_while_held",
 		WEAPON_GATE_HAS_AMMO_KIND, WEAPON_GATE_HAS_RESERVE_KIND,
 		NULL, "og.weapon.dry_fire",
 		"event.weapon.clip_empty", "og.weapon.reload",
-		"og.weapon.use_ammo", NULL,
+		"og.weapon.use_ammo", NULL, NULL,
 	};
 	s32 emit[PDWEAPON_HELD_PROGRAM_NODES];
 	s32 count = 0;
@@ -2779,7 +2833,7 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 	/* use_ammo only where the attack spends, the shot only where the
 	 * function has one (a device has none). */
 	for (s32 i = 0; i < PDWEAPON_HELD_PROGRAM_NODES; i++) {
-		if ((i == 8 && plan->rounds <= 0) || (i == 9 && !plan->shot)) continue;
+		if ((i == 8 && plan->rounds <= 0) || (i == 9 && !plan->shot) || (i == 10 && !plan->recoil)) continue;
 		emit[count++] = i;
 	}
 	for (s32 n = 0; n < count; n++) {
@@ -2793,6 +2847,8 @@ static void s_emitHeldProgramNodes(jw_t *w, const char *mode_name, s32 rounds,
 			s_emitHeldReloadNode(w, ids[i], reload, last);
 		} else if (i == 9) {
 			s_emitHeldShotNode(w, ids[i], plan, last);
+		} else if (i == 10) {
+			s_emitHeldRecoilNode(w, ids[i], plan, last);
 		} else {
 			s_emitHeldProgramNode(w, ids[i], kind[i], i == 2 ? rounds : i == 8 ? plan->rounds : 0, last);
 		}
@@ -2814,6 +2870,13 @@ static void s_emitHeldProgramEdges(jw_t *w, const char *mode_name, const weapon_
 	snprintf(reload, sizeof(reload), "%s_reload", mode_name);
 	snprintf(use_ammo, sizeof(use_ammo), "%s_use_ammo", mode_name);
 	snprintf(shot, sizeof(shot), "%s_shot", mode_name);
+	if (plan->recoil) {
+		/* slice 7a: the recoil after the attack's shot. */
+		char recoil[48];
+
+		snprintf(recoil, sizeof(recoil), "%s_recoil", mode_name);
+		s_emitHeldProgramEdge(w, plan->shot ? shot : plan->rounds > 0 ? use_ammo : attack, "out", recoil, 0);
+	}
 	s_emitHeldProgramEdge(w, pressed, "out", has_ammo, 0);
 	s_emitHeldProgramEdge(w, held, "out", has_ammo, 0);
 	s_emitHeldProgramEdge(w, has_ammo, "pass", attack, 0);

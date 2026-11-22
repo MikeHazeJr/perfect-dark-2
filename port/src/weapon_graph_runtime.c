@@ -1057,6 +1057,12 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 			kind, (unsigned)check->functype);
 		return 0;
 	}
+	if ((bit & WEAPON_MODULE_FEEL) && check->functype >= 0 && !weaponRulesRecoilFits(check->functype)) {
+		/* slice 7a: a recoil is a shooting function's. */
+		snprintf(check->why, sizeof(check->why),
+			"%s fits only a shooting function (its record's function type is 0x%04x)", kind, (unsigned)check->functype);
+		return 0;
+	}
 	if (bit == WEAPON_MODULE_MODE_TOGGLE && check->ammo_slot == -1) {
 		/* PR 31 review: the cloak drains its function's rounds, and the
 		 * drain reads the reserve of that ammunition. */
@@ -1065,7 +1071,7 @@ static s32 heldProgramParamVisit(const char *kind, const mission_graph_params_t 
 		return 0;
 	}
 	if (bit & (WEAPON_MODULE_TRIGGERS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_RELOAD
-			| WEAPON_MODULE_LOCK_ON)) {
+			| WEAPON_MODULE_LOCK_ON | WEAPON_MODULE_FEEL)) {
 		for (s32 i = 0; weaponRulesSettingAt(i); i++) {
 			const weapon_rule_setting_t *setting = weaponRulesSettingAt(i);
 			const char *raw = setting->module == bit ? missionGraphParamText(params, setting->key) : NULL;
@@ -4943,6 +4949,47 @@ static s32 heldOpcodeIsSupported(weapon_graph_opcode_e opcode)
 	}
 }
 
+/* held-weapon-events.md slice 7a: a number member of an object param's
+ * raw text ({"xrange": 0.6, ...}) and the first element of an array param's
+ * ([0, 1, ...]). 1 with *out set, 0 when there is none. */
+static s32 heldRawObjectFloat(const char *raw, const char *key, f32 *out)
+{
+	char quoted[48];
+	const char *p;
+	char *end = NULL;
+	double value;
+
+	if (!raw || !key || !out || snprintf(quoted, sizeof(quoted), "\"%s\"", key) >= (int)sizeof(quoted)) return 0;
+	p = strstr(raw, quoted);
+	if (!p) return 0;
+	p += strlen(quoted);
+	while (*p && isspace((unsigned char)*p)) p++;
+	if (*p != ':') return 0;
+	p++;
+	while (*p && isspace((unsigned char)*p)) p++;
+	value = strtod(p, &end);
+	if (!end || end == p || !(value >= -FLT_MAX && value <= FLT_MAX)) return 0;
+	*out = (f32)value;
+	return 1;
+}
+
+static s32 heldRawArrayFirstFloat(const char *raw, f32 *out)
+{
+	const char *p = raw;
+	char *end = NULL;
+	double value;
+
+	if (!p || !out) return 0;
+	while (*p && isspace((unsigned char)*p)) p++;
+	if (*p != '[') return 0;
+	p++;
+	while (*p && isspace((unsigned char)*p)) p++;
+	value = strtod(p, &end);
+	if (!end || end == p || !(value >= -FLT_MAX && value <= FLT_MAX)) return 0;
+	*out = (f32)value;
+	return 1;
+}
+
 static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
                                  const weapon_graph_ir_node_t *node,
                                  const char *mode_hint,
@@ -5010,6 +5057,28 @@ static void heldFunctionFromNode(const weapon_graph_ir_t *ir,
 	if (heldParamFloat(ir, node, "slidemax", &f)) {
 		out->has_slidemax = 1;
 		out->slidemax = f;
+	}
+	{
+		/* slice 7a: the jitter and the Reaper's spin, which base archives
+		 * carry as an object and two arrays. */
+		const weapon_graph_ir_param_t *rs = heldParam(ir, node, "recoilsettings");
+		const weapon_graph_ir_param_t *vs = heldParam(ir, node, "vibration_start");
+		const weapon_graph_ir_param_t *vm = heldParam(ir, node, "vibration_max");
+		f32 x, y, z, from, to;
+
+		if (rs && rs->type == WEAPON_GRAPH_PARAM_OBJECT && heldRawObjectFloat(rs->value, "xrange", &x)
+				&& heldRawObjectFloat(rs->value, "yrange", &y) && heldRawObjectFloat(rs->value, "zrange", &z)) {
+			out->has_recoil_shake = 1;
+			out->recoil_shake[0] = x;
+			out->recoil_shake[1] = y;
+			out->recoil_shake[2] = z;
+		}
+		if (vs && vm && vs->type == WEAPON_GRAPH_PARAM_ARRAY && vm->type == WEAPON_GRAPH_PARAM_ARRAY
+				&& heldRawArrayFirstFloat(vs->value, &from) && heldRawArrayFirstFloat(vm->value, &to)) {
+			out->has_spin_shake = 1;
+			out->spin_shake_from = from;
+			out->spin_shake_to = to;
+		}
 	}
 	if (heldParamFloat(ir, node, "impactforce", &f)) {
 		out->has_impactforce = 1;

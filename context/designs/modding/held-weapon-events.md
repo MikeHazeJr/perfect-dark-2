@@ -851,6 +851,30 @@ kick plus return as their shot interval (`botactGetShootInterval60`).
   hold, the Reaper's eject parts and velocities, the DY357's casings,
   tracers, smoke, the Falcon 2's laser sight.
 
+**7a as written (2026-11-22, `week-pd/core-weapons-w7`):**
+`og.weapon.recoil` (weapon module bit 17, the first feel module; the idle
+rule events apply the feel modules with the shots) takes `kick`, `return`,
+`recovery`, `cut_after`, `cut_return` (frames, 0 to 127), `refire_early`,
+`distance`, `slide` (0 to 1000), `angle` (0 to 360), `shake_x`, `shake_y`,
+`shake_z`, `spin_shake_from`, `spin_shake_to` (0 to 100). The attack's plan
+carries the recoil; the original's comes from the record
+(`weaponRulesNativeRecoil`): `unk26` at or below 0 is no cut, `unk27` below 0
+no early refire, read back as the seam read them
+(`weaponRulesRecoilCutAfter`, `weaponRulesRecoilCutReturn`). The seams read
+the hand's plan: `bgun0f09aba4` (kick, return, cut, recovery, distance,
+angle), `bgunUpdateSlide`, the jitter and the spin multiplier. The held
+record now reads the jitter (`recoilsettings`) and the Reaper's spin
+(`vibration_start`, `vibration_max`), which base archives always carried, so
+a mod gun's graph gives it jitter. Base programs write every recoil setting
+after their shot (`embedded.v24`, cache `_heldrecoil`); the parity probe
+compares the recoil as part of the plan, and the first `WEAPON.RULE` line
+ends with it (` recoil=6/18/0 refire=yes cut=2/8 ...`). Registration and
+conformance refuse a recoil on a function that does not shoot, and
+malformed settings. A number setting from 0 now reads `0.0` too, the
+charge's `damage_per_step` included. Simulants' shot interval has an
+accessor for Multiplayer & Rules' `botact.c` (`weaponProgramRecoilFrames`:
+the press plan's kick plus return, the original's with no program).
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
@@ -883,6 +907,8 @@ Listed as each slice lands; none is run by Core Weapons.
 | 6b | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their `WEAPON.EVENTS` lines end with `aiming=N`; `rules.differ=0` as before |
 | 6b | `projectile_events_smoke` | the proximity mine, the Dragon and the proximity grenade go off as before (their proximity lines unchanged) |
 | 6b | `crystal_pistol_bot_charge_smoke`, `crystal_pistol_bot_embed_smoke` | the crystal pistol's mine keeps its record's radius and filters (`BONDGUN.CRYSTAL: mine triggered` as before; the owner still sets off its own mine) |
+| 7a | `boot_smoke` on a freshly extracted install | `embedded.v24`: every base weapon re-extracts once; no `program refused` line (every shooting function's program carries `og.weapon.recoil`) |
+| 7a | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | their first `WEAPON.RULE` lines end with ` recoil=...`; `rules.differ=0`; the guns kick, slide and jitter as before (the Falcon 2's slide, the Reaper's shake rising with its spin) |
 | 6c | a vehicle lock smoke with the sample above (none written yet: the Blank Room with a hoverbike, `--debug-forge-level-vehicle`, as `hoverbike_room_flow_smoke`) | aiming the secondary at the empty bike logs `SIGHT.LOCK: ... kind=vehicle occupied=0 relation=none`; the primary takes no lock on it; with a second player riding (split screen or a second client) the primary logs `occupied=1 relation=enemy`, and its rocket flies straight once the rider bails; `rules.differ=0` |
 | 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 

@@ -348,12 +348,24 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 		if (weaponEventFirst(weaponnum, func, weaponRulesEventIndex(kind))) {
 			char reload_text[64] = "";
 
+			char recoil_text[160] = "";
+
 			if (style || native_style) {
 				snprintf(reload_text, sizeof(reload_text), " reload=%s native_reload=%s",
 					style ? style : "-", native_style ? native_style : "-");
 			}
+			if ((chosen & WEAPON_MODULE_TRIGGERS) && walk.plan.recoil) {
+				/* slice 7a: the attack's recoil. */
+				snprintf(recoil_text, sizeof(recoil_text),
+					" recoil=%d/%d/%d refire=%s cut=%d/%d distance=%.9g angle=%.9g slide=%.9g shake=%s spin=%s",
+					walk.plan.recoil_kick, walk.plan.recoil_return, walk.plan.recoil_recovery,
+					walk.plan.recoil_refire ? "yes" : "no", walk.plan.recoil_cut_after, walk.plan.recoil_cut_return,
+					(double)walk.plan.recoil_distance, (double)walk.plan.recoil_angle,
+					(double)walk.plan.recoil_slide, walk.plan.recoil_has_shake ? "yes" : "no",
+					walk.plan.recoil_has_spin_shake ? "yes" : "no");
+			}
 			sysLogPrintf(LOG_NOTE,
-				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s plan=%s native_plan=%s%s",
+				"WEAPON.RULE: %s weapon=%s func=%s program=yes modules=%s native=%s plan=%s native_plan=%s%s%s",
 				weaponRuleName(kind), weaponEventWeaponId(weaponnum),
 				func == FUNC_SECONDARY ? "secondary" : "primary",
 				weaponModulesText(chosen, chose, sizeof(chose)),
@@ -361,7 +373,7 @@ static u32 weaponRuleDecide(s32 kind, s32 handnum, struct hand *hand, u32 native
 				weaponPlanText(&walk.plan, chose_plan, sizeof(chose_plan)),
 				weaponPlanText((native & WEAPON_MODULE_TRIGGERS) ? native_plan : NULL,
 					orig_plan, sizeof(orig_plan)),
-				reload_text);
+				reload_text, recoil_text);
 		}
 	}
 	return walk.modules;
@@ -512,6 +524,22 @@ static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_functi
 		out->max_rpm = held->has_max_rpm ? held->max_rpm : 0.0f;
 		out->accel = held->has_turret_accel ? held->turret_accel : 0;
 		out->decel = held->has_turret_decel ? held->turret_decel : 0;
+		/* slice 7a: its recoil. */
+		out->recoil_kick = held->has_recoil_anim_unk24 ? held->recoil_anim_unk24 : 0;
+		out->recoil_return = held->has_recoil_anim_unk25 ? held->recoil_anim_unk25 : 0;
+		out->recoil_cut_after = held->has_recoil_anim_unk26 ? held->recoil_anim_unk26 : 0;
+		out->recoil_cut_return = held->has_recoil_anim_unk27 ? held->recoil_anim_unk27 : 0;
+		out->recoil_recovery = held->has_recoverytime_ticks60 ? held->recoverytime_ticks60 : 0;
+		out->recoil_distance = held->has_recoildist ? held->recoildist : 0.0f;
+		out->recoil_angle = held->has_recoilangle ? held->recoilangle : 0.0f;
+		out->recoil_slide = held->has_slidemax ? held->slidemax : 0.0f;
+		out->recoil_has_shake = held->has_recoil_shake;
+		out->recoil_shake[0] = held->recoil_shake[0];
+		out->recoil_shake[1] = held->recoil_shake[1];
+		out->recoil_shake[2] = held->recoil_shake[2];
+		out->recoil_has_spin_shake = held->has_spin_shake;
+		out->recoil_spin_from = held->spin_shake_from;
+		out->recoil_spin_to = held->spin_shake_to;
 	} else if (weaponnum >= 0 && weaponnum < WEAPON_CUSTOM_START && func >= 0 && func <= 1) {
 		struct weaponfunc *f = weaponGetFunctionById(weaponnum, func);
 
@@ -533,6 +561,34 @@ static void weaponRuleFunctionOfHeld(s32 weaponnum, s32 func, weapon_rule_functi
 				out->max_rpm = a->maxrpm;
 				out->accel = a->turretaccel;
 				out->decel = a->turretdecel;
+			}
+			if ((f->type & 0xff) == INVENTORYFUNCTYPE_SHOOT) {
+				/* slice 7a: its recoil. */
+				const struct weaponfunc_shoot *s = (const struct weaponfunc_shoot *)f;
+
+				out->recoil_kick = s->unk24;
+				out->recoil_return = s->unk25;
+				out->recoil_cut_after = s->unk26;
+				out->recoil_cut_return = s->unk27;
+				out->recoil_recovery = s->recoverytime60;
+				out->recoil_distance = s->recoildist;
+				out->recoil_angle = s->recoilangle;
+				out->recoil_slide = s->slidemax;
+				if (s->recoilsettings) {
+					out->recoil_has_shake = 1;
+					out->recoil_shake[0] = s->recoilsettings->xrange;
+					out->recoil_shake[1] = s->recoilsettings->yrange;
+					out->recoil_shake[2] = s->recoilsettings->zrange;
+				}
+				if (f->type == INVENTORYFUNCTYPE_SHOOT_AUTOMATIC) {
+					const struct weaponfunc_shootauto *a = (const struct weaponfunc_shootauto *)f;
+
+					if (a->vibrationstart && a->vibrationmax) {
+						out->recoil_has_spin_shake = 1;
+						out->recoil_spin_from = a->vibrationstart[0];
+						out->recoil_spin_to = a->vibrationmax[0];
+					}
+				}
 			}
 		}
 	}
@@ -725,6 +781,19 @@ s32 weaponCloakToggle(s32 weaponnum, f32 *drain, s32 *ammo_slot)
 		}
 	}
 	return 0;
+}
+
+s32 weaponProgramRecoilFrames(s32 weaponnum, s32 func, s32 native)
+{
+	weapon_rule_trigger_t plan;
+
+	if (!weaponGraphRuntimeHeldProgram(weaponnum, func)) {
+		return native;
+	}
+	if (!weaponProgramPressPlan(weaponnum, func, &plan) || !plan.recoil) {
+		return native;
+	}
+	return plan.recoil_kick + plan.recoil_return;
 }
 
 s32 weaponProgramBurstRounds(s32 weaponnum, s32 func, s32 native)

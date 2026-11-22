@@ -95,6 +95,11 @@ s32 weaponProgramPressPlan(s32 weaponnum, s32 func, struct weapon_rule_trigger *
  * ticks_per_shot ...". */
 s32 weaponProgramTicksPerShot(s32 weaponnum, s32 func, s32 native);
 
+/* slice 7a: a simulant's shot interval (botactGetShootInterval60): the
+ * kick and return frames of the recoil a press plans, `native` for a
+ * function with no program or one whose press plans no recoil. */
+s32 weaponProgramRecoilFrames(s32 weaponnum, s32 func, s32 native);
+
 /* A simulant's burst (bot.c): the rounds of the og.weapon.burst a press
  * starts, 0 for any other trigger; `native` for a function with no
  * program. */

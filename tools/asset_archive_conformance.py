@@ -2433,8 +2433,11 @@ WEAPON_GRAPH_SHOT_FAMILIES = {
     "og.weapon.mode_toggle": ("special",),
 }
 WEAPON_GRAPH_SHOTS = tuple(WEAPON_GRAPH_SHOT_FAMILIES)
+# Slice 7: how each shot of the attack feels; a shooting function's.
+WEAPON_GRAPH_FEEL = ("og.weapon.recoil",)
+WEAPON_GRAPH_FEEL_FAMILIES = ("shoot_single", "shoot_automatic", "shoot_projectile")
 WEAPON_GRAPH_IDLE_MODULES = WEAPON_GRAPH_IDLE_ACTIONS + ("og.weapon.set_state", "og.weapon.use_ammo") \
-    + WEAPON_GRAPH_SHOTS
+    + WEAPON_GRAPH_SHOTS + WEAPON_GRAPH_FEEL
 # Slice 6b: the sight's lock, chosen while the player aims.
 WEAPON_GRAPH_LOCK = "og.weapon.lock_on"
 WEAPON_GRAPH_MODULES = WEAPON_GRAPH_IDLE_MODULES + (WEAPON_GRAPH_LOCK,)
@@ -2484,6 +2487,12 @@ WEAPON_GRAPH_SETTINGS = {
                          "regrow_time": ("whole", 1, 10000)},
     # Slice 6b: the sight's lock; its target filter is TARGET_FILTER_SETTINGS.
     "og.weapon.lock_on": {"locks": ("whole", 1, 4), "aim_follows": ("bool",)},
+    # Slice 7a: the recoil (frames, travel, the jitter and its spin).
+    "og.weapon.recoil": {"kick": ("whole", 0, 127), "return": ("whole", 0, 127), "recovery": ("whole", 0, 127),
+                         "refire_early": ("bool",), "cut_after": ("whole", 0, 127), "cut_return": ("whole", 0, 127),
+                         "distance": ("nonneg", 1000), "angle": ("nonneg", 360), "slide": ("nonneg", 1000),
+                         "shake_x": ("nonneg", 100), "shake_y": ("nonneg", 100), "shake_z": ("nonneg", 100),
+                         "spin_shake_from": ("nonneg", 100), "spin_shake_to": ("nonneg", 100)},
 }
 WEAPON_GRAPH_ITEM_RE = re.compile(r"[a-z0-9_]+:[a-z0-9_]+")
 
@@ -2646,6 +2655,8 @@ def validate_weapon_graph_program(where: str, graph: dict) -> list[str]:
         if kind in WEAPON_GRAPH_SHOT_FAMILIES and record_type is not None \
                 and record_type not in WEAPON_GRAPH_SHOT_FAMILIES[kind]:
             errors.append(f"{where} {kind} {node_id!r} does not fit this function (its record is {record_type})")
+        if kind in WEAPON_GRAPH_FEEL and record_type is not None and record_type not in WEAPON_GRAPH_FEEL_FAMILIES:
+            errors.append(f"{where} {kind} {node_id!r} fits only a shooting function (its record is {record_type})")
         for key, spec in WEAPON_GRAPH_SETTINGS.get(kind, {}).items():
             if key in node and not _weapon_variable_name(node[key]):
                 why = _weapon_setting_error(kind, key, spec, node[key])

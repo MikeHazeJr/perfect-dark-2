@@ -477,6 +477,38 @@ class ArmFilter(unittest.TestCase):
                 self.assertIn(why, messages[0])
 
 
+class Recoil(unittest.TestCase):
+    """Held slice 7a: og.weapon.recoil on the attack's walk."""
+
+    def _with_recoil(self, recoil: dict, function_type: str = "shoot_single") -> dict:
+        graph = copy.deepcopy(V2_HELD)
+        for node in graph["nodes"]:
+            if node["id"] == "primary_action":
+                node["params"]["function_type"] = function_type
+        graph["nodes"].append(dict(recoil, id="primary_recoil"))
+        graph["edges"].append({"from": "primary_use_ammo", "output": "out", "to": "primary_recoil", "input": "exec"})
+        return graph
+
+    def test_the_settings(self):
+        self.assertEqual(weapon_errors(self._with_recoil({"kind": "og.weapon.recoil"})), [])
+        self.assertEqual(weapon_errors(self._with_recoil(
+            {"kind": "og.weapon.recoil", "kick": 6, "return": 18, "recovery": 0, "refire_early": True, "cut_after": 2,
+             "cut_return": 8, "distance": 5, "angle": 2, "slide": 0.0, "shake_x": 0.6, "shake_y": 0.6, "shake_z": 2.6,
+             "spin_shake_from": 0, "spin_shake_to": 1})), [])
+
+    def test_malformed_and_misfit(self):
+        for recoil, why in (({"kind": "og.weapon.recoil", "kick": 200}, "needs kick from 0 to 127"),
+                            ({"kind": "og.weapon.recoil", "angle": -5}, "needs angle from 0 up to 360"),
+                            ({"kind": "og.weapon.recoil", "refire_early": "yes"}, "needs refire_early true or false"),
+                            ({"kind": "og.weapon.recoil", "shake_x": "a"}, "needs shake_x from 0 up to 100")):
+            with self.subTest(recoil=recoil):
+                messages = weapon_errors(self._with_recoil(recoil))
+                self.assertEqual(len(messages), 1, messages)
+                self.assertIn(why, messages[0])
+        messages = weapon_errors(self._with_recoil({"kind": "og.weapon.recoil"}, "melee"))
+        self.assertTrue(any("fits only a shooting function" in m for m in messages), messages)
+
+
 class Archives(unittest.TestCase):
     def rebuilt(self, relative: str, graph_edit) -> bytes:
         """The example archive with its behavior.graph.json edited."""

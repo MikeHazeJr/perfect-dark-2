@@ -1196,9 +1196,11 @@ TEST_CASE("the held weapon rule table names its modules, gates and events",
 	}
 	CHECK(weaponRulesEventName(MISSION_GRAPH_EVENT_PROJECTILE_ARMED) == nullptr);
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED)
-		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_SET_STATE));
+		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_FEEL
+			| WEAPON_MODULE_SET_STATE));
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_CLIP_EMPTY)
-		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_SET_STATE));
+		== (WEAPON_MODULE_IDLE_ACTIONS | WEAPON_MODULE_USE_AMMO | WEAPON_MODULE_SHOTS | WEAPON_MODULE_FEEL
+			| WEAPON_MODULE_SET_STATE));
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED) == WEAPON_MODULE_SET_STATE);
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE) == WEAPON_MODULE_SET_STATE);
 	CHECK(weaponRulesEventModules(MISSION_GRAPH_EVENT_WEAPON_AIMING) == WEAPON_MODULE_LOCK_ON);
@@ -4306,6 +4308,261 @@ TEST_CASE("a lock that names vehicles seeks them, and the original's locks do no
 	CHECK(std::string(targetFilterKindName(TARGET_KIND_VEHICLE)) == "vehicle");
 	CHECK(std::string(targetFilterRelationName(TARGET_RELATION_NONE)) == "none");
 	CHECK(std::string(targetFilterRelationName(TARGET_RELATION_NOT_FRIEND)) == "not_friend");
+}
+
+namespace {
+
+// A shooting function's record with the Falcon 2-like recoil of
+// invfunc_00011160 (6, 18, 2, 8; recovery 0; distance 5, angle 2) and the
+// default jitter.
+weapon_rule_function_t recoilRecord()
+{
+	weapon_rule_function_t f{};
+	f.weaponnum = WEAPON_FALCON2;
+	f.func = FUNC_PRIMARY;
+	f.functype = 0x0001;
+	f.ammo_slot = 0;
+	f.recoil_kick = 6;
+	f.recoil_return = 18;
+	f.recoil_cut_after = 2;
+	f.recoil_cut_return = 8;
+	f.recoil_recovery = 0;
+	f.recoil_distance = 5.0f;
+	f.recoil_angle = 2.0f;
+	f.recoil_slide = 0.5f;
+	f.recoil_has_shake = 1;
+	f.recoil_shake[0] = 0.6f;
+	f.recoil_shake[1] = 0.6f;
+	f.recoil_shake[2] = 0.6f;
+	return f;
+}
+
+// og.weapon.recoil as the extractor writes it (s_emitHeldRecoilNode: every
+// setting, its floats as %.7g).
+std::string recoilNodeSettings(const weapon_rule_trigger_t &plan)
+{
+	char buf[512];
+	std::snprintf(buf, sizeof(buf), ", \"kick\": %d, \"return\": %d, \"recovery\": %d, \"refire_early\": %s, "
+		"\"cut_after\": %d, \"cut_return\": %d, \"distance\": %.7g, \"angle\": %.7g, \"slide\": %.7g",
+		plan.recoil_kick, plan.recoil_return, plan.recoil_recovery, plan.recoil_refire ? "true" : "false",
+		plan.recoil_cut_after, plan.recoil_cut_return, (double)plan.recoil_distance, (double)plan.recoil_angle,
+		(double)plan.recoil_slide);
+	std::string s = buf;
+	if (plan.recoil_has_shake) {
+		std::snprintf(buf, sizeof(buf), ", \"shake_x\": %.7g, \"shake_y\": %.7g, \"shake_z\": %.7g",
+			(double)plan.recoil_shake[0], (double)plan.recoil_shake[1], (double)plan.recoil_shake[2]);
+		s += buf;
+	}
+	if (plan.recoil_has_spin_shake) {
+		std::snprintf(buf, sizeof(buf), ", \"spin_shake_from\": %.7g, \"spin_shake_to\": %.7g",
+			(double)plan.recoil_spin_from, (double)plan.recoil_spin_to);
+		s += buf;
+	}
+	return s;
+}
+
+} // namespace
+
+// held-weapon-events.md slice 7a: a shot's recoil is its program's, else
+// its function's own.
+TEST_CASE("a shot's recoil is its function's own unless its program's recoil node names it",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	const weapon_rule_function_t record = recoilRecord();
+	weapon_rule_trigger_t native;
+	weaponRulesNativeTrigger(&record, &native);
+	CHECK(native.recoil == 1);
+	CHECK(native.recoil_kick == 6);
+	CHECK(native.recoil_return == 18);
+	CHECK(native.recoil_refire == 1);
+	CHECK(native.recoil_cut_after == 2);
+	CHECK(native.recoil_cut_return == 8);
+	CHECK(weaponRulesRecoilCutAfter(&native) == 2);
+	CHECK(weaponRulesRecoilCutReturn(&native) == 8);
+	CHECK(native.recoil_distance == 5.0f);
+	CHECK(native.recoil_has_shake == 1);
+	CHECK(native.recoil_has_spin_shake == 0);
+	// The original's "no cut" (unk26 -1 or 0) and "no early refire" (unk27
+	// below 0) read back as the seam read them.
+	weapon_rule_function_t nocut = record;
+	nocut.recoil_cut_after = -1;
+	nocut.recoil_cut_return = -1;
+	weapon_rule_trigger_t plan;
+	weaponRulesNativeTrigger(&nocut, &plan);
+	CHECK(plan.recoil_refire == 0);
+	CHECK(weaponRulesRecoilCutAfter(&plan) == 0);
+	CHECK(weaponRulesRecoilCutReturn(&plan) == -1);
+	// A function that does not shoot has none, and a recoil does not fit it.
+	weapon_rule_function_t thrown = record;
+	thrown.functype = 0x0002;
+	weaponRulesNativeTrigger(&thrown, &plan);
+	CHECK(plan.recoil == 0);
+	CHECK(weaponRulesRecoilFits(0x0002) == 0);
+	CHECK(weaponRulesRecoilFits(0x0201) == 1);
+	// The recoil is part of the attack's plan.
+	plan = native;
+	plan.recoil_kick = 7;
+	CHECK(weaponRulesTriggerEqual(&plan, &native) == 0);
+
+	// Its settings, over the function's own.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts none;
+	REQUIRE(weaponRulesApplyRecoilSettings(Texts::get, &none, &record, &plan) == 1);
+	CHECK(weaponRulesRecoilEqual(&plan, &native) == 1);
+	Texts heavy;
+	heavy.values = { { "kick", "12" }, { "refire_early", "false" }, { "slide", "0.0" }, { "shake_z", "2.6" },
+		{ "spin_shake_from", "0" } };
+	REQUIRE(weaponRulesApplyRecoilSettings(Texts::get, &heavy, &record, &plan) == 1);
+	CHECK(plan.recoil_kick == 12);
+	CHECK(plan.recoil_return == 18);
+	CHECK(plan.recoil_refire == 0);
+	CHECK(weaponRulesRecoilCutReturn(&plan) == -1);
+	CHECK(plan.recoil_slide == 0.0f);
+	CHECK(plan.recoil_shake[0] == 0.6f);
+	CHECK(plan.recoil_shake[2] == 2.6f);
+	CHECK(plan.recoil_has_spin_shake == 1);
+	CHECK(plan.recoil_spin_from == 0.0f);
+	CHECK(plan.recoil_spin_to == 1.0f); // the other end left out: no change at full spin
+	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{ { "kick", "200" }, { "angle", "-5" },
+			{ "refire_early", "yes" }, { "shake_x", "a" }, { "distance", "1001" } }) {
+		INFO(bad.first << "=" << bad.second);
+		Texts wrong;
+		wrong.values = { bad };
+		CHECK(weaponRulesApplyRecoilSettings(Texts::get, &wrong, &record, &plan) == 0);
+	}
+	CHECK(weaponRulesNonNegFromText("0.0", 10.0f, -1.0f) == 0.0f);
+	CHECK(weaponRulesNonNegFromText("-0", 10.0f, -1.0f) == -1.0f);
+
+	// The base wiring with its recoil node, as the extractor writes it,
+	// plans the original's recoil.
+	int instance = 0;
+	std::string json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1,
+		"\"kind\": \"og.weapon.hitscan\"");
+	json.insert(json.find("], \"edges\""), ",{ \"id\": \"primary_recoil\", \"kind\": \"og.weapon.recoil\"" +
+		recoilNodeSettings(native) + " }");
+	json.insert(json.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_shot\", \"output\": \"out\", "
+		"\"to\": \"primary_recoil\", \"input\": \"exec\" },");
+	char err[256] = { 0 };
+	mission_graph_program_t *program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err,
+		sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	weapon_rule_walk_t walk{};
+	weapon_rule_states_t states{};
+	walk.weaponnum = -1;
+	walk.hand = weapon_rule_hand_t{ 1, 8, 8, 1, 1 };
+	walk.states = &states;
+	walk.function = &record;
+	walk.param_text = weaponGraphRuntimeHeldParamText;
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon", &instance,
+		&walk) == 1);
+	CHECK((walk.modules & WEAPON_MODULE_RECOIL) != 0);
+	CHECK(weaponRulesRecoilEqual(&walk.plan, &native) == 1);
+	missionGraphProgramFree(program);
+	// Without the node the walk plans the function's own recoil.
+	json = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1, "\"kind\": \"og.weapon.hitscan\"");
+	program = missionGraphProgramCompileWeapon(json.data(), json.size(), heldKnown, err, sizeof(err));
+	REQUIRE(program != nullptr);
+	REQUIRE(weaponRulesWalk(program, MISSION_GRAPH_EVENT_WEAPON_TRIGGER_PRESSED, 0, "base:test__weapon", &instance,
+		&walk) == 1);
+	CHECK((walk.modules & WEAPON_MODULE_RECOIL) == 0);
+	CHECK(weaponRulesRecoilEqual(&walk.plan, &native) == 1);
+	missionGraphProgramFree(program);
+
+	// Registration: a recoil only on a shooting function, its settings values
+	// of their kinds.
+	const std::string secondary = R"({
+  "schema": "pd.weapon_graph.v1",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	// A melee function's program that reaches a recoil.
+	const std::string meleeRecoil = R"({
+  "schema": "pd.weapon_graph.v2",
+  "asset_id": "base:test__weapon",
+  "graph_id": "secondary",
+  "nodes": [
+    { "id": "secondary_trigger", "kind": "event.trigger_pressed", "subgraph": "secondary", "params": { "mode": "secondary", "trigger": "pressed" } },
+    { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary", "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } },
+    { "id": "secondary_pressed", "kind": "event.weapon.trigger_pressed" },
+    { "id": "secondary_attack", "kind": "og.weapon.fire_once" },
+    { "id": "secondary_recoil", "kind": "og.weapon.recoil" }
+  ],
+  "edges": [ { "from": "secondary_trigger", "to": "secondary_action" },
+    { "from": "secondary_pressed", "output": "out", "to": "secondary_attack", "input": "exec" },
+    { "from": "secondary_attack", "output": "out", "to": "secondary_recoil", "input": "exec" } ],
+  "exports": [ { "name": "secondary", "node": "secondary_action" } ]
+})";
+	const s32 weaponnum = 4;
+	const auto registers = [&](const std::string &primary, const std::string &second) {
+		err[0] = 0;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(weaponnum, "base:test__weapon", primary.data(),
+			(u32)primary.size(), second.data(), (u32)second.size(), nullptr, 0, nullptr, 0,
+			nullptr, 0, nullptr, 0, err, sizeof(err)) == 0;
+	};
+	const auto withRecoil = [&](const std::string &settings) {
+		std::string text = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1);
+		text.insert(text.find("], \"edges\""), ",{ \"id\": \"primary_recoil\", \"kind\": \"og.weapon.recoil\"" +
+			settings + " }");
+		text.insert(text.find("{ \"from\": \"primary_pressed\""), "{ \"from\": \"primary_use_ammo\", \"output\": "
+			"\"out\", \"to\": \"primary_recoil\", \"input\": \"exec\" },");
+		return text;
+	};
+	weaponGraphRuntimeClearAll();
+	REQUIRE(registers(withRecoil(", \"kick\": 6, \"slide\": 0.0, \"shake_z\": 2.6"), secondary));
+	CHECK_FALSE(registers(withRecoil(""), meleeRecoil));
+	INFO(err);
+	CHECK(std::string(err).find("og.weapon.recoil fits only a shooting function") != std::string::npos);
+	for (const auto &bad : std::vector<std::pair<std::string, std::string>>{
+			{ ", \"kick\": 200", "og.weapon.recoil needs kick from 0 to 127, got 200" },
+			{ ", \"angle\": -5", "og.weapon.recoil needs angle from 0 up to 360, got -5" },
+			{ ", \"refire_early\": \"yes\"", "og.weapon.recoil needs refire_early true or false, got yes" } }) {
+		INFO(bad.first);
+		CHECK_FALSE(registers(withRecoil(bad.first), secondary));
+		INFO(err);
+		CHECK(std::string(err).find(bad.second) != std::string::npos);
+	}
+	weaponGraphRuntimeClearAll();
+
+	// The seams read the attack's plan; the held graph reads the jitter and
+	// the Reaper's spin; the extractor writes the node; simulants' interval
+	// has an accessor.
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("const weapon_rule_trigger_t *plan = bgunHandPlan(handnum);\n\n#if PAL") != std::string::npos);
+	CHECK(bondgun.find("graph && graph->has_recoil_anim_unk24 ? graph->recoil_anim_unk24 : func->unk24")
+		== std::string::npos);
+	REQUIRE(bondgun.find("unk26 = weaponRulesRecoilCutAfter(plan);") != std::string::npos);
+	REQUIRE(bondgun.find("unk27 = weaponRulesRecoilCutReturn(plan);") != std::string::npos);
+	REQUIRE(bondgun.find("slidemax = bgunHandPlan(handnum)->recoil_slide;") != std::string::npos);
+	REQUIRE(bondgun.find("&& bgunHandPlan(handnum)->recoil_has_shake) {") != std::string::npos);
+	CHECK(bondgun.find("shootfunc->recoilsettings->xrange") == std::string::npos);
+	REQUIRE(bondgun.find("if (spinplan->recoil_has_spin_shake) {") != std::string::npos);
+	const std::string runtime = readSource("port/src/weapon_graph_runtime.c");
+	REQUIRE(runtime.find("heldRawObjectFloat(rs->value, \"xrange\", &x)") != std::string::npos);
+	REQUIRE(runtime.find("heldRawArrayFirstFloat(vs->value, &from) && heldRawArrayFirstFloat(vm->value, &to)")
+		!= std::string::npos);
+	const std::string extractor = readSource("port/src/romextract_pdweapon.c");
+	REQUIRE(extractor.find("\"use_ammo\", \"shot\", \"recoil\",") != std::string::npos);
+	REQUIRE(extractor.find("(i == 10 && !plan->recoil)) continue;") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldRecoilNode(w, ids[i], plan, last);") != std::string::npos);
+	REQUIRE(extractor.find("s_emitHeldProgramEdge(w, plan->shot ? shot : plan->rounds > 0 ? use_ammo : attack, \"out\", "
+		"recoil, 0);") != std::string::npos);
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("return plan.recoil_kick + plan.recoil_return;") != std::string::npos);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",
