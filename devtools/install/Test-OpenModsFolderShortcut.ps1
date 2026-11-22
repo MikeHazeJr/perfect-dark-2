@@ -87,7 +87,9 @@ $tryBody = $tryStatement.Body.Extent.Text
 $openBody = [scriptblock]::Create($tryBody.Substring(1, $tryBody.Length - 2))
 
 $explorerPath = [IO.Path]::Combine([Environment]::GetFolderPath('Windows'), 'explorer.exe')
-Check ($command.Groups[1].Value -notmatch 'Invoke-Item|Invoke-Expression|cmd(\.exe)?\s+/c') 'the link never opens a path by its type'
+$commandNames = @($ast.FindAll({ param($node) $node -is [Management.Automation.Language.CommandAst] }, $true) |
+    ForEach-Object { $_.GetCommandName() } | Sort-Object -Unique)
+Check (($commandNames -join ',') -ceq 'Add-Type,Get-Item,Start-Process') "the link calls only Get-Item, Start-Process and Add-Type, so it never opens a path by its type (found: $($commandNames -join ', '))"
 Check ($command.Groups[1].Value.Contains('Start-Process -FilePath $explorer')) 'the link starts Windows Explorer by its full path'
 
 function Invoke-SyntheticAccount([string]$LocalAppData) {
