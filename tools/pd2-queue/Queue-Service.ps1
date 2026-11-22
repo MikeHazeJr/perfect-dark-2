@@ -92,20 +92,23 @@ function Update-DevClone([string] $Why) {
     # minutes, so a session's scratch starts from a recent dev rather than from
     # whatever the last job left. Only while it is clean: a session that wrote
     # to it pauses the queue, as Preparing does, and nothing is reset.
+    # Returns 'refreshed', 'dirty' or 'failed: <why>'.
     $dirty = (Git $paths.Dev @('status', '--porcelain') -AllowFailure).Out
     if ($dirty) {
         $state = Read-Pd2qJson $paths.Service @{}
         if (-not ($state.ContainsKey('paused') -and $state.paused)) {
             Set-ServiceState @{ paused = "dev checkout is dirty: $(($dirty -split "`n" | Select-Object -First 3) -join '; ')" }
             Add-Pd2qAlarm 'dev-dirty' "git status --porcelain in $($paths.Dev) is not empty; nothing reset. pd2q resume after a look."
+            Write-Pd2qLog "dev refresh ($Why) skipped: the dev clone is dirty, so nothing was reset and the queue is paused"
         }
-        return
+        return 'dirty'
     }
     [void](Git $paths.Dev @('fetch', '--quiet', 'origin') -AllowFailure)
     $r = Git $paths.Dev @('reset', '--hard', '--quiet', 'origin/dev') -AllowFailure
-    if ($r.Code -ne 0) { Write-Pd2qLog "dev refresh ($Why) failed: $($r.Out)"; return }
-    try { Update-DevSubmodules } catch { Write-Pd2qLog "dev refresh ($Why): submodules: $($_.Exception.Message)" }
+    if ($r.Code -ne 0) { Write-Pd2qLog "dev refresh ($Why) failed: $($r.Out)"; return "failed: git reset: $($r.Out)" }
+    try { Update-DevSubmodules } catch { Write-Pd2qLog "dev refresh ($Why): submodules: $($_.Exception.Message)"; return "failed: submodules: $($_.Exception.Message)" }
     Write-Pd2qLog "dev refresh ($Why): dev clone at $((Git $paths.Dev @('rev-parse', '--short=12', 'HEAD')).Out)"
+    return 'refreshed'
 }
 
 function Get-SubmodulePaths([string] $Dir) {
@@ -308,6 +311,48 @@ function Write-JobReport([string] $JobId, [hashtable] $Request, [string] $Result
     return $file
 }
 
+function Close-JobEnding([string] $JobId, $Request, [string] $Result, [string] $Detail, [string] $Report, [string] $Pushed) {
+    # The rest of a job's ending once its journal says how it ended: the task's
+    # state and note, a landing's board line, the cancel request, and last the
+    # lease. Call under the lock. Every step can run again without doubling
+    # anything, so Resume-JobEnding can finish an ending that a crash or an
+    # error cut short: a lease that still names an ended job means a step may
+    # be missing.
+    $task = Get-Pd2qTask $Request.issue
+    if ($task -and -not @(@($task.notes) | Where-Object { $_ -and $_.agent -eq 'pd2q' -and $_.session -eq $JobId })) {
+        $task.state = if ($Result -eq 'landed') { 'finished' } else { 'started' }
+        $task.notes = @($task.notes) + @(@{ atUtc = Format-Pd2qTime (Get-Pd2qNow); agent = 'pd2q'; session = $JobId; note = "$Result$(if ($Detail) { ': ' + $Detail }) (report $Report)" })
+        Save-Pd2qTask $task
+    }
+    if ($Result -eq 'landed' -and -not @(Get-Pd2qBoard | Where-Object { $_.job -eq $JobId })) {
+        Add-Pd2qJsonLine $paths.Board @{ schema = 'pd2q.board.v1'; issue = $Request.issue; commit = $Pushed; job = $JobId; title = $Request.title
+            session = $Request.session; agent = $Request.agent; landedUtc = Format-Pd2qTime (Get-Pd2qNow) }
+    }
+    Remove-Item -LiteralPath (Join-Path $paths.Requests "cancel-$JobId.json") -Force -ErrorAction SilentlyContinue
+    $l = Read-Pd2qLeases
+    if ($l.leases[$Request.issue] -and $l.leases[$Request.issue].job -eq $JobId) { $l.leases.Remove($Request.issue); Write-Pd2qJson $paths.Leases $l }
+}
+
+function Resume-JobEnding($Job) {
+    # A job whose journal says it ended while its lease still names it: a crash,
+    # a power cut or an error after the journal line cut the rest of its ending
+    # short. Nothing else would free that lease, since a queued lease belongs to
+    # its job until the job ends, so finish the ending. Returns $true if it had to.
+    $issue = $Job.Request.issue
+    $finished = Invoke-Pd2qLocked {
+        $le = (Read-Pd2qLeases).leases[$issue]
+        if ($le -and $le.job -eq $Job.Id) {
+            [void](Close-JobEnding $Job.Id $Job.Request $Job.State ([string]$Job.Last.detail) ([string]$Job.Last.report) ([string]$Job.Last.commit))
+            $true
+        } else { $false }
+    }
+    if (-not [bool]@($finished)[-1]) { return $false }
+    Write-Pd2qLog "recovery: $($Job.Id) had ended $($Job.State) but its lease on $issue was still held; its ending is finished and the lease freed"
+    # A landing's Workbench note comes after the locked part, so it was not sent.
+    if ($Job.State -eq 'landed') { Send-WorkbenchNote $Job.Request $Job.Id @{ pushed = [string]$Job.Last.commit; devCommit = [string]$Job.Last.devCommit } }
+    return $true
+}
+
 function Complete-Job([string] $JobId, [hashtable] $Request, [string] $Result, [hashtable] $Info) {
     # Endings: folder deleted, hub slot finished, lease freed, report written.
     $jobDir = Join-Path $paths.Jobs $JobId
@@ -316,19 +361,12 @@ function Complete-Job([string] $JobId, [hashtable] $Request, [string] $Result, [
     $report = Write-JobReport $JobId $Request $Result $Info
     Invoke-Pd2qLocked {
         Add-Pd2qJournal $JobId @{ event = $Result; attempt = $Info.attempt; devCommit = $Info.devCommit; detail = $Info.detail; commit = $Info.pushed; report = $report }
-        $l = Read-Pd2qLeases
-        if ($l.leases[$Request.issue] -and $l.leases[$Request.issue].job -eq $JobId) { $l.leases.Remove($Request.issue); Write-Pd2qJson $paths.Leases $l }
-        $task = Get-Pd2qTask $Request.issue
-        if ($task) {
-            $task.state = if ($Result -eq 'landed') { 'finished' } else { 'started' }
-            $task.notes = @($task.notes) + @(@{ atUtc = Format-Pd2qTime (Get-Pd2qNow); agent = 'pd2q'; session = $JobId; note = "$Result$(if ($Info.detail) { ': ' + $Info.detail }) (report $report)" })
-            Save-Pd2qTask $task
+        if ($env:PD2Q_TEST_CRASH_IN_ENDING -and $env:PD2Q_TEST_CRASH_IN_ENDING -eq $JobId) {
+            # Milestone 5 recovery test only: die between the ending's journal line and the rest of it.
+            Write-Pd2qLog "test hook: exiting inside the ending of $JobId"
+            [Environment]::Exit(98)
         }
-        if ($Result -eq 'landed') {
-            Add-Pd2qJsonLine $paths.Board @{ schema = 'pd2q.board.v1'; issue = $Request.issue; commit = $Info.pushed; job = $JobId; title = $Request.title
-                session = $Request.session; agent = $Request.agent; landedUtc = Format-Pd2qTime (Get-Pd2qNow) }
-        }
-        Remove-Item -LiteralPath (Join-Path $paths.Requests "cancel-$JobId.json") -Force -ErrorAction SilentlyContinue
+        Close-JobEnding $JobId $Request $Result ([string]$Info.detail) $report ([string]$Info.pushed)
     }
     if ($Info.seconds) {
         Add-Pd2qJsonLine $paths.Builds @{ schema = 'pd2q.build.v1'; job = $JobId; devCommit = $Info.devCommit; clean = $true; built = [bool]$Info.built; result = $Result
@@ -337,14 +375,16 @@ function Complete-Job([string] $JobId, [hashtable] $Request, [string] $Result, [
         if ($all.Count -gt 500) { $keep = $all | Select-Object -Last 500; [IO.File]::WriteAllText($paths.Builds, (($keep | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 10 }) -join "`n") + "`n") }
     }
     if ($Result -eq 'landed') {
-        # The landing is journaled and on the board: resetting dev is upkeep. A
-        # failure here is an alarm, never a second ending for a published patch;
-        # the next job's Preparing resets dev again.
+        # The landing is journaled and on the board: bringing dev to the new tip
+        # is upkeep, done like every other refresh, only while the clone is
+        # clean. Preparing checked it minutes ago, and a session may have
+        # written to it during the build and tests: then the queue pauses with
+        # an alarm and nothing is reset. A failed reset is an alarm, never a
+        # second ending for a published patch; the next Preparing resets again.
         try {
             if ($env:PD2Q_TEST_FAIL_DEV_RESET -eq '1') { throw 'test hook: the dev reset fails' }  # Milestone 5 test only
-            [void](Git $paths.Dev @('fetch', 'origin') -AllowFailure)
-            [void](Git $paths.Dev @('reset', '--hard', 'origin/dev'))
-            Update-DevSubmodules
+            $refresh = Update-DevClone "after $JobId landed"
+            if ($refresh -like 'failed*') { throw $refresh }
         } catch { Add-Pd2qAlarm 'dev-reset' "after $JobId landed, resetting $($paths.Dev) to origin/dev failed: $($_.Exception.Message)" }
         Send-WorkbenchNote $Request $JobId $Info
     }
@@ -637,6 +677,12 @@ function Invoke-Recovery {
             Requeue-Front $job.Id ($job.Attempt + 1) "interrupted during $($job.State) (service stopped or PC restarted)"
         }
     }
+    # Endings cut short: the journal says the job ended, but its lease still
+    # names it. Finished before the old journals below are pruned.
+    foreach ($job in @(Get-Pd2qJobs | Where-Object { $_.State -in @('landed', 'rejected', 'failed', 'cancelled') })) {
+        try { [void](Resume-JobEnding $job) }
+        catch { Add-Pd2qAlarm 'ending-incomplete' "$($job.Id) ended $($job.State), but finishing its ending failed: $($_.Exception.Message). Its lease on $($job.Request.issue) stays held." }
+    }
     # Job folders with no running job are leftovers.
     $live = @(Get-Pd2qJobs | Where-Object { $_.State -in @('preparing', 'building', 'testing', 'pushing') } | ForEach-Object Id)
     foreach ($dir in @(Get-ChildItem -LiteralPath $paths.Jobs -Directory -ErrorAction SilentlyContinue)) {
@@ -715,7 +761,7 @@ try {
         Clear-HubStaleSlots
     }
     Invoke-Recovery
-    Update-DevClone 'startup'
+    [void](Update-DevClone 'startup')
     $lastRefresh = Get-Date
     [void](Invoke-Pd2qLocked { Update-Pd2qBoardFromGit })
     $idleSince = Get-Date
@@ -734,10 +780,15 @@ try {
                 Write-Pd2qLog "job $($next.Id) error: $err"
                 # The hub slot it took, if any, is finished with it (never leaked).
                 # A job whose journal already ended (landed, say) keeps that ending.
-                $endedAs = (@(Get-Pd2qJobs | Where-Object { $_.Id -eq $next.Id })[0]).State
+                $ended = @(Get-Pd2qJobs | Where-Object { $_.Id -eq $next.Id })[0]
+                $endedAs = $ended.State
                 if ($endedAs -in @('landed', 'rejected', 'failed', 'cancelled')) {
-                    Write-Pd2qLog "job $($next.Id) had already ended $endedAs; the error came after that and changes nothing"
+                    Write-Pd2qLog "job $($next.Id) had already ended $endedAs; the error came after that and keeps that ending"
                     Exit-HubBuildSlot $script:JobHubId "pd2q $($next.Id) $endedAs"
+                    # The error may have cut the rest of the ending short: finish it
+                    # now rather than at the next start.
+                    try { [void](Resume-JobEnding $ended) }
+                    catch { Add-Pd2qAlarm 'ending-incomplete' "$($next.Id) ended $endedAs, but finishing its ending failed: $($_.Exception.Message). Its lease on $($next.Request.issue) stays held." }
                 } else {
                     try { Complete-Job $next.Id $next.Request 'failed' @{ attempt = $next.Attempt; devCommit = ''; detail = "queue error: $err"; hubId = $script:JobHubId } } catch { Write-Pd2qLog "could not close $($next.Id): $($_.Exception.Message)" }
                 }
@@ -751,7 +802,7 @@ try {
         }
         Set-ServiceState @{ state = $(if ($service.ContainsKey('paused') -and $service.paused) { 'paused' } else { 'idle' }); job = $null }
         if ($IdleExitSeconds -gt 0 -and ((Get-Date) - $idleSince).TotalSeconds -ge $IdleExitSeconds) { break }
-        if (((Get-Date) - $lastRefresh).TotalMinutes -ge 5) { Update-DevClone 'idle'; $lastRefresh = Get-Date }
+        if (((Get-Date) - $lastRefresh).TotalMinutes -ge 5) { [void](Update-DevClone 'idle'); $lastRefresh = Get-Date }
         [void]$wake.WaitOne([TimeSpan]::FromSeconds(30))  # woken by pd2q submit/cancel/resume
     }
 } finally {
