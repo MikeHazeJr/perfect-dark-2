@@ -13,12 +13,14 @@ controls). **Held until Integration posts the release cut** (their ask), a stack
 **slice 7**, feel (`w7` `d774e4e1`: `og.weapon.recoil`, `og.weapon.casing`, `og.weapon.muzzle_flash`,
 `og.weapon.shot_sound`, `og.weapon.play_animation`; players read the shot's plan, simulants and guards the
 press plan; an animation a function does not have plays only on a held model with a skeleton;
-`embedded.v24`, cache `_heldfeel`); **slice 8a**, the creator's designer palette (`w8` `300fb06a`: program
-nodes by designer name and group, their own ports, named inputs for their settings from the rule tables,
-Replace With; Mike's machine-gun pistol is one swap in the Falcon 2 template). Next: **8c** (value nodes,
-evaluated per shot) and **8b** (the weapon's projectile program in the creator, for the vehicle rocket);
-merge order after the cut: PR 44, then w6a2/w6b, w7, w8. Open for Mike: D-057 (projectile 7c), PR 31's
-pellet thread. Asked of Authored Mods: Mike's "Enemy vehicles" sample launcher; of MP-RULES:
+`embedded.v24`, cache `_heldfeel`); **slice 8a and 8b**, the creator (`w8`: program nodes by designer name
+and group, their own ports, named inputs for their settings from the rule tables, Replace With, and a
+Projectile Programs tab that saves a projectile's edited program over the mod's copy of it; Mike's
+machine-gun pistol is one swap in the Falcon 2 template, his vehicle rocket is the Enemy vehicles filter on
+the rocket launcher's lock and its homing rocket's home), plus `held_weapon_cloak_smoke`. The whole stack
+is **PR 49** (`w8` into dev, opened 2026-11-22 09:55 UTC for CI and review only; merge PR 44 first, after the
+cut). **8c** (value nodes) waits on Mike's **D-058** (per shot for players and simulants, my pick; or per
+press; or players first). Open for Mike: D-057 (projectile 7c), D-058, PR 31's pellet thread. Asked of Authored Mods: Mike's "Enemy vehicles" sample launcher; of MP-RULES:
 `botactGetShootInterval60` through `weaponProgramRecoilFrames`. Records and smokes:
 `context/designs/modding/held-weapon-events.md`, `context/designs/modding/projectile-events.md`.
 
