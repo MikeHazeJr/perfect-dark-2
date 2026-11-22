@@ -7,6 +7,8 @@
 #   .\release.ps1 -Nightly           # Nightly dev build (date-based tag, prerelease)
 #   .\release.ps1 -SkipPush          # Build packages but don't push to GitHub
 #   .\release.ps1 -DryRun            # Show what would happen without doing it
+#   .\release.ps1 -KeepOldReleases   # Step 6 prunes no older Dev release
+#   .\release.ps1 -NotesFile n.md    # Release body from n.md, not UNRELEASED.md (GitHub refuses one over 125,000 characters)
 #
 # Package contents (game zip -- "PerfectDark-v{X.Y.Z}-win64.zip"):
 #   - PerfectDark.exe (game client, fully static -- no runtime DLLs required)
@@ -46,7 +48,8 @@ param(
     [switch]$Prerelease,
     [switch]$SkipBuild,   # Skip cmake reconfigure+build (caller already built; artifacts must exist in Build/)
     [switch]$ForceCommitNoVerify,  # If commit hooks fail, retry commit with --no-verify
-    [switch]$KeepOldReleases  # Step 6 deletes no older Dev release (its rolling window is skipped)
+    [switch]$KeepOldReleases,  # Step 6 deletes no older Dev release (its rolling window is skipped)
+    [string]$NotesFile = ""  # The GitHub release body, instead of UNRELEASED.md (B-1314)
 )
 
 $ErrorActionPreference = "Stop"
@@ -60,9 +63,31 @@ $ProjectRoot = Split-Path $PSScriptRoot -Parent
 # prereleases. Initialized here so the Step 5 skip path leaves it falsy.
 $script:ReleasePublishOk = $false
 
+# -NotesFile is resolved where the script was started, before the move to the project root.
+if ($NotesFile) { $NotesFile = (Resolve-Path -LiteralPath $NotesFile).Path }
+
 # Ensure CWD is the project root -- all relative paths (build/, dist/, CMakeLists.txt)
 # assume this. The dev window sets it explicitly, but this covers direct invocation too.
 Set-Location $ProjectRoot
+
+# The GitHub release body: UNRELEASED.md, the running change list, unless -NotesFile names concise notes.
+$ReleaseNotes = $(if ($NotesFile) { $NotesFile } else { Join-Path $ProjectRoot "UNRELEASED.md" })
+# GitHub refuses a release body over 125,000 characters (HTTP 422). By then step 4 has pushed the tag, so the
+# length is checked here, before the version is written and before anything is committed, built or pushed
+# (B-1314). A dry run or -SkipPush only warns: neither publishes.
+$GhReleaseBodyLimit = 125000
+if (Test-Path -LiteralPath $ReleaseNotes) {
+    $notesChars = [System.IO.File]::ReadAllText($ReleaseNotes, [System.Text.Encoding]::UTF8).Length
+    if ($notesChars -gt $GhReleaseBodyLimit) {
+        $notesMsg = "Release notes $ReleaseNotes are $notesChars characters; GitHub refuses a release body over $GhReleaseBodyLimit. Pass -NotesFile with concise notes (B-1314)."
+        if ($DryRun -or $SkipPush) {
+            Write-Host "  WARN: $notesMsg" -ForegroundColor Yellow
+        } else {
+            Write-Host "  ERROR: $notesMsg" -ForegroundColor Red
+            exit 1
+        }
+    }
+}
 
 # ============================================================================
 # Resolve version / nightly date code
@@ -114,8 +139,6 @@ if ($Nightly) {
         }
     }
 }
-
-$ReleaseNotes = "UNRELEASED.md"
 
 # ============================================================================
 # Step 0: Rebuild from source (cmake reconfigure + compile)
@@ -457,9 +480,9 @@ $script:GhExe = $null
 $hasClient  = $ClientExe  -ne ""
 $hasUpdater = $UpdaterExe -ne ""
 $hasData    = $DataSource -ne ""
-$hasNotes   = Test-Path $ReleaseNotes
-if ($hasNotes -and (Test-ReleaseNotesLookStale -Path (Join-Path $ProjectRoot $ReleaseNotes))) {
-    Write-Host "  Release notes look stale. Update UNRELEASED.md before publishing if this is a real release." -ForegroundColor Yellow
+$hasNotes   = Test-Path -LiteralPath $ReleaseNotes
+if ($hasNotes -and (Test-ReleaseNotesLookStale -Path $ReleaseNotes)) {
+    Write-Host "  Release notes look stale. Update $ReleaseNotes before publishing if this is a real release." -ForegroundColor Yellow
 }
 
 if ($hasGh) {
@@ -1505,14 +1528,19 @@ if (Test-Path $DistDir) {
     Write-Host "  Cleaned staging: $DistDir" -ForegroundColor Gray
 }
 
-# Remove the zip too -- GitHub is the source of truth, stable backup is saved above
-if (-not $DryRun -and -not $SkipPush -and (Test-Path $zipPath)) {
+# Remove the zip too -- GitHub is the source of truth, stable backup is saved above. A publish that did not
+# succeed keeps the zip and its sidecars for a manual upload: step 4 has pushed the tag by then (B-1314).
+$keepUploads = (-not $DryRun -and -not $SkipPush -and ($script:ReleasePublishOk -ne $true))
+if ($keepUploads -and (Test-Path $zipPath)) {
+    Write-Host "  Release not published: kept $zipPath and its sidecars for a manual upload." -ForegroundColor Yellow
+}
+if (-not $DryRun -and -not $SkipPush -and -not $keepUploads -and (Test-Path $zipPath)) {
     Remove-Item $zipPath -Force
     Write-Host "  Cleaned zip: $zipPath" -ForegroundColor Gray
 }
 # Clean sidecars along with the zip — keeping them on disk with no matching
 # zip just litters dist/ and confuses the next release run's staleness check.
-if (-not $DryRun -and -not $SkipPush) {
+if (-not $DryRun -and -not $SkipPush -and -not $keepUploads) {
     if (Test-Path "$zipPath.sha256") { Remove-Item "$zipPath.sha256" -Force }
     if (Test-Path "$zipPath.sig")    { Remove-Item "$zipPath.sig" -Force }
 }

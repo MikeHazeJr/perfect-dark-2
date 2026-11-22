@@ -218,3 +218,30 @@ TEST_CASE("video shutdown only frees owned display mode storage",
 	REQUIRE(video.find("vidModesOwned = false;") != std::string::npos);
 	REQUIRE(video.find("free(vidModes);") == std::string::npos);
 }
+
+TEST_CASE("release.ps1 checks the release body against GitHub's limit before it commits, builds or pushes",
+          "[release][static][b1314]")
+{
+	const std::string release = readSourceFile("devtools/release.ps1");
+	REQUIRE(!release.empty());
+
+	/* GitHub refuses a body over 125,000 characters only at step 5, after step 4 has pushed the tag,
+	 * so the check comes before the version is written and before step 0 commits and pushes. */
+	const size_t limit = release.find("$GhReleaseBodyLimit = 125000");
+	const size_t version = release.find("# Resolve version / nightly date code");
+	const size_t step0 = release.find("[0/8]");
+	REQUIRE(limit != std::string::npos);
+	REQUIRE(version != std::string::npos);
+	REQUIRE(step0 != std::string::npos);
+	CHECK(limit < version);
+	CHECK(limit < step0);
+	CHECK(release.find("if ($notesChars -gt $GhReleaseBodyLimit)") != std::string::npos);
+	CHECK(release.find("[string]$NotesFile = \"\"") != std::string::npos);
+	CHECK(release.find("Test-ReleaseNotesLookStale -Path $ReleaseNotes)") != std::string::npos);
+	CHECK(release.find("$ReleaseNotes = \"UNRELEASED.md\"") == std::string::npos);
+
+	/* A publish that did not succeed keeps the zip and its sidecars. */
+	CHECK(release.find("$keepUploads = (-not $DryRun -and -not $SkipPush -and ($script:ReleasePublishOk -ne $true))") !=
+	      std::string::npos);
+	CHECK(release.find("if (-not $DryRun -and -not $SkipPush -and -not $keepUploads) {") != std::string::npos);
+}

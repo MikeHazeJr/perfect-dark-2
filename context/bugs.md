@@ -1,5 +1,22 @@
 # Bug Tracker
 
+## 2026-11-22 B-1314 `release.ps1` sent UNRELEASED.md as the GitHub release body, which GitHub refuses over 125,000 characters, after pushing the tag; step 7 then deleted the zip (T-RELEASE-006, fixed through the build queue)
+
+Found by claude-pd-integration-20261121 before step 9's real release. UNRELEASED.md is the running change list
+and has outgrown GitHub's limit: 176,321 characters on dev edbb0db8 (170,321 at v0.1.105). Step 5 passes it to
+`gh release create --notes-file`, and GitHub answers HTTP 422, "body is too long (maximum is 125000 characters)"
+(recorded in `context/_old/kanban-legacy/memories.md`). By then step 4 has pushed the tag, and step 7 removed
+`dist/`, the zip and its sidecars whether or not the release was published: a release would end as a tag with no
+release and nothing left to upload by hand. Nothing checked the length, and a dry run skips step 5, so it could
+not show it; v0.1.103 to v0.1.105 were published with bodies of 597 to 1,123 characters. Fix: `-NotesFile <path>`
+names the release body (default UNRELEASED.md), and its length is checked before the version is written and
+before anything is committed, built or pushed: over the limit a real run stops with the count, and a dry run or
+`-SkipPush` warns. The stale-notes check reads the same file, and a publish that did not succeed keeps the zip
+and its sidecars. Pinned by `[release][static][b1314]` in `tests/test_updater_rom_cleanup_static.cpp`. The only
+other caller, the dev window (`devtools/dev-window-v2/dev-window-v2.ps1`), passes no notes file, so its release
+now stops at the check until UNRELEASED.md is trimmed below the limit or it passes concise notes. v0.1.106 runs
+with `-NotesFile` and concise notes.
+
 ## 2026-11-22 B-1313 A vehicle nested in a mod package looked for its behavior/variables.json at the package's root, so the bundled Maian Hover was refused (T-MODDING-011, fixed on week-pd/core-weapons-b1313, found in Integration's finalization run on candidate 3b)
 
 On candidate 3b `authored_bundled_first_run_smoke` saw the bundled Maian Hover refused at catalog admission:
