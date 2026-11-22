@@ -825,7 +825,7 @@ if ($hasData) {
         #   base/              -- Step 5 retired the .pdbase aggregate.
         #   mod source files/  -- dev scratch, never shipped.
         #   README.txt         -- B-322 retired in favour of put_your_rom_here.txt.
-        if ($relForward -match '^(base/|mod source files/|README\.txt$|mods/bundled/|crystal_pistol-default\.sha256$)') {
+        if ($relForward -match '^(base/|mod source files/|README\.txt$|mods/bundled/|crystal_pistol-default\.sha256$|bundled-mods\.sha256$|Open Mods Folder\.lnk$)') {
             $top = $relForward -split '/' | Select-Object -First 1
             $skippedDirs[$top] = $true
             continue
@@ -867,12 +867,20 @@ if ($hasData) {
     Write-Host "  data/ -- NOT FOUND (skipped)" -ForegroundColor Yellow
 }
 
-# --- Release mod packages ---
+# --- Bundled sample mods (T-RELEASE-007) ---
+#
+# Every dev-mods.json entry with "release": true ships as a first-party
+# package, mods/bundled/<id>.pdmod, listed with its SHA-256 in
+# bundled-mods.sha256 beside the client. A fresh profile starts with each
+# listed package enabled while its bytes still match, and a player's own copy
+# of the same id always wins (port/include/modmgr_bundled_samples.h). Each
+# source folder passes the typed archive and BYOR checks first. The packages
+# hold only mod.json and the top-level typed archives, never build scripts or
+# notes (tools/stage_bundled_samples.py, which local builds share).
 
 $releaseModRoot = Join-Path $ProjectRoot "dev-mods"
 $releaseModManifest = Get-Content -LiteralPath (Join-Path $releaseModRoot "dev-mods.json") -Raw |
     ConvertFrom-Json
-$packageRoot = "$DistDir/mods/bundled"
 foreach ($entry in $releaseModManifest.mods | Where-Object { $_.release -eq $true }) {
     if ($entry.id -notmatch '^[a-z0-9][a-z0-9_.-]*$' -or
             $entry.path -notmatch '^[a-z0-9][a-z0-9_-]*$') {
@@ -885,21 +893,13 @@ foreach ($entry in $releaseModManifest.mods | Where-Object { $_.release -eq $tru
     }
     Test-ReleaseTypedArchiveTree -Root $source -Label "release-mod/$($entry.id)"
     Assert-ReleaseHasNoRomDerivedContent -Root $source
-    New-Item -ItemType Directory -Path $packageRoot -Force | Out-Null
-    $package = "$packageRoot/$($entry.id).pdmod"
-    $packagePython = "C:/Python312/python.exe"
-    if (-not (Test-Path -LiteralPath $packagePython)) {
-        $packagePython = "C:/msys64/usr/bin/python3.exe"
-    }
-    & $packagePython "tools/verify_pdxxx_modder_workflow.py" --source-root "dev-mods/$($entry.path)" --release-package $package
-    if ($LASTEXITCODE -ne 0) { throw "Release mod '$($entry.id)' could not be packaged" }
-    if ($entry.id -ceq "crystal_pistol") {
-        $digest = (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant()
-        [System.IO.File]::WriteAllText(
-            (Join-Path (Resolve-Path -LiteralPath $DistDir).Path "crystal_pistol-default.sha256"),
-            $digest, [System.Text.Encoding]::ASCII)
-    }
 }
+$packagePython = "C:/Python312/python.exe"
+if (-not (Test-Path -LiteralPath $packagePython)) {
+    $packagePython = "C:/msys64/usr/bin/python3.exe"
+}
+& $packagePython -B "tools/stage_bundled_samples.py" --repo $ProjectRoot --install-root $DistDir --python $packagePython
+if ($LASTEXITCODE -ne 0) { throw "Release refused: the bundled sample mods could not be staged" }
 
 # --- Original Grid authoring seed ---
 
@@ -997,13 +997,29 @@ After first launch with a valid ROM, the install will look like:
     pd.ini                     (config)
     pd.ntsc-final.z64          (your ROM)
     data/ntsc-final/           (extracted assets)
-    mods/                      (your installed mods)
+    mods/bundled/              (sample mods that come with the game)
+    Open Mods Folder.lnk       (opens your own mods folder)
 
 The data/ and mods/ folders live at install root next to the executable;
 do not move them to a sub-folder or the game will not find them.
+
+Your own mods go in %LOCALAPPDATA%\perfectdark\mods (Open Mods Folder
+opens it). A mod there wins over a bundled sample with the same id, and
+updating the game never touches it.
 "@
 Set-Content -LiteralPath $readmePath -Value $readmeContent -Encoding UTF8
 Write-Host "  put_your_rom_here.txt (ROM placement instructions)" -ForegroundColor Gray
+
+# --- Open Mods Folder shortcut (N-1086) ---
+#
+# One portable shell link beside the client opens, and creates if needed, the
+# player's own mods folder, %LOCALAPPDATA%\perfectdark\mods: the folder the
+# game writes mods to and reads first. The link holds no account or machine
+# path, so the same bytes work for every account, dev and stable alike.
+# devtools/install/Test-OpenModsFolderShortcut.ps1 is its offline test.
+
+& (Join-Path $ProjectRoot "devtools/install/Write-OpenModsFolderShortcut.ps1") -InstallRoot $DistDir
+Write-Host "  Open Mods Folder.lnk (opens %LOCALAPPDATA%\perfectdark\mods)" -ForegroundColor Gray
 
 Test-ReleaseTypedArchiveTree -Root $DistDir -Label "release-dist"
 Assert-ReleaseHasNoRomDerivedContent -Root $DistDir
