@@ -352,7 +352,7 @@ TEST_CASE("legacy preference sidecar rejects malformed duplicate and invalid val
 TEST_CASE("the Room preset smoke's agent is an exact v2 document with Unlock All",
 	"[agent-profile][smoke-fixture][b-1295]")
 {
-	/* room_load_preset_smoke stages it so all 14 preset games are unlocked:
+	/* room_load_preset_smoke stages it so the preset games are unlocked:
 	 * gamefileSetDefaultState's flags plus GAMEFILEFLAG_UNLOCK_ALL (0x4c). */
 	std::ifstream input("tools/smoke-verify/fixtures/agent_unlocked.json",
 		std::ios::binary);
