@@ -939,6 +939,65 @@ strike otherwise) with the record's catalog id (still `embedded.v24`, cache
 `_heldfeel`), and the first `WEAPON.RULE` line ends with
 ` animation=<name>`.
 
+## Slice 8 plan: value nodes and the creator (Core Weapons, 2026-11-22, before code)
+
+The audit's slice 8: "Value nodes and the creator: palette shows designer
+nodes with named inputs, writes v2", done when "a modder builds both
+examples in-game with no raw JSON" (the pistol that fires like a machine
+gun, and the rocket that tracks vehicles but not players). Mike's rule for
+the vocabulary: base nodes more abstract than "int + int", while still
+allowing those.
+
+**What the creator has today** (Modding Hub, Weapons tool,
+`pdgui_menu_moddinghub.cpp` and `pdgui_weapon_graph_node_editor.cpp`): a
+node canvas (imgui-node-editor) with a palette, an inspector and templates
+(open any weapon, a base one included, and save a mod in the clean layout,
+T-MODINFRASTRUCTURE-002). It already round-trips v2 programs: a program
+node's settings ride in `extra`, execution edges keep their ports, and the
+writer (`weapon_graph_editor_io.cpp`) names `pd.weapon_graph.v2` when a
+program node is present. What it lacks: the palette lists only the v1 record
+modules (`fire.hitscan` with record params), the inspector edits only record
+params (a program node's settings are not editable outside raw JSON), and a
+weapon's projectile is picked by catalog id, never edited.
+
+- **8a. Designer palette and named inputs.** The palette gains the program
+  nodes, generated from the rule tables (weapon events, gates, modules;
+  `weapon_rules.h`), with designer labels ("On trigger pressed", "Has ammo",
+  "Automatic", "Hitscan shot", "Recoil", ...). The inspector shows a program
+  node's settings as named, typed inputs from `weaponRulesSettingAt` (whole
+  numbers within their range, rates, numbers, switches, the named choices:
+  casing types, reload styles, charge start and release, special actions,
+  the cloak; items, sounds and animations as catalog pickers) and the
+  target filter's settings for the lock. A setting left out shows the
+  function's own value and stays out until it is edited; a Reset puts it
+  back. Registration's own refusal text shows under the node. Done when the
+  machine-gun pistol is built from the Falcon 2 template by swapping Fire
+  once for Automatic (rate 600, spin-up 0) and saved, with no raw JSON.
+- **8b. The weapon's projectile in the creator.** The rocket example needs
+  the rocket's own program (its home filter, slice 6b). The Weapons tool
+  opens the weapon's projectile dependency (a base one as a template) with
+  the same canvas, a palette from `projectile_rules.h` and named inputs, and
+  saves it in the mod beside the weapon. Done when the vehicle rocket is
+  built: the lock (rocket style, one lock, Enemy vehicles), the launch, and
+  the rocket's home with the same filter.
+- **8c. Value nodes.** A setting read at a seam can take a value input from
+  value nodes, evaluated each shot from the hand's live state, so the
+  audit's "wilder the longer you hold it" spread is one wire. Designer value
+  nodes: Per shot (start, step, limit: over the shots of the attack), With
+  spin (from, to: over the automatic's spin), With charge (from, to),
+  Random between (from, to; the game's seeded random, so replays and peers
+  agree); and the plain ones (add, multiply, min, max, clamp). First
+  settings that take an input: the hitscan's spread and damage, the
+  automatic's rate, the recoil's kick. The plan keeps a compiled expression
+  per wired setting; the seam evaluates it; registration and conformance
+  check the data edges; the creator draws data pins. Base programs wire
+  none, so parity is unchanged.
+
+Order: 8a, 8c, 8b. Files: the Weapons tool's part of
+`pdgui_menu_moddinghub.cpp` (shared with other tools: claimed in the
+Workbench before editing), the node editor, the editor IO, the rule
+headers, the runtime seams for 8c.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
