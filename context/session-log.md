@@ -114,7 +114,8 @@ the Hill had 21 and 22 relocations. Fix: the original walking search again, the 
 (`botJumpInFlight`). PR 45's Codex review added two points: falls keep D-052's clamped step, and a mesh
 surface supplies its room, flags and lift. PR 45 landed as dev fbf2822d; Integration's rerun R1 showed no
 STUCK line, and **B-1305** fixed the two fixture assumptions it exposed (objective smokes now pass score limits
-100/400 to keep their time-limit end; the Combat score-limit smokes seed One-Hit Kills). R2 passed, and its
+100/400 to keep their time-limit end; the Combat One-Hit Kills seed was then found to be stripped at an
+offline start without the unlock, so the local Combat smoke has a 600 s backstop instead). R2 passed, and its
 Capture the Case STUCK lines gave **B-1306**: the stuck watchdog moved simulants standing on station (a SAVECASE
 guard on its own case, nine times in 150 s); it now skips a simulant in the main loop, off a route, within 50 of
 its go-to position. Integration takes B-1306 into candidate 3 before G2 to G4. **B-1303**: my six local mode fixtures required a respawn; they now accept `spawn=0`.
