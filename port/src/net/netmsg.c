@@ -78,6 +78,7 @@
 #include "player_identity.h"
 #include "audio.h"
 #include "modmusic.h"
+#include "weapon_events.h"  /* the drop handler: a program's cloak toggle */
 #if !defined(PD_SERVER)
 #include "modelcatalog.h"
 #include "game/mplayer/scenarios.h"
@@ -7925,7 +7926,10 @@ u32 netmsgSvcChrDisarmRead(struct netbuf *src, struct netclient *srccl)
 		return src->error;
 	}
 
-	if (weaponnum == WEAPON_RCP120) {
+	/* held-weapon-events.md slice 4: a weapon whose program toggles the
+	 * cloak (og.weapon.mode_toggle, mode cloak; the RCP120's) takes it off
+	 * when dropped, as bondgun.c's own drop does. */
+	if (weaponCloakToggle(weaponnum, NULL, NULL)) {
 		player->devicesactive &= ~DEVICE_CLOAKRCP120;
 	}
 

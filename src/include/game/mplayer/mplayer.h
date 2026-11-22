@@ -137,6 +137,7 @@ bool mpIsPresetUnlocked(s32 presetnum);
 s32 mpGetNumUnlockedPresets(void);
 char *mpGetPresetNameBySlot(s32 slot);
 s32 mpGetPresetConfigNumBySlot(s32 slot);
+void mpCopyPresetNameBySlot(s32 slot, char *out, s32 size);
 void mpApplyConfig(struct mpconfigfull *mpconfig);
 void mp0f18dec4(s32 arg0);
 void mpsetupfileLoadWad(struct savebuffer *buffer, u8 version);
