@@ -1020,6 +1020,27 @@ first example is a pd-tests case: the Falcon-like program with Fire once
 replaced by Automatic (rate 600, spin-up 0), as the hub writes it,
 validates, splits into a v2 primary file and compiles.
 
+**8b as written (2026-11-22, `week-pd/core-weapons-w8`):** done before 8c,
+since it completes the done-when (8c's value nodes are the advanced
+extra). The rocket example needs only settings on nodes the base rocket
+launcher already has (the secondary's `og.weapon.lock_on`, the homing
+rocket's `og.projectile.home`), so the creator edits a projectile's program
+by its nodes' settings rather than on a second canvas. The template
+editor's Projectile Programs tab lists each projectile the template carries
+(the rocket launcher's rocket and homing rocket) with its program nodes that
+have settings, each with the inspector's named inputs
+(`pdguiWeaponGraphRenderNodeSettings`). An edit rewrites that node's
+settings in the program's text (`weaponGraphEditorSetNodeSettings`; the
+rest is kept), the program is checked as the game checks it, and Save
+writes it over the mod's copy of the projectile
+(`<projectile>::behavior.graph.json`), refusing with the reason while it
+does not check out. The projectile designer nodes (17 events, 4 gates, 27
+modules; Events, Checks, Arm, Flight, Impact) and the projectile settings
+(thrust, trail, hit sound, bounce smoke, the explosion, the home's and the
+proximity arm's target filter) are tested against the projectile rule
+tables and parsers. Adding or rewiring a projectile's nodes in the creator
+is not in this part.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
@@ -1058,6 +1079,7 @@ Listed as each slice lands; none is run by Core Weapons.
 | 7b (sound) | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | the guns sound as before (the Falcon 2, the CMP150's stream, the Shotgun); their first `WEAPON.RULE` lines end with ` sound=N slot=N`, N above 0; no `WEAPON.RULE differs` line; simulants' shots sound as before (any simulant smoke) |
 | 7c | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke`, any smoke that punches or throws a grenade | fire animations play as before (the Falcon 2's, the Shotgun's pump, the punch, a grenade's throw), and the attacks keep their timing; first `WEAPON.RULE` lines end with ` animation=invanim_...`; no `WEAPON.RULE differs` line |
 | 8a | a creator smoke (none written yet: Modding Hub, Weapons, open the base Falcon 2 as a template, right-click Fire once, Replace With, Automatic, Set rate to 600 and spin-up to 0, save the mod; then a match with the saved weapon, holding the trigger) | the palette lists the designer groups; the saved weapon's first `WEAPON.RULE: trigger_pressed ... modules=automatic` and a held trigger keeps firing; no `program refused` line |
+| 8b | a creator smoke (none written yet: Modding Hub, Weapons, the base rocket launcher as a template; Secondary Graph, the lock: kinds vehicle, relation enemy, vehicles any; Projectile Programs, homing rocket, Home toward target: the same filter; save; then the 6c vehicle lock smoke with the saved launcher) | the saved mod's copy of the homing rocket carries the filter; the lock takes the empty bike (`SIGHT.LOCK: ... kind=vehicle`) and never a player; no `program refused` line |
 | 6c | a vehicle lock smoke with the sample above (none written yet: the Blank Room with a hoverbike, `--debug-forge-level-vehicle`, as `hoverbike_room_flow_smoke`) | aiming the secondary at the empty bike logs `SIGHT.LOCK: ... kind=vehicle occupied=0 relation=none`; the primary takes no lock on it; with a second player riding (split screen or a second client) the primary logs `occupied=1 relation=enemy`, and its rocket flies straight once the rider bails; `rules.differ=0` |
 | 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 
