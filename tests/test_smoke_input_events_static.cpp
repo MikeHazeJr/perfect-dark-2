@@ -1769,3 +1769,31 @@ TEST_CASE("the client pins LC_NUMERIC to C before anything parses a number",
         "sysInitArgs(argc, argv);");
     requireContains(entry, "setlocale(LC_NUMERIC, \"C\");");
 }
+
+// held-weapon-events.md lock smokes: aim_at holds player 0's view after the
+// frame's look input, only for player 0's own tick and never in a cutscene
+// (MP-RULES), and logs what a failed lock needs (Integration).
+TEST_CASE("aim_at holds player 0's view on its target after the look input",
+    "[smoke][static][held-weapon]")
+{
+    const std::string bondmove = readTextFile("src/game/bondmove.c");
+    const std::string tick = requireSlice(bondmove, "void bmoveTick(bool allowc1x", "void bmoveUpdateVerta(void)");
+    requireContains(tick, "bmoveProcessInput(allowc1x, allowc1y, allowc1buttons, ignorec2);\n"
+        "\t/* held-weapon-events.md lock smokes: a smoke's aim_at holds player 0's");
+    requireContains(tick, "\tsmokeHarnessAimApply();\n\n\tif (g_Vars.currentplayer->bondmovemode == MOVEMODE_BIKE) {");
+    const std::string harness = readTextFile("port/src/smoke_harness.c");
+    const std::string apply = requireSlice(harness, "void smokeHarnessAimApply(void)", "        case SMOKE_EVENT_AIM_AT:");
+    requireContains(apply, "if (!s_SmokeAim.active || g_Vars.currentplayernum != 0 || player == NULL || player->prop == NULL\n"
+        "            || player->bondmovemode == MOVEMODE_CUTSCENE) {");
+    requireContains(apply, "\"SMOKE.AIM: lost target=%s slot=%d chrnum=%d pad=%d at_ms=%d\"");
+    requireContains(apply, "\"SMOKE.AIM: override input theta=%.2f verta=%.2f aim theta=%.2f verta=%.2f at_ms=%d\"");
+    requireContains(harness, "player->lookingatprop.prop == s_SmokeAim.prop");
+    requireContains(harness, "\"SMOKE.AIM: begin target=%s slot=%d chrnum=%d pad=%d dist=%.0f los=%d \"");
+    requireContains(harness, "CDTYPE_BG, GEOFLAG_BLOCK_SIGHT) ? 1 : 0;");
+    requireContains(harness, "held_ms=%d on_target_ms=%d overrides=%d frames=%d why=%s");
+    requireContains(harness, "    smokeAimTick(elapsed);\n");
+    // The game's atan2f (x, z) returns [0, 2pi): a pitch below the eye is
+    // wrapped as bmoveUpdateVerta would, so overrides compare like with like.
+    requireContains(harness, "extern f32 atan2f(f32 x, f32 z);");
+    requireContains(harness, "        *verta -= 360.0f;");
+}

@@ -39,7 +39,9 @@ enum smoke_fixture_event_field {
 	SMOKE_FIXTURE_FIELD_HAND = 1u << 20,
 	SMOKE_FIXTURE_FIELD_AXIS = 1u << 21,
 	SMOKE_FIXTURE_FIELD_VALUE = 1u << 22,
-	SMOKE_FIXTURE_FIELD_SLOT = 1u << 23
+	SMOKE_FIXTURE_FIELD_SLOT = 1u << 23,
+	SMOKE_FIXTURE_FIELD_TARGET = 1u << 24,
+	SMOKE_FIXTURE_FIELD_DURATION_MS = 1u << 25
 };
 
 /* Pure fixture-schema boundary shared by the shipping harness and tests.
@@ -59,6 +61,22 @@ smoke_fixture_field_mask_t smokeFixtureEventAllowedFields(const char *type);
 int smokeFixtureEventFieldsValid(const char *type,
 	smoke_fixture_field_mask_t fields,
 	smoke_fixture_field_mask_t *unsupported_fields);
+
+/* held-weapon-events.md lock smokes: an aim_at event's target and duration.
+ * "simulant" is the nearest live simulant, "simulant:<i>" bot slot i (0 to
+ * 31), "vehicle" the nearest vehicle. */
+enum smoke_fixture_aim_target {
+	SMOKE_FIXTURE_AIM_SIMULANT = 1,
+	SMOKE_FIXTURE_AIM_SIMULANT_SLOT = 2,
+	SMOKE_FIXTURE_AIM_VEHICLE = 3
+};
+#define SMOKE_FIXTURE_AIM_MAX_DURATION_MS 600000
+
+/* 1 with the kind and the slot (-1 unless simulant:<i>) for a target in one
+ * of those forms; 0 for any other text. */
+int smokeFixtureAimTargetParse(const char *text, int *kind, int *slot);
+/* An aim_at duration: above 0 and at most SMOKE_FIXTURE_AIM_MAX_DURATION_MS. */
+int smokeFixtureAimDurationValid(int64_t ms);
 
 #ifdef __cplusplus
 }

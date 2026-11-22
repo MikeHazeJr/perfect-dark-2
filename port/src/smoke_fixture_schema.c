@@ -41,6 +41,8 @@ static const smoke_fixture_field_entry_t k_event_fields[] = {
 	{ "axis", SMOKE_FIXTURE_FIELD_AXIS },
 	{ "value", SMOKE_FIXTURE_FIELD_VALUE },
 	{ "slot", SMOKE_FIXTURE_FIELD_SLOT },
+	{ "target", SMOKE_FIXTURE_FIELD_TARGET },
+	{ "duration_ms", SMOKE_FIXTURE_FIELD_DURATION_MS },
 };
 
 static void smokeJsonSkipWhitespace(smoke_json_cursor_t *cursor)
@@ -326,7 +328,7 @@ int smokeFixtureEventTypeKnown(const char *type)
 		"controller_attach", "controller_button", "controller_axis", "controller_detach",
 		"kill_player", "kill_simulant", "use_door", "use_lift_door", "damage_glass",
 		"give_weapon", "touch_pickup", "kill_token_holder",
-		"movement_ledge", "movement_tabletop",
+		"movement_ledge", "movement_tabletop", "aim_at",
 	};
 
 	if (!type) {
@@ -414,7 +416,58 @@ smoke_fixture_field_mask_t smokeFixtureEventAllowedFields(const char *type)
 	if (!strcmp(type, "mouse_wheel")) {
 		return common | SMOKE_FIXTURE_FIELD_WHEEL_X | SMOKE_FIXTURE_FIELD_WHEEL_Y;
 	}
+	if (!strcmp(type, "aim_at")) {
+		return common | SMOKE_FIXTURE_FIELD_TARGET | SMOKE_FIXTURE_FIELD_DURATION_MS;
+	}
 	return 0;
+}
+
+int smokeFixtureAimTargetParse(const char *text, int *kind, int *slot)
+{
+	int k;
+	int s = -1;
+
+	if (!text) {
+		return 0;
+	}
+	if (!strcmp(text, "simulant")) {
+		k = SMOKE_FIXTURE_AIM_SIMULANT;
+	} else if (!strcmp(text, "vehicle")) {
+		k = SMOKE_FIXTURE_AIM_VEHICLE;
+	} else if (!strncmp(text, "simulant:", 9)) {
+		const char *digits = text + 9;
+		const size_t length = strlen(digits);
+		int value = 0;
+
+		if (length == 0 || length > 2) {
+			return 0;
+		}
+		for (size_t i = 0; i < length; i++) {
+			if (!isdigit((unsigned char)digits[i])) {
+				return 0;
+			}
+			value = value * 10 + (digits[i] - '0');
+		}
+		if (value > 31) {
+			return 0;
+		}
+		k = SMOKE_FIXTURE_AIM_SIMULANT_SLOT;
+		s = value;
+	} else {
+		return 0;
+	}
+	if (kind) {
+		*kind = k;
+	}
+	if (slot) {
+		*slot = s;
+	}
+	return 1;
+}
+
+int smokeFixtureAimDurationValid(int64_t ms)
+{
+	return ms > 0 && ms <= SMOKE_FIXTURE_AIM_MAX_DURATION_MS;
 }
 
 int smokeFixtureEventFieldsValid(const char *type,

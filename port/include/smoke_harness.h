@@ -85,6 +85,12 @@ int  smokeHarnessIsActive(void);
 struct chrdata;
 int  smokeHarnessBotPickupsHeld(const struct chrdata *chr);
 
+/* held-weapon-events.md lock smokes: while a smoke's aim_at runs, holds
+ * player 0's view on its target. bmoveTick calls it after the frame's look
+ * input (bmoveProcessInput); it does nothing for any other player being
+ * ticked, in a cutscene, or with no aim running. */
+void smokeHarnessAimApply(void);
+
 #ifdef __cplusplus
 }
 #endif

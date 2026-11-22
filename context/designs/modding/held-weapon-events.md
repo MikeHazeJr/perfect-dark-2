@@ -1087,6 +1087,17 @@ is not in this part.
 
 ## Smokes for Integration's finalization batch
 
+**The `aim_at` smoke event (2026-11-22, with Integration and MP-RULES).** The lock smokes need the view held
+on a moving target, which `mouse_move` cannot do. `{ "type": "aim_at", "target": "simulant" | "simulant:<i>" | "vehicle", "duration_ms": N }` (`port/src/smoke_harness.c`, validated by
+`port/src/smoke_fixture_schema.c`) picks its target once (the live simulant or vehicle nearest player 0,
+or bot slot i) and holds player 0's view on its body centre, from the camera, for `duration_ms`. It is
+applied by `smokeHarnessAimApply` right after `bmoveProcessInput` in `bmoveTick`, only for player 0's own
+tick and never in a cutscene, so the look input of the frame cannot fight it and the movement tick
+refreshes the trig. Its logs say why a lock did not come: `SMOKE.AIM: begin` (los, the eye and the
+point), `override` (look input it replaced), `lost` (the target died or went), and `end` (`held_ms`,
+`on_target_ms`: the time the look picker, which the lock takes from, chose the target). The B-1135
+schedule bound counts an aim to `at_ms + duration_ms`.
+
 Listed as each slice lands; none is run by Core Weapons.
 
 | Slice | Smoke | What it shows |
@@ -1125,8 +1136,8 @@ Listed as each slice lands; none is run by Core Weapons.
 | 8a | a creator smoke (none written yet: Modding Hub, Weapons, open the base Falcon 2 as a template, right-click Fire once, Replace With, Automatic, Set rate to 600 and spin-up to 0, save the mod; then a match with the saved weapon, holding the trigger). How it runs is Mike's call, **D-059**: (A, Core Weapons' pick) a `graph_edits` step in the `--mod-author` recipe (`port/src/mod_author_recipe.cpp`, Authored Mods' format) that applies the creator's own Replace With and node settings to the install's real template and saves it the way the creator does, with Replace With's rules moved into `port/src/weapon_graph_editor_io.cpp` so the creator and the recipe share them; (B) a hand-written program in a fixture, which drops the extracted record (sounds, fire animation, recoil settings, timings), so it plays a stripped gun and goes stale at the next `embedded.vNN`; or (C) a person makes and plays both examples. | the palette lists the designer groups; the saved weapon's first `WEAPON.RULE: trigger_pressed ... modules=automatic` and a held trigger keeps firing; no `program refused` line |
 | 8b | a creator smoke (none written yet: Modding Hub, Weapons, the base rocket launcher as a template; Secondary Graph, the lock: kinds vehicle, relation enemy, vehicles any; Projectile Programs, homing rocket, Home toward target: the same filter; save; then the 6c vehicle lock smoke with the saved launcher). Under D-059 A, the same recipe step, on the weapon's lock and on its projectile's member (`<projectile>::behavior.graph.json`). | the saved mod's copy of the homing rocket carries the filter; the lock takes the empty bike (`SIGHT.LOCK: ... kind=vehicle`) and never a player; no `program refused` line |
 | 4, 6b (cloak) | `held_weapon_cloak_smoke` (written 2026-11-22, `tools/smoke-verify/tests/`) | the alternate-function button toggles the RCP120's cloak on and off: `BONDGUN.CLOAK: on player=0 weapon=base:rcp120 drain=24 slot=N`, then `off`; no `WEAPON.RULE differs` or `program refused` line |
-| 6c | a vehicle lock smoke with the sample above (none written yet: the Blank Room with a hoverbike, `--debug-forge-level-vehicle`, as `hoverbike_room_flow_smoke`) | aiming the secondary at the empty bike logs `SIGHT.LOCK: ... kind=vehicle occupied=0 relation=none`; the primary takes no lock on it; with a second player riding (split screen or a second client) the primary logs `occupied=1 relation=enemy`, and its rocket flies straight once the rider bails; `rules.differ=0` |
-| 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function; the smoke runner has no aim step yet, and `mouse_move` cannot hold a moving simulant, so this needs a runner aid first) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
+| 6c | `held_weapon_vehicle_lock_smoke` (written 2026-11-22, the single-player half: the Blank Room with a hoverbike made at boot as `hoverbike_room_flow_smoke` does, `aim_at` on the empty bike with the targeted rocket and then the primary; the ridden half needs a second player and is not written) | aiming the secondary at the empty bike logs `SIGHT.LOCK: ... kind=vehicle occupied=0 relation=none`; the primary takes no lock on it; with a second player riding (split screen or a second client) the primary logs `occupied=1 relation=enemy`, and its rocket flies straight once the rider bails; `rules.differ=0` |
+| 6a, 6b | `held_weapon_lock_smoke` (written 2026-11-22 with `aim_at`: two simulants that hold their fire, the first placed in sight; the CMP150's primary and its follow lock-on, then the targeted rocket, each lock the placed one with aim held, and the rocket is fired at it; the second simulant is aimed at for the record only, so two locks on one function are not required) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 
 ## Where to look
 
