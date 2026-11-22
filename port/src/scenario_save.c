@@ -589,6 +589,18 @@ static s32 scenarioValidateTypedCompanions(
 	return 1;
 }
 
+extern s32 g_NetMode;
+
+/* Review of PR 27: a listen host's room also holds its remote humans, who have
+ * no match-config slot until the match starts (netLobbyStartPreparePlayers
+ * builds them from their own client settings). So online the room may count
+ * more humans than the match has slots; offline, and in the V-006 harness, the
+ * two counts must agree exactly. */
+static s32 scenarioRoomHasRemoteHumans(void)
+{
+	return g_NetMode == NETMODE_SERVER;
+}
+
 static s32 scenarioBuildPlanCandidate(const scenario_document_t *document,
 		s32 human_count, scenario_load_plan_t *plan, char *detail,
 		size_t detail_size)
@@ -620,8 +632,12 @@ static s32 scenarioBuildPlanCandidate(const scenario_document_t *document,
 			"live match has no human slot to preserve", NULL);
 	}
 	if (actual_humans != human_count) {
-		return scenarioSetDetail(detail, detail_size,
-			"live human slots do not match declared human count", NULL);
+		/* The room's count (human_count) still sets the capacity below and,
+		 * for a preset, its simulants' difficulty. */
+		if (!scenarioRoomHasRemoteHumans()) {
+			return scenarioSetDetail(detail, detail_size,
+				"live human slots do not match declared human count", NULL);
+		}
 	}
 	plan->config.numSlots = (u8)actual_humans;
 	if (!scenarioResolveArena(document, plan, plan->config.stage_id,
@@ -666,7 +682,7 @@ static s32 scenarioBuildPlanCandidate(const scenario_document_t *document,
 
 	max_bots = matchConfigMaxBotsForHumans(human_count);
 	if (document->bot_count > max_bots
-			|| actual_humans + document->bot_count > MATCH_PARTICIPANT_CAP) {
+			|| human_count + document->bot_count > MATCH_PARTICIPANT_CAP) {
 		return scenarioSetDetail(detail, detail_size,
 			"saved bot roster exceeds live participant capacity", NULL);
 	}
@@ -998,7 +1014,6 @@ s32 scenarioLoadPreset(s32 slot, s32 humanCount)
 	scenario_load_plan_t plan;
 	u8 teams[SCENARIO_CODEC_MAX_BOTS];
 	char detail[192];
-	const char *name;
 	s32 diffindex;
 	s32 i;
 
@@ -1022,8 +1037,11 @@ s32 scenarioLoadPreset(s32 slot, s32 humanCount)
 		| SCENARIO_DOC_TIMELIMIT | SCENARIO_DOC_SCORELIMIT
 		| SCENARIO_DOC_TEAMSCORELIMIT | SCENARIO_DOC_OPTIONS | SCENARIO_DOC_BOTS;
 	document.version = SCENARIO_SAVE_VERSION;
-	name = mpGetPresetNameBySlot(slot);
-	strncpy(document.name, name && name[0] ? name : "preset", sizeof(document.name) - 1);
+	/* B-1295: the name without the language file's line terminator. */
+	mpCopyPresetNameBySlot(slot, document.name, (s32)sizeof(document.name));
+	if (!document.name[0]) {
+		strncpy(document.name, "preset", sizeof(document.name) - 1);
+	}
 
 	/* The original table names its stage and mode by number; the planner's
 	 * legacy migration resolves each to its one catalog entry or refuses. */

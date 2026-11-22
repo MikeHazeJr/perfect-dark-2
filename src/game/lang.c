@@ -276,7 +276,10 @@ s32 langGetStageBank(s32 stagenum, s32 prefer_mp)
 	}
 	if (scenario && scenario->ext.scenario.text_bank[0]) {
 		bank = assetCatalogResolve(scenario->ext.scenario.text_bank);
-		if (bank && bank->type == ASSET_LANG && bank->ext.lang.bank_id > 0) {
+		/* The number must index g_LangBanks: registration does not bound an
+		 * INI entry's bank_id, and stage teardown clears the bank it gets. */
+		if (bank && bank->type == ASSET_LANG && bank->ext.lang.bank_id > 0
+				&& bank->ext.lang.bank_id < (s32)ARRAYCOUNT(g_LangBanks)) {
 			result = bank->ext.lang.bank_id;
 			if (s_LoggedStage != stagenum || s_LoggedBank != result) {
 				s_LoggedStage = stagenum;
@@ -476,6 +479,10 @@ void langLoadToAddr(s32 bank, u8 *dst, s32 size)
 
 void langClearBank(s32 bank)
 {
+	if (bank < 0 || bank >= (s32)ARRAYCOUNT(g_LangBanks)) {
+		sysLogPrintf(LOG_WARNING, "LANG: clear of invalid bank=%d ignored", bank);
+		return;
+	}
 	g_LangBanks[bank] = NULL;
 }
 

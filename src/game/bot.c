@@ -52,6 +52,7 @@
 #include "net/netmsg.h"
 #include "net/matchsetup.h"
 #include "weapon_events.h"  /* held-weapon-events.md slice 3: a simulant's burst rounds */
+#include "weapon_rules.h"   /* slice 5: a simulant's charge (og.weapon.charge) */
 
 #define PICKUPCRITERIA_DEFAULT  0
 #define PICKUPCRITERIA_CRITICAL 1
@@ -5280,22 +5281,42 @@ void botTickUnpaused(struct chrdata *chr)
 							// Increment the mauler charge and deplete ammo as
 							// the charge amount crosses each whole number.
 							// Yes, this is actually implemented for bots.
-							if (aibot->weaponnum == WEAPON_MAULER
-									&& aibot->gunfunc == FUNC_SECONDARY
-									&& aibot->loadedammo[i] >= 2) {
+							// held-weapon-events.md slice 5: the charge is the weapon
+							// program's og.weapon.charge (start while_selected), as the
+							// player's bgunTickMaulerCharge reads it: the Mauler's 5 steps
+							// in 100 ticks, a round a step, a clip of 2, so any weapon
+							// whose program charges that way charges for simulants too.
+							weapon_rule_trigger_t charge;
+							const s32 chargefunc = weaponWeaponCharge(aibot->weaponnum, &charge) - 1;
+
+							if (chargefunc >= 0
+									&& aibot->gunfunc == chargefunc
+									&& charge.charge_time > 0 && charge.charge_steps > 0
+									&& aibot->loadedammo[i] >= weaponRulesChargeStepNeeds(&charge)) {
+								const f32 steps = (f32)charge.charge_steps;
 								s32 newchargei;
 								s32 oldchargei = aibot->maulercharge[i];
+								s32 step;
 
-								aibot->maulercharge[i] += g_Vars.lvupdate60freal * 0.05f;
+								aibot->maulercharge[i] += g_Vars.lvupdate60freal * (steps / (f32)charge.charge_time);
 
-								if (aibot->maulercharge[i] > 5) {
-									aibot->maulercharge[i] = 5;
+								if (aibot->maulercharge[i] > steps) {
+									aibot->maulercharge[i] = steps;
 								}
 
 								newchargei = aibot->maulercharge[i];
 
-								if (newchargei != oldchargei) {
-									aibot->loadedammo[i]--;
+								// Every whole step the frame crosses is paid, and the
+								// charge stops at the last step the clip could pay, as
+								// the player's loop does (one step a frame with the
+								// Mauler's numbers, as the original).
+								for (step = oldchargei; step < newchargei; step++) {
+									if (aibot->loadedammo[i] < weaponRulesChargeStepNeeds(&charge)) {
+										aibot->maulercharge[i] = step;
+										break;
+									}
+
+									weaponRulesSpendRounds(charge.charge_ammo, &aibot->loadedammo[i]);
 								}
 							}
 

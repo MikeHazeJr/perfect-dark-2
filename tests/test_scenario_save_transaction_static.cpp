@@ -375,3 +375,88 @@ TEST_CASE("Room Load Preset and Quick Start publish through the Room's own paths
 	/* Challenges stay without a Room entry (Mike 2026-11-21). */
 	REQUIRE(room.find("g_MpChallengesMenuDialog") == std::string::npos);
 }
+
+TEST_CASE("Room preset names drop the language file's line terminator (B-1295)",
+	"[scenario][room][preset][static]")
+{
+	const std::string source = readSource("port/src/scenario_save.c");
+	const std::string room = readSource("port/fast3d/pdgui_menu_room.cpp");
+	const std::string mplayer = readSource("src/game/mplayer/mplayer.c");
+
+	/* The language file ends each menu item with a line feed ("No Shield\n"):
+	 * the Room's list, its logs and the preset's Room document take the name
+	 * up to it. */
+	const std::string copy = functionBody(mplayer, "void mpCopyPresetNameBySlot(",
+		"#if VERSION >= VERSION_NTSC_1_0");
+	REQUIRE(copy.find("name[len] != '\\n'") != std::string::npos);
+	REQUIRE(copy.find("out[len] = '\\0';") != std::string::npos);
+	const std::string preset = functionBody(source, "s32 scenarioLoadPreset(",
+		"s32 scenarioListFiles(");
+	REQUIRE(preset.find("mpCopyPresetNameBySlot(slot, document.name, (s32)sizeof(document.name));")
+		!= std::string::npos);
+	REQUIRE(preset.find("mpGetPresetNameBySlot(") == std::string::npos);
+	REQUIRE(room.find("mpGetPresetNameBySlot(") == std::string::npos);
+	REQUIRE(occurrences(room, "mpCopyPresetNameBySlot(") >= 4);
+}
+
+TEST_CASE("Room smoke hooks press Load Preset and Quick Start through the Room's own calls",
+	"[scenario][room][preset][quick-start][static]")
+{
+	const std::string room = readSource("port/fast3d/pdgui_menu_room.cpp");
+
+	/* The hooks call what the preset list and the Quick Start popup call. */
+	const std::string run = functionBody(room, "static void roomDebugSetupRun(",
+		"/* =====");
+	REQUIRE(run.find("roomLoadPreset(s_DebugPresetSlot);") != std::string::npos);
+	REQUIRE(run.find("roomQuickStartBegin(s_DebugQuickMode, sims, s_DebugQuickDiff);")
+		!= std::string::npos);
+	REQUIRE(room.find("roomQuickStartBegin(s_QuickStartMode, s_QuickStartSims, s_QuickStartDiff);")
+		!= std::string::npos);
+	REQUIRE(occurrences(room, "s_QuickStartFireFrames = 2;") == 1);
+	/* The debug Start Match waits until the hooks' setup has gone in, and the
+	 * hooks run after the frame's Start Match, so a start comes a frame later. */
+	REQUIRE(room.find("const bool bootAutoStart = !debugTabPending && !debugSetupPending")
+		!= std::string::npos);
+	const auto button = room.find("if (autoStart || quickStartFire || ImGui::Button(\"Start Match\"");
+	const auto hooks = room.find("roomDebugSetupRun();");
+	REQUIRE(button != std::string::npos);
+	REQUIRE(hooks != std::string::npos);
+	REQUIRE(button < hooks);
+}
+
+TEST_CASE("Room plans keep a listen host's remote humans; team-setting Quick Start waits online",
+	"[scenario][room][preset][quick-start][network][static]")
+{
+	const std::string source = readSource("port/src/scenario_save.c");
+	const std::string room = readSource("port/fast3d/pdgui_menu_room.cpp");
+
+	/* Review of PR 27: a listen host's remote humans have no match-config
+	 * slot until the start, so online the room may count more humans than the
+	 * plan keeps; offline the two agree exactly (B-1068, the V-006 harness).
+	 * The room's count sets the capacity. */
+	REQUIRE(source.find("return g_NetMode == NETMODE_SERVER;") != std::string::npos);
+	const std::string candidate = functionBody(source, "static s32 scenarioBuildPlanCandidate(",
+		"static s32 scenarioBuildPlan(");
+	const auto exact = candidate.find("if (actual_humans != human_count) {");
+	const auto online = candidate.find("if (!scenarioRoomHasRemoteHumans()) {");
+	REQUIRE(exact != std::string::npos);
+	REQUIRE(online != std::string::npos);
+	REQUIRE(exact < online);
+	REQUIRE(candidate.find("|| human_count + document->bot_count > MATCH_PARTICIPANT_CAP) {")
+		!= std::string::npos);
+
+	/* Players vs. Simulants and Player-Simulant Teams set every human's team,
+	 * which a host cannot do for a remote player: they wait online (D-056). */
+	const std::string begin = functionBody(room, "static bool roomQuickStartBegin(",
+		"/* Smoke hooks for the Room's Load Preset");
+	const auto refuse = begin.find("if (!roomQuickStartModeAvailable(mode)) {");
+	const auto apply = begin.find("roomQuickStartApply(");
+	REQUIRE(refuse != std::string::npos);
+	REQUIRE(apply != std::string::npos);
+	REQUIRE(refuse < apply);
+	REQUIRE(room.find("return mode == ROOM_QS_PLAYERS_VS_SIMS || mode == ROOM_QS_PLAYER_SIM_TEAMS;")
+		!= std::string::npos);
+	REQUIRE(room.find("return netGetMode() == NETMODE_SERVER && lobbyRoomGetPlayerCount() > 1;")
+		!= std::string::npos);
+	REQUIRE(room.find("if (!available) ImGui::BeginDisabled();") != std::string::npos);
+}

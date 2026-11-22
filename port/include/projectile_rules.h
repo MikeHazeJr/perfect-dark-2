@@ -74,7 +74,24 @@ extern "C" {
 #define PROJECTILE_MODULE_ARM_REMOTE      (1u << 17) /* og.projectile.arm_remote */
 #define PROJECTILE_MODULE_ARM_PROXIMITY   (1u << 18) /* og.projectile.arm_proximity */
 #define PROJECTILE_MODULE_ARM_BOLT        (1u << 19) /* og.projectile.arm_bolt */
-#define PROJECTILE_MODULE_COUNT 20
+/*
+ * projectile-events.md slice 7: the flight rule. A weapon object chooses how
+ * it flies, and how it looks and sounds in flight, the first tick it flies
+ * (event.projectile.in_flight); projectileTick runs the modules it chose
+ * where it tested weapon numbers. Their settings (node members) carry what
+ * the original keyed by weapon number: projectile_flight_t below.
+ */
+#define PROJECTILE_MODULE_FLY_BY_WIRE  (1u << 20) /* og.projectile.fly_by_wire: rocketTickFbw flies it (the Skedar rocket) */
+#define PROJECTILE_MODULE_THRUST       (1u << 21) /* og.projectile.thrust: a speed cap, the power limit and an exhaust (the rocket) */
+#define PROJECTILE_MODULE_HOME         (1u << 22) /* og.projectile.home: it steers at its target (the homing rocket) */
+#define PROJECTILE_MODULE_TRAIL        (1u << 23) /* og.projectile.trail: a smoke a tick (the homing rocket, the grenade round) */
+#define PROJECTILE_MODULE_WOOSH        (1u << 24) /* og.projectile.woosh: the thrown knife's woosh */
+#define PROJECTILE_MODULE_HIT_SOUND    (1u << 25) /* og.projectile.hit_sound: its collision sound (the knife, the pinball) */
+#define PROJECTILE_MODULE_BOUNCE_SMOKE (1u << 26) /* og.projectile.bounce_smoke: a puff where it bounces (the pinball) */
+#define PROJECTILE_MODULE_COUNT 27
+#define PROJECTILE_MODULE_FLIGHT \
+	(PROJECTILE_MODULE_FLY_BY_WIRE | PROJECTILE_MODULE_THRUST | PROJECTILE_MODULE_HOME | PROJECTILE_MODULE_TRAIL \
+		| PROJECTILE_MODULE_WOOSH | PROJECTILE_MODULE_HIT_SOUND | PROJECTILE_MODULE_BOUNCE_SMOKE)
 #define PROJECTILE_MODULE_ALL ((1u << PROJECTILE_MODULE_COUNT) - 1)
 #define PROJECTILE_MODULE_ARMS \
 	(PROJECTILE_MODULE_ARM_FUSE | PROJECTILE_MODULE_ARM_WALL_FUSE | PROJECTILE_MODULE_ARM_STRUCK_FUSE \
@@ -96,12 +113,15 @@ extern "C" {
  *   explosion's damage, a crusher's, a hoverbike's ram and a script's
  *   "destroy" with the remote mine's weapon number.
  */
-#define PROJECTILE_RULE_GATE_FUSE_ARMED        (1u << 24)
-#define PROJECTILE_RULE_GATE_TRIGGER_CLOSE     (1u << 25)
-#define PROJECTILE_RULE_GATE_TRIGGER_CHARACTER (1u << 26)
-#define PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST  (1u << 27)
+/* Slice 7 moved them from bits 24 to 27 up to 27 to 30, above the flight
+ * modules and below the program flag of an arm's or a flight's answer (31).
+ * Archives name kinds, never bits. */
+#define PROJECTILE_RULE_GATE_FUSE_ARMED        (1u << 27)
+#define PROJECTILE_RULE_GATE_TRIGGER_CLOSE     (1u << 28)
+#define PROJECTILE_RULE_GATE_TRIGGER_CHARACTER (1u << 29)
+#define PROJECTILE_RULE_GATE_DAMAGE_NOT_BLAST  (1u << 30)
 #define PROJECTILE_GATE_COUNT 4
-#define PROJECTILE_RULE_GATE_ALL (((1u << PROJECTILE_GATE_COUNT) - 1) << 24)
+#define PROJECTILE_RULE_GATE_ALL (((1u << PROJECTILE_GATE_COUNT) - 1) << 27)
 #define PROJECTILE_GATE_FUSE_ARMED_KIND "gate.projectile.fuse_armed"
 #define PROJECTILE_GATE_TRIGGER_CLOSE_KIND "gate.projectile.trigger_close"
 #define PROJECTILE_GATE_TRIGGER_CHARACTER_KIND "gate.projectile.trigger_character"
@@ -147,6 +167,67 @@ u32 projectileRulesEventModules(s32 event_kind);
  * (a gun, a knife, a planted device).
  */
 u32 projectileRulesNative(s32 event_kind, s32 weaponnum, s32 gunfunc, s32 sticks_to_wall);
+
+/*
+ * projectile-events.md slice 7: the flight modules' settings.
+ *
+ * - og.projectile.thrust: "max_speed" (units a tick, above 0 and up to
+ *   10000; the rocket's 166.666656, whose square is the original's
+ *   27777.773) and "exhaust" (a smoke, or none; the rocket's "rocket"), the
+ *   smoke it leaves 20 units behind while powered.
+ * - og.projectile.trail: "smoke" (the homing rocket's "homing", the grenade
+ *   round's "grenade") and "while" ("flying": not colliding, the homing
+ *   rocket's; "moving": not at rest, the grenade round's).
+ * - og.projectile.hit_sound: "sound" ("knife", "pinball").
+ * - og.projectile.bounce_smoke: "smoke" (the pinball's "pinball").
+ *
+ * The smokes: "rocket", "homing", "grenade" (the record's trail_type names)
+ * and "pinball". A setting left out is the original's for the object's
+ * weapon number, else the defaults below.
+ */
+#define PROJECTILE_THRUST_MAX_SPEED_PARAM "max_speed"
+#define PROJECTILE_THRUST_EXHAUST_PARAM "exhaust"
+#define PROJECTILE_SMOKE_PARAM "smoke"
+#define PROJECTILE_TRAIL_WHILE_PARAM "while"
+#define PROJECTILE_HIT_SOUND_PARAM "sound"
+#define PROJECTILE_TRAIL_WHILE_FLYING 1 /* not colliding */
+#define PROJECTILE_TRAIL_WHILE_MOVING 2 /* not at rest */
+#define PROJECTILE_HIT_SOUND_KNIFE 1
+#define PROJECTILE_HIT_SOUND_PINBALL 2
+#define PROJECTILE_ROCKET_MAX_SPEED 166.666656f /* squared, the original's 27777.773 */
+#define PROJECTILE_MAX_SPEED_LIMIT 10000
+
+typedef struct projectile_flight {
+	f32 max_speed;    /* thrust: its cap, units a tick */
+	s16 exhaust;      /* thrust: the smoke it leaves while powered, -1 none */
+	s16 trail_smoke;  /* trail: its smoke */
+	s8 trail_while;   /* trail: PROJECTILE_TRAIL_WHILE_* */
+	s8 hit_sound;     /* hit_sound: PROJECTILE_HIT_SOUND_* */
+	s16 bounce_smoke; /* bounce_smoke: its smoke */
+} projectile_flight_t;
+
+/* The original's settings for a weapon object's flight modules (the rocket's
+ * cap and exhaust, the homing rocket's or the grenade round's trail, the
+ * knife's or the pinball's collision sound and the pinball's puff); for an
+ * object the original gives none of a module, that module's defaults (the
+ * rocket's thrust, the homing trail, the knife's sound, the pinball's puff). */
+void projectileRulesNativeFlight(s32 weaponnum, s32 gunfunc, projectile_flight_t *out);
+/* A module's settings, read by `get` (a node's text for a key, NULL when it
+ * has none), over the defaults in *flight. Returns 1, or 0 when a setting is
+ * malformed (it keeps its default, and *bad_key, when given, names it). */
+typedef const char *(*projectile_text_fn)(const char *key, void *user);
+s32 projectileRulesFlightSettings(u32 module, projectile_text_fn get, void *user, projectile_flight_t *flight,
+	const char **bad_key);
+/* What a setting takes, for refusals ("rocket, homing, grenade or pinball"). */
+const char *projectileRulesFlightSettingHelp(const char *key);
+/* The settings a module's node carries, as JSON members (", \"smoke\":
+ * \"homing\", ..."), for the extractor: the length written, -1 when it does
+ * not fit. A module with no settings writes "". */
+s32 projectileRulesFlightSettingsText(u32 module, const projectile_flight_t *flight, char *buf, s32 cap);
+/* Whether two flights' settings agree for the modules given. */
+s32 projectileRulesFlightSame(u32 modules, const projectile_flight_t *a, const projectile_flight_t *b);
+/* A smoke's name ("rocket"), NULL for none of these. */
+const char *projectileRulesSmokeName(s32 smoketype);
 
 /*
  * The explosion og.projectile.explode makes. Its node may name one with a

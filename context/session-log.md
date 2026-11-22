@@ -24,23 +24,32 @@ tests and finalization recipe (`tools/smoke-verify/STARTUP-AB.md`, inputs in
 A/B generator 4/4, Open Mods Folder 33 checks with the explorer start mocked. Nothing run in a game.
 Open: the finalization smokes (week note entry), Mike's look at the pistol's held view, B-1294.
 
-2026-11-21 CORE WEAPONS (claude-pd-core-weapons-20261121), 21:00 UTC onward (after the morning's
+2026-11-21/22 CORE WEAPONS (claude-pd-core-weapons-20261121), 21:00 UTC onward (after the morning's
 slices 1 and 2). Mike's assignment: held weapons on behavior graphs, the eight slices of the gun-code
-audit (artifact `7fgSVVLGzHGRddzXoUJ1Xz`), in the order 1-5, projectile slice 7, 6, 7, 8; own branch
-`week-pd/core-weapons`, committed through a temporary index (canonical HEAD and index untouched). On
-dev: **slices 1 and 2** (PR 26, `1b875417`: the held v2 graph on the shared runner; the idle choice is
-each function's program, parity probe `WEAPON.RULE`), **slice 3** (PR 29, `32de66d6`: an attack's
-cadence is its program's trigger node, fire once, burst, automatic, with Use ammo; simulants' ticks per
-shot from the same programs). In review: **slice 4a** (PR 31: the shot is its program's shot node, one
-per family; the Shotgun, Farsight, Laser, launcher if-chain, Laptop gun, RCP120 cloak and Tranquilizer
-cases are node settings) and **slice 4b** (`cf76853c`: a reload's style); **slice 5** committed (`d2ac9937`: Charge then release
-and Hold to cook are trigger nodes; the Mauler, the crystal pistol and the grenade run from them). The rule table, the plan and
-the walk are header-only (`port/include/weapon_rules.h`), so pd-tests run the game's walk and a copy of
-the original cadence code tick by tick. Every slice's record, the design and the smokes for Integration's
-batch (`held_weapon_cadence_smoke` and `held_weapon_shot_smoke` are new fixtures) are in
-`context/designs/modding/held-weapon-events.md`. Open: `bot.c`'s single-shot burst still reads
-`FUNCFLAG_BURST2/3` (MP-RULES' file; `weaponProgramBurstRounds` is ready). Next: projectile slice 7 (flight,
-spawn and free as rule events), then weapon slices 6, 7 and 8.
+audit (artifact `7fgSVVLGzHGRddzXoUJ1Xz`), in the order 1-5, projectile slice 7, 6, 7, 8; own branches
+from dev, committed through a temporary index (canonical HEAD and index untouched). On dev: **slices 1
+and 2** (PR 26, `1b875417`), **slice 3** (PR 29, `32de66d6`: an attack's cadence is its program's
+trigger node), **slices 4a, 4b and 5** (PR 31, `10a5740b`, 2026-11-22: the shot node per family with the
+base guns' quirks as settings; a reload's style; the Mauler's charge, the crystal pistol's committed
+charge and the grenade's cook as trigger nodes). PR 31 took four Codex review rounds (`45204a1a`,
+`1ab5ef76`, `1a23e440`, `f43a7be5`): settings read through variables get their own buffers, the held
+rocket gives way to a launch's item, manual reloads and regrowing clips follow the program, the Weapons
+creator keeps programs (v2), charge start/release pairs the runtime cannot run are refused, the
+committed charge comes from its plan for players and bots, the charge level is `hand->chargelevel`
+(`types.h`'s spare `fspare3`), each charge step is paid in full and steps are capped at 25, cooked
+fuses and authored timers are clamped to the s16 timer, the beam's reach is its range, and a
+graph-authored cloak cloaks the player. In review: **projectile slice 7a and 7b** (PR 40,
+`week-pd/core-weapons-p7`): `objFree`'s clean-ups follow what the object holds; the flight is the
+object's choice (`event.projectile.in_flight`, kind 40: fly_by_wire, thrust, home, trail, woosh,
+hit_sound, bounce_smoke with settings; gates moved to bits 27-30; `embedded.v22`). Records and smokes:
+`context/designs/modding/held-weapon-events.md`, `context/designs/modding/projectile-events.md`.
+Open for Mike: PR 31's pellet thread (one shot's pellets a frame, as the original delivers one shot a
+frame for every automatic) and the charge shapes not built (hold and let go; a selected charge that
+fires itself). Open for MP-RULES: the simulants' Mauler charge (N-1191, answered in N-1194),
+`botact.c`'s self-loading check for program-regrow base weapons, `netmsg.c`'s RCP120 cloak drop line.
+Next: projectile slice 7c (spawn by weapon number: the pinball's bounce and the knife's flags at the
+throw, the fired projectiles' power limit, the guards' and chopper's `projectileCreate`, a dropped
+grenade's fuse), then weapon slices 6, 7 and 8.
 
 2026-11-21 MULTIPLAYER AND RULES (claude-pd-mp-rules-20261121), 04:30 to 05:15 and 21:27 UTC onward.
 Mike's order: six items, canonical checkout, own branch `week-pd/mp-rules` from dev (commits through a
@@ -59,21 +68,38 @@ T-MENUS-009). **Stage text banks** (PR 28, `c5738451`, T-MODDING-027): each scen
 with text of their own. **Mode graphs slice 2** (PR 30, `e7fb73e6`: `mode.graph.json` in every
 `.pdgamemode`, the runner's mode domain at kinds 64 to 75, `port/src/mode_rules.c`, meta kind
 `_modegraph`, registration fails closed; B-1292 for slice 6) and **slice 3** (PR 32, `905ed513`: the
-dispatchers run the program's plan; `MODE.PLAN` and the `MODE.PARITY` probe). Open: PR 34 (slice 4: the
-code outside the table behind its events, designated `g_MpScenarios[]` rows, 64 modules, meta kind
-`_modegraph_outside`; and bot.c's single-shot burst reads `weaponProgramBurstRounds`, Core Weapons'
-ask), and built and tested locally: slice 5 `a918ea5e` (states side by side, `SVC_SCENARIO_STATE` one
-section per state in use, protocol v67) and slice 7 `da862eac` (the simulants' command choice and idle
-action as modules, `event.mode.bot_command` and `bot_idle`, 73 modules). Slice 6 (a mod's own mode)
-waits for **decision D-055** (Workbench): what the first worked example plays like, whether setup
-files remember a mod mode, how the Room offers one; my pick A (scores add up, Room only).
+dispatchers run the program's plan; `MODE.PLAN` and the `MODE.PARITY` probe), **slice 4** (PR 34,
+`8f3f7f76`: the code outside the table behind its events, designated `g_MpScenarios[]` rows, meta kind
+`_modegraph_outside`; bot.c's single-shot burst reads `weaponProgramBurstRounds`, Core Weapons' ask) and
+**slices 5 and 7** (PR 37, `84bebb5a`: states side by side, `SVC_SCENARIO_STATE` one section per state in
+use, protocol v67; the simulants' command choice and idle action as modules, `event.mode.bot_command`
+and `bot_idle`, 73 modules, meta kind `_modegraph_outside_bots`). Open: PR 39 (**B-1295**: the preset
+names cut at the language file's line feed; the Room's `--debug-room-load-preset` and
+`--debug-room-quick-start` smoke hooks and their two fixtures; it lands on dev once its CI is green, by
+the house rule, so check `gh pr view 39`). Slice 6 (a mod's own mode) waits for **decision D-055**
+(Workbench): what the first worked example plays like, whether setup files remember a mod mode, how the
+Room offers one; my pick A (scores add up, Room only); the design doc's slice 6 section has the census of
+the about 100 mode-number checks it starts from. dev moved under PR 37 (PR 36) and PR 39 (PRs 35, 38):
+each time the branch took dev with no file in common, and PR 38's build change was proven on the merge
+(`-Target full`, full pd-tests). PR 39 also carries, since Core Weapons' PR 31 landed (dev `10a5740b`),
+bot.c's simulant Mauler charge on `weaponWeaponCharge` and netmsg.c's drop-handler cloak on
+`weaponCloakToggle` (Workbench N-1191; the base Mauler's numbers are the original's, so nothing changes
+in the base game). Next, besides D-055: D-054 (a custom level's own text) is also Mike's.
+Then (2026-11-22, Auto-fix) the Codex reviews of the merged PRs 25, 27, 28, 30 and 39, fixed on
+`week-pd/mp-rules` in one PR: B-1292 (refused mod modes leave the legacy picker), B-1296 (a stage's text bank
+bounded; `langClearBank` guarded), B-1297 (a level's own scenario reads its manifest's `text_bank`; Grid's detached
+binder has the same gap, left to the Grid lane), B-1298 (`token_picked_up` only on an acquisition), B-1299 (Load
+Preset and Load Scenario on a listen host with remote humans), B-1300 (online Quick Start's two team-setting
+choices held back; **decision D-056** for Mike) and B-1301 (a simulant's program charge reaches its shot,
+`chraction.c`, with Core Weapons told). PR 39's per-step charge comment was already fixed in `8c8502f8`.
 The shared tree's runner and validator copies carry my hunks beside Core Weapons' (they commit by
 hunk). Mistakes to avoid next time: a full SHA typed by hand for `--match-head-commit` (use `git
-rev-parse`), and heredocs for anything with doubled backslashes (Write or Edit instead). Finalization smokes for Integration: the four
-ledge/tabletop smokes, `network_coop_reconnect_smoke`, `coop_ai_buddies_offline_smoke`, the six local
-mode smokes (now also requiring `MODE.PLAN` and `MODE.PARITY ... differ=0`), any smoke on a re-extracted
-base for the six `MODE.GRAPH: program` lines and `LANG.STAGE ... source=archive`, and a Room
-preset/Quick Start smoke still to write.
+rev-parse`), and heredocs for anything with doubled backslashes (Write or Edit instead). Finalization smokes for Integration
+(Workbench handoff note): the four ledge/tabletop smokes, `network_coop_reconnect_smoke`,
+`coop_ai_buddies_offline_smoke`, the six local mode smokes (now also requiring `MODE.PLAN` and
+`MODE.PARITY ... differ=0`), the network mode smokes (protocol v67), `room_load_preset_smoke` and
+`room_quick_start_smoke` (PR 39), and any smoke on a re-extracted base for the six `MODE.GRAPH: program`
+lines and `LANG.STAGE ... source=archive`.
 
 2026-11-20 MULTIPLAYER, 16:40 to 18:44 UTC. Repo cleanup on Mike's order (Codex disabled, the
 week sessions archived): push and merge all PD work, fix collisions, clean up before fresh sessions

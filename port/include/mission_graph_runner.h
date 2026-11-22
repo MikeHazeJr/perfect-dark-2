@@ -165,6 +165,13 @@ extern "C" {
 #define MISSION_GRAPH_EVENT_WEAPON_TRIGGER_RELEASED 38
 #define MISSION_GRAPH_EVENT_WEAPON_RELOAD_DONE 39
 
+/* projectile-events.md slice 7: the flight rule event, a projectile event
+ * numbered after the weapon events. A weapon object flies for the first time
+ * (in_flight) and chooses how it flies and how it looks and sounds in flight
+ * (og.projectile.fly_by_wire, thrust, home, trail, woosh, hit_sound,
+ * bounce_smoke). */
+#define MISSION_GRAPH_EVENT_PROJECTILE_IN_FLIGHT 40
+
 /* The phases a phase event carries (mission_graph_event_t.phase). The phase
  * table's load and end are not delivered: nothing runs before the stage starts
  * or while it ends. */

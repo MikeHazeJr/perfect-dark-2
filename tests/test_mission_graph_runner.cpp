@@ -3311,7 +3311,8 @@ TEST_CASE("a charge runs as its node says, or its weapon is refused",
 	CHECK(reach == 2);
 	CHECK(prop.find("shotdata.hits[i].distance > 300") == std::string::npos);
 	const std::string runtime = readSource("port/src/weapon_graph_runtime.c");
-	REQUIRE(runtime.find("heldIrFunctionCommits(&ir, f), why, sizeof(why))) {") != std::string::npos);
+	REQUIRE(runtime.find("heldIrFunctionCommits(&ir, f), heldIrFunctionAmmoSlot(&ir, f), why, sizeof(why))) {")
+		!= std::string::npos);
 	REQUIRE(runtime.find("problem = weaponRulesChargeUnsupported(start,") != std::string::npos);
 }
 
@@ -3407,6 +3408,71 @@ TEST_CASE("a charge fits the shot's byte, and a graph's cloak cloaks the player"
 	REQUIRE(bondgun.find("// RC-P120 and cloaking device: turn off cloak if active\n"
 		"\t\t/* (PR 31 review: any weapon with og.weapon.mode_toggle's cloak) */\n"
 		"\t\tif (weaponCloakToggle(weaponnum, NULL, NULL)) {") != std::string::npos);
+}
+
+TEST_CASE("a special carries out only a special's actions, and a cloak needs rounds",
+	"[mission-graph][weapon-graph][held-weapon][weapon-rules]")
+{
+	// PR 31 review: the shoot, launch, throw and melee attack types read their
+	// own families' data, so a special that named one would do nothing or read
+	// past its function; every base special's action is a special's.
+	for (const char *name : { "detonate", "boost", "revert_boost", "crouch", "uplink" }) {
+		INFO(name);
+		REQUIRE(weaponRulesActionFromText(name) > 0);
+		CHECK(weaponRulesSpecialActionRuns(weaponRulesActionFromText(name)) == 1);
+	}
+	for (const char *name : { "shoot", "launch", "throw", "melee", "melee_no_uncloak", "cloak" }) {
+		INFO(name);
+		CHECK(weaponRulesActionFromText(name) == -1);
+	}
+	for (const BaseFunction &base : baseFunctions()) {
+		weapon_rule_trigger_t plan;
+		weaponRulesNativeTrigger(&base.record, &plan);
+		if (plan.shot != WEAPON_MODULE_SPECIAL) continue;
+		INFO(base.name);
+		CHECK(weaponRulesSpecialActionRuns(plan.action) == 1);
+	}
+
+	// Registration refuses a special that would launch, and a cloak on a
+	// function with no ammunition (its drain reads that ammunition's reserve).
+	const std::string secondary = R"({ "schema": "pd.weapon_graph.v1", "asset_id": "base:test__weapon",
+  "graph_id": "secondary", "nodes": [ { "id": "secondary_action", "kind": "melee.strike", "subgraph": "secondary",
+  "params": { "mode": "secondary", "function_type": "melee", "ammo_slot": -1, "flags": 0, "damage": 0.9, "range": 60 } } ],
+  "edges": [], "exports": [ { "name": "secondary", "node": "secondary_action" } ] })";
+	char err[256] = { 0 };
+	const auto registers = [&](const std::string &shot, s32 slot) {
+		std::string primary = baseIdleProgram("primary", 1, "\"kind\": \"og.weapon.fire_once\"", 1, shot);
+		const std::string record = "\"kind\": \"fire.hitscan\", \"subgraph\": \"primary\", \"params\": { \"mode\": "
+			"\"primary\", \"function_type\": \"shoot_single\", \"ammo_slot\": 0";
+		REQUIRE(primary.find(record) != std::string::npos);
+		primary.replace(primary.find(record), record.size(), "\"kind\": \"special.weapon_state\", \"subgraph\": "
+			"\"primary\", \"params\": { \"mode\": \"primary\", \"function_type\": \"special\", \"ammo_slot\": " +
+			std::to_string(slot));
+		err[0] = 0;
+		return weaponGraphRuntimeRegisterWeaponSourceJson(2, "base:test__weapon", primary.data(), (u32)primary.size(),
+			secondary.data(), (u32)secondary.size(), nullptr, 0, nullptr, 0, nullptr, 0, nullptr, 0, err,
+			sizeof(err)) == 0;
+	};
+	weaponGraphRuntimeClearAll();
+	CHECK(registers("\"kind\": \"og.weapon.special\", \"action\": \"detonate\"", -1));
+	INFO(err);
+	CHECK_FALSE(registers("\"kind\": \"og.weapon.special\", \"action\": \"launch\"", -1));
+	CHECK(std::string(err).find("og.weapon.special needs action detonate, boost, revert_boost, crouch or uplink, got launch")
+		!= std::string::npos);
+	CHECK(registers("\"kind\": \"og.weapon.mode_toggle\", \"mode\": \"cloak\"", 0));
+	CHECK_FALSE(registers("\"kind\": \"og.weapon.mode_toggle\", \"mode\": \"cloak\"", -1));
+	CHECK(std::string(err).find("og.weapon.mode_toggle: its cloak drains its function's rounds") != std::string::npos);
+	weaponGraphRuntimeClearAll();
+
+	// The seams: an ammunition-free function is no cloak, and the drain never
+	// reads a reserve of ammunition type -1.
+	const std::string events = readSource("port/src/weapon_events.c");
+	REQUIRE(events.find("\t\t\tif (record.ammo_slot < 0 || record.ammo_slot > 1) {\n\t\t\t\tcontinue;\n\t\t\t}")
+		!= std::string::npos);
+	CHECK(events.find("record.ammo_slot >= 0 && record.ammo_slot <= 1 ? record.ammo_slot : 0") == std::string::npos);
+	const std::string bondgun = readSource("src/game/bondgun.c");
+	REQUIRE(bondgun.find("if (player->gunctrl.ammotypes[cloakslot] < 0\n") != std::string::npos);
+	REQUIRE(bondgun.find("if (hand->matmot1 > 1.0f && player->gunctrl.ammotypes[cloakslot] >= 0) {") != std::string::npos);
 }
 
 TEST_CASE("the extractor, the objective check, the runtime and conformance agree on the runner",

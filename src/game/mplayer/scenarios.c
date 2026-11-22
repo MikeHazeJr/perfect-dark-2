@@ -1048,11 +1048,50 @@ static const asset_runtime_binding_t *scenarioBindingForEntry(
 	return binding;
 }
 
+/* B-1292: a mod mode whose activation was refused (its rules.json, or since
+ * gamemode-graphs slice 2 its mode.graph.json, did not hydrate) keeps an
+ * enabled catalog entry, so the selectors would meet it and the binding check
+ * above would stop the game. They skip it instead, logging it once; a base
+ * mode without its binding still stops the game, as the ASSET.CHAIN policy
+ * wants. */
+static bool scenarioEntryActivationRefused(const asset_entry_t *e)
+{
+	static char s_Logged[8][CATALOG_ID_LEN];
+	static s32 s_NumLogged = 0;
+	const asset_runtime_binding_t *binding;
+	s32 i;
+
+	if (strncmp(e->id, "base:", 5) == 0) {
+		return false;
+	}
+	binding = assetRuntimeFindByTypeAndId(ASSET_GAMEMODE, e->id);
+	if (binding && binding->source_hydrated && assetRuntimePrimaryFileAccessible(binding)) {
+		return false;
+	}
+	for (i = 0; i < s_NumLogged; i++) {
+		if (strcmp(s_Logged[i], e->id) == 0) {
+			return true;
+		}
+	}
+	if (s_NumLogged < (s32)ARRAYCOUNT(s_Logged)) {
+		strncpy(s_Logged[s_NumLogged], e->id, CATALOG_ID_LEN - 1);
+		s_Logged[s_NumLogged][CATALOG_ID_LEN - 1] = '\0';
+		s_NumLogged++;
+	}
+	sysLogPrintf(LOG_WARNING,
+		"MODE.PICKER: skipping gamemode '%s': its activation was refused (B-1292)", e->id);
+	return true;
+}
+
 static bool scenarioCtxAccepts(const asset_entry_t *e, const struct scenario_pick_ctx *ctx)
 {
-	const asset_runtime_binding_t *binding = scenarioBindingForEntry(e);
+	const asset_runtime_binding_t *binding;
 	s32 participant_count = mpGetActiveParticipantCount();
 
+	if (scenarioEntryActivationRefused(e)) {
+		return false;
+	}
+	binding = scenarioBindingForEntry(e);
 	if (!binding || !scenarioIndexIsValid(binding->runtime_id)) {
 		return false;
 	}
@@ -2475,6 +2514,33 @@ bool scenarioChrsAreSameTeam(s32 playernum1, s32 playernum2)
 	return false;
 }
 
+/* Whether chr holds the token of this mode: its state's holder (the briefcase
+ * of Hold the Briefcase, a case of Capture the Case, the uplink of Hacker
+ * Central). */
+static bool scenarioTokenHeldBy(s32 owner, const struct chrdata *chr)
+{
+	s32 i;
+
+	if (!chr || !chr->prop) {
+		return false;
+	}
+	switch (owner) {
+	case MPSCENARIO_HOLDTHEBRIEFCASE:
+		return g_ScenarioData.htb.token == chr->prop;
+	case MPSCENARIO_HACKERCENTRAL:
+		return g_ScenarioData.htm.uplink == chr->prop;
+	case MPSCENARIO_CAPTURETHECASE:
+		for (i = 0; i < (s32)ARRAYCOUNT(g_ScenarioData.ctc.tokens); i++) {
+			if (g_ScenarioData.ctc.tokens[i] == chr->prop) {
+				return true;
+			}
+		}
+		return false;
+	default:
+		return false;
+	}
+}
+
 /**
  * gamemode-graphs.md slice 4: the plan's pickup module for this kind of token
  * (the briefcase of Hold the Briefcase and Capture the Case, the data uplink
@@ -2496,8 +2562,18 @@ static s32 scenarioPlanPickUpToken(struct chrdata *chr, struct prop *prop, s32 w
 		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_TOKEN_PICKED_UP, k);
 		if (owner >= 0 && scenarioTokenWeaponNum(owner) == weaponnum
 				&& g_MpScenarios[owner].pickuptokenfunc) {
-			modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);
-			return g_MpScenarios[owner].pickuptokenfunc(chr, prop);
+			/* Review of PR 25: the event is an acquisition. Touching a token
+			 * can also do nothing (your own case with no enemy case, a second
+			 * enemy case) or score (bringing an enemy case home), so it is
+			 * recorded only when chr holds the mode's token after the module
+			 * and did not before. */
+			const bool held = scenarioTokenHeldBy(owner, chr);
+			const s32 result = g_MpScenarios[owner].pickuptokenfunc(chr, prop);
+
+			if (!held && scenarioTokenHeldBy(owner, chr)) {
+				modeEventRecord(MODE_EVENT_TOKEN_PICKED_UP, chr->chrnum);
+			}
+			return result;
 		}
 	}
 

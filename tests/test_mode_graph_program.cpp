@@ -765,3 +765,72 @@ TEST_CASE("the simulants' mode commands run through the plan",
 	REQUIRE(modeRulesSeamEvent(MODE_SEAM_BOT_IDLE) == MISSION_GRAPH_EVENT_MODE_BOT_IDLE);
 	REQUIRE(missionGraphEventIsMode(MISSION_GRAPH_EVENT_MODE_BOT_COMMAND) == 1);
 }
+
+TEST_CASE("simulants charge, and a dropped cloak turns off, by the weapon program",
+	"[mode-graph][weapon-rules][held-weapon][static]")
+{
+	/* Core Weapons' held-weapon slices 4 and 5 (PR 31): this lane's bot.c and
+	 * the network drop handler read the plan where they read weapon numbers,
+	 * as bondgun.c's own charge and drop do. */
+	const std::string bot = readRepoFile("src/game/bot.c");
+	REQUIRE(bot.find("const s32 chargefunc = weaponWeaponCharge(aibot->weaponnum, &charge) - 1;")
+		!= std::string::npos);
+	REQUIRE(bot.find("&& aibot->loadedammo[i] >= weaponRulesChargeStepNeeds(&charge)) {")
+		!= std::string::npos);
+	REQUIRE(bot.find("aibot->maulercharge[i] += g_Vars.lvupdate60freal * (steps / (f32)charge.charge_time);")
+		!= std::string::npos);
+	REQUIRE(bot.find("weaponRulesSpendRounds(charge.charge_ammo, &aibot->loadedammo[i]);")
+		!= std::string::npos);
+	/* Every whole step a frame crosses is paid, and the level stops at the
+	 * last step paid (Core Weapons' N-1194, the player's loop). */
+	REQUIRE(bot.find("for (step = oldchargei; step < newchargei; step++) {") != std::string::npos);
+	REQUIRE(bot.find("aibot->maulercharge[i] = step;") != std::string::npos);
+	CHECK(bot.find("aibot->weaponnum == WEAPON_MAULER") == std::string::npos);
+	CHECK(bot.find("aibot->maulercharge[i] += g_Vars.lvupdate60freal * 0.05f;") == std::string::npos);
+
+	const std::string net = readRepoFile("port/src/net/netmsg.c");
+	REQUIRE(net.find("if (weaponCloakToggle(weaponnum, NULL, NULL)) {\n\t\tplayer->devicesactive &= ~DEVICE_CLOAKRCP120;")
+		!= std::string::npos);
+	CHECK(net.find("if (weaponnum == WEAPON_RCP120) {") == std::string::npos);
+
+	/* Review of PR 39: the shot of the function that charges carries the
+	 * simulant's charge and empties it, for any weapon whose program charges. */
+	const std::string chraction = readRepoFile("src/game/chraction.c");
+	REQUIRE(chraction.find("} else if (isaibot && weaponWeaponCharge(gset.weaponnum, NULL) == gset.weaponfunc + 1) {")
+		!= std::string::npos);
+	CHECK(chraction.find("gset.weaponnum == WEAPON_MAULER && isaibot") == std::string::npos);
+}
+
+TEST_CASE("a token pickup records only an acquisition, and refused mod modes leave the picker",
+	"[mode-graph][static]")
+{
+	const std::string scenarios = readRepoFile("src/game/mplayer/scenarios.c");
+
+	/* Review of PR 25: touching a token can do nothing or score, so the event
+	 * is recorded only when chr holds the mode's token after the module and
+	 * did not before. */
+	const size_t dispatch = scenarios.find("static s32 scenarioPlanPickUpToken(");
+	REQUIRE(dispatch != std::string::npos);
+	const size_t held = scenarios.find("const bool held = scenarioTokenHeldBy(owner, chr);", dispatch);
+	const size_t call = scenarios.find("const s32 result = g_MpScenarios[owner].pickuptokenfunc(chr, prop);", dispatch);
+	const size_t record = scenarios.find("if (!held && scenarioTokenHeldBy(owner, chr)) {", dispatch);
+	REQUIRE(held != std::string::npos);
+	REQUIRE(call != std::string::npos);
+	REQUIRE(record != std::string::npos);
+	REQUIRE(held < call);
+	REQUIRE(call < record);
+	REQUIRE(scenarios.find("return g_ScenarioData.htb.token == chr->prop;") != std::string::npos);
+	REQUIRE(scenarios.find("return g_ScenarioData.htm.uplink == chr->prop;") != std::string::npos);
+
+	/* B-1292 (review of PR 30): the selectors skip a mod mode whose activation
+	 * was refused before the binding check that stops the game; a base mode
+	 * without its binding still stops it. */
+	const size_t accepts = scenarios.find("static bool scenarioCtxAccepts(");
+	REQUIRE(accepts != std::string::npos);
+	const size_t skip = scenarios.find("if (scenarioEntryActivationRefused(e)) {", accepts);
+	const size_t bind = scenarios.find("binding = scenarioBindingForEntry(e);", accepts);
+	REQUIRE(skip != std::string::npos);
+	REQUIRE(bind != std::string::npos);
+	REQUIRE(skip < bind);
+	REQUIRE(scenarios.find("if (strncmp(e->id, \"base:\", 5) == 0) {\n\t\treturn false;") != std::string::npos);
+}
