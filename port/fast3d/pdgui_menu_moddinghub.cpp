@@ -1291,9 +1291,30 @@ static int weaponGraphScopeCount(void)
     return (int)(sizeof(s_WeaponGraphScopes) / sizeof(s_WeaponGraphScopes[0]));
 }
 
+/* held-weapon-events.md slice 8a: the creator's palette: the designer
+ * nodes of a function's program (weapon_graph_editor_io.cpp, the rule
+ * tables' kinds with their designer names), then the function records. */
+static const std::vector<WeaponGraphModuleDef> &weaponGraphPalette(void)
+{
+    static std::vector<WeaponGraphModuleDef> palette;
+    if (palette.empty()) {
+        for (s32 i = 0; i < weaponGraphDesignerNodeCount(); i++) {
+            const weapon_graph_designer_node_t *designer = weaponGraphDesignerNodeAt(i);
+            WeaponGraphModuleDef row = { designer->label, designer->kind, "{}", designer->group };
+            palette.push_back(row);
+        }
+        for (size_t i = 0; i < sizeof(s_WeaponGraphModules) / sizeof(s_WeaponGraphModules[0]); i++) {
+            WeaponGraphModuleDef row = s_WeaponGraphModules[i];
+            row.group = "Function record";
+            palette.push_back(row);
+        }
+    }
+    return palette;
+}
+
 static int weaponGraphModuleCount(void)
 {
-    return (int)(sizeof(s_WeaponGraphModules) / sizeof(s_WeaponGraphModules[0]));
+    return (int)weaponGraphPalette().size();
 }
 
 static int weaponGraphContextCount(void)
@@ -1660,15 +1681,18 @@ static bool weaponGraphBuilderAddModule(int moduleIndex, bool syncNow)
     node.pos_y = 48.0f + (float)((s_WeaponGraphNodeCount / 3) * 120);
     node.pos_valid = true;
     s_WeaponGraphModel.canvas_layout_seeded = false;
-    weaponGraphBuilderMakeNodeId(s_WeaponGraphModules[moduleIndex].kind,
-                                 node.id, sizeof(node.id));
-    strncpy(node.kind, s_WeaponGraphModules[moduleIndex].kind,
-            sizeof(node.kind) - 1);
+    const WeaponGraphModuleDef &module = weaponGraphPalette()[(size_t)moduleIndex];
+    weaponGraphBuilderMakeNodeId(module.kind, node.id, sizeof(node.id));
+    strncpy(node.kind, module.kind, sizeof(node.kind) - 1);
     strncpy(node.subgraph, weaponGraphBuilderScopeForIndex(s_WeaponGraphScopePick),
             sizeof(node.subgraph) - 1);
-    strncpy(node.params, s_WeaponGraphModules[moduleIndex].default_params,
-            sizeof(node.params) - 1);
-    weaponGraphBuilderApplyNodeMode(&node);
+    strncpy(node.params, module.default_params, sizeof(node.params) - 1);
+    /* slice 8a: a program node's settings are its own members, each left
+     * out until it is set (the function's own); only a record's params name
+     * their mode. */
+    if (!weaponGraphNodeIsProgram(node.kind)) {
+        weaponGraphBuilderApplyNodeMode(&node);
+    }
     if (s_WeaponGraphPrimaryExport < 0) {
         s_WeaponGraphPrimaryExport = s_WeaponGraphNodeCount;
     }
@@ -1683,7 +1707,7 @@ static int weaponGraphModuleIndexByKind(const char *kind)
 {
     if (!kind) return 0;
     for (int i = 0; i < weaponGraphModuleCount(); i++) {
-        if (strcmp(s_WeaponGraphModules[i].kind, kind) == 0) return i;
+        if (strcmp(weaponGraphPalette()[(size_t)i].kind, kind) == 0) return i;
     }
     return 0;
 }
@@ -1702,7 +1726,7 @@ static int weaponGraphBuilderAddModuleInScope(const char *kind,
     return addedIndex;
 }
 
-static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow);
+static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow, const char *port = NULL);
 
 static int weaponGraphBuilderAddTriggeredModuleInScope(const char *eventKind,
                                                        const char *actionKind,
@@ -1716,7 +1740,7 @@ static int weaponGraphBuilderAddTriggeredModuleInScope(const char *eventKind,
     return action;
 }
 
-static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow)
+static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow, const char *port)
 {
     if (from < 0 || from >= s_WeaponGraphNodeCount ||
             to < 0 || to >= s_WeaponGraphNodeCount) {
@@ -1743,6 +1767,17 @@ static void weaponGraphBuilderAddEdge(int from, int to, bool syncNow)
         s_WeaponGraphModel.next_editor_id++;
     s_WeaponGraphEdges[s_WeaponGraphEdgeCount].from = from;
     s_WeaponGraphEdges[s_WeaponGraphEdgeCount].to = to;
+    s_WeaponGraphEdges[s_WeaponGraphEdgeCount].output[0] = '\0';
+    s_WeaponGraphEdges[s_WeaponGraphEdgeCount].input[0] = '\0';
+    if (weaponGraphNodeIsProgram(s_WeaponGraphNodes[from].kind)) {
+        /* slice 8a: an execution edge of a function's program leaves by its
+         * port (a gate's pass or fail) into the next node's input. */
+        const char *out = port && port[0] ? port : weaponGraphNodeOutputName(s_WeaponGraphNodes[from].kind, 0);
+        snprintf(s_WeaponGraphEdges[s_WeaponGraphEdgeCount].output,
+                 sizeof(s_WeaponGraphEdges[s_WeaponGraphEdgeCount].output), "%s", out ? out : "out");
+        snprintf(s_WeaponGraphEdges[s_WeaponGraphEdgeCount].input,
+                 sizeof(s_WeaponGraphEdges[s_WeaponGraphEdgeCount].input), "exec");
+    }
     s_WeaponGraphEdgeCount++;
     if (syncNow) {
         weaponGraphBuilderSyncJson();
@@ -1830,7 +1865,12 @@ static void weaponGraphBuilderBreakPin(int nodeIndex, int pinKind)
         if (pinKind == 1) {
             remove = s_WeaponGraphEdges[i].to == nodeIndex;
         } else if (pinKind == 2) {
-            remove = s_WeaponGraphEdges[i].from == nodeIndex;
+            remove = s_WeaponGraphEdges[i].from == nodeIndex &&
+                strcmp(s_WeaponGraphEdges[i].output, "fail") != 0;
+        } else if (pinKind == 5) {
+            /* slice 8a: a gate's fail branch. */
+            remove = s_WeaponGraphEdges[i].from == nodeIndex &&
+                strcmp(s_WeaponGraphEdges[i].output, "fail") == 0;
         } else {
             remove = s_WeaponGraphEdges[i].from == nodeIndex ||
                 s_WeaponGraphEdges[i].to == nodeIndex;
@@ -1936,7 +1976,7 @@ static bool weaponGraphBuilderLoadEditModelFromJson(bool syncNow)
     char err[192];
     if (!pdguiWeaponGraphModelLoadJson(&s_WeaponGraphModel,
             s_WeaponEditGraph,
-            s_WeaponGraphModules,
+            weaponGraphPalette().data(),
             weaponGraphModuleCount(),
             s_WeaponGraphContextDefs,
             weaponGraphContextCount(),
@@ -1975,7 +2015,7 @@ static void weaponGraphBuilderApplyEditorResult(
             break;
         }
         case PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_EDGE:
-            weaponGraphBuilderAddEdge(result.a, result.b, false);
+            weaponGraphBuilderAddEdge(result.a, result.b, false, result.port);
             needsSync = true;
             break;
         case PD_WEAPON_GRAPH_EDITOR_ACTION_REMOVE_NODE:
@@ -3432,7 +3472,7 @@ static void weaponRenderGraphBuilder(const char *scopeFilter,
     memset(&desc, 0, sizeof(desc));
     desc.model = &s_WeaponGraphModel;
     desc.adapter = &s_WeaponGraphEditorAdapter;
-    desc.modules = s_WeaponGraphModules;
+    desc.modules = weaponGraphPalette().data();
     desc.module_count = weaponGraphModuleCount();
     desc.contexts = s_WeaponGraphContextDefs;
     desc.context_count = weaponGraphContextCount();

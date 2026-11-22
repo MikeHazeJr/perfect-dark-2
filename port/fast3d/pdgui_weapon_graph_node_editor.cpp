@@ -45,6 +45,7 @@ static PdGameplayGraphPinType pinTypeForWeaponPinKind(int pinKind)
 	switch (pinKind) {
 	case 1:
 	case 2:
+	case 5: /* slice 8a: a gate's fail output */
 		return PDGAMEPLAY_GRAPH_PIN_EXEC;
 	case 3:
 		return PDGAMEPLAY_GRAPH_PIN_NUMBER;
@@ -104,6 +105,21 @@ static ed::LinkId linkEditorId(const PdWeaponGraphEdgeEdit &edge)
 static ed::PinId nodePinId(const PdWeaponGraphNodeEdit &node, int pinKind)
 {
 	return ed::PinId((uintptr_t)(node.editor_id * 16 + pinKind));
+}
+
+/* held-weapon-events.md slice 8a: the output pin an edge leaves from (a
+ * gate's fail branch has a pin of its own), and the port an edge from a pin
+ * leaves by. */
+static int edgeStartPinKind(const PdWeaponGraphEdgeEdit &edge)
+{
+	return strcmp(edge.output, "fail") == 0 ? 5 : 2;
+}
+
+static void edgePortFor(const char *kind, int pinKind, char *out, size_t cap)
+{
+	const char *name = weaponGraphNodeOutputName(kind, pinKind == 5 ? 1 : 0);
+
+	snprintf(out, cap, "%s", name ? name : "");
 }
 
 static int editorIdFromPin(ed::PinId pin)
@@ -359,10 +375,15 @@ static void renderNode(PdWeaponGraphEditModel *model, int index)
 	ed::PushStyleColor(ed::StyleColor_NodeBorder, color);
 	ed::BeginNode(nodeEditorId(node));
 	ImGui::PushID(node.editor_id);
-	ImGui::TextUnformatted(node.id[0] ? node.id : node.kind);
+	/* held-weapon-events.md slice 8a: a program node shows its designer name
+	 * and its own ports: no input on an event, a gate's pass and fail. */
+	const weapon_graph_designer_node_t *designer = weaponGraphDesignerNodeFor(node.kind);
+	const bool takesExec = weaponGraphNodeTakesExec(node.kind) != 0;
+	const int outputs = weaponGraphNodeOutputCount(node.kind);
+	ImGui::TextUnformatted(designer ? designer->label : node.id[0] ? node.id : node.kind);
 	ImGui::SameLine();
 	ImGui::TextDisabled("[%s]", node.subgraph[0] ? node.subgraph : "primary");
-	ImGui::TextColored(color, "%s", node.kind);
+	ImGui::TextColored(color, "%s", designer ? node.id : node.kind);
 	if (ImGui::BeginTable("##exec_pin_row", 4,
 			ImGuiTableFlags_SizingStretchProp |
 			ImGuiTableFlags_NoPadOuterX |
@@ -374,23 +395,32 @@ static void renderNode(PdWeaponGraphEditModel *model, int index)
 		ImGui::TableSetupColumn("##out_label", ImGuiTableColumnFlags_WidthFixed, 38.0f);
 		ImGui::TableSetupColumn("##out_pin", ImGuiTableColumnFlags_WidthFixed,
 			kWeaponGraphPinSocketSize);
-		ImGui::TableNextRow();
-		ImGui::TableSetColumnIndex(0);
-		ed::BeginPin(nodePinId(node, 1), ed::PinKind::Input);
-		ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
-		renderPinSocket("##exec_in_pin", "Exec input: drag from another node's output to connect",
-			pinColor(1));
-		ed::EndPin();
-		ImGui::TableSetColumnIndex(1);
-		ImGui::TextColored(pinColor(1), "exec");
-		ImGui::TableSetColumnIndex(2);
-		ImGui::TextColored(pinColor(2), "exec");
-		ImGui::TableSetColumnIndex(3);
-		ed::BeginPin(nodePinId(node, 2), ed::PinKind::Output);
-		ed::PinPivotAlignment(ImVec2(1.0f, 0.5f));
-		renderPinSocket("##exec_out_pin", "Exec output: drag to another node's input to connect",
-			pinColor(2));
-		ed::EndPin();
+		for (int row = 0; row < (outputs > 1 ? outputs : 1); row++) {
+			ImGui::TableNextRow();
+			ImGui::PushID(row);
+			if (row == 0 && takesExec) {
+				ImGui::TableSetColumnIndex(0);
+				ed::BeginPin(nodePinId(node, 1), ed::PinKind::Input);
+				ed::PinPivotAlignment(ImVec2(0.0f, 0.5f));
+				renderPinSocket("##exec_in_pin", "Exec input: drag from another node's output to connect",
+					pinColor(1));
+				ed::EndPin();
+				ImGui::TableSetColumnIndex(1);
+				ImGui::TextColored(pinColor(1), "exec");
+			}
+			if (row < outputs) {
+				const char *port = weaponGraphNodeOutputName(node.kind, row);
+				ImGui::TableSetColumnIndex(2);
+				ImGui::TextColored(pinColor(2), "%s", port && port[0] ? port : "exec");
+				ImGui::TableSetColumnIndex(3);
+				ed::BeginPin(nodePinId(node, row == 0 ? 2 : 5), ed::PinKind::Output);
+				ed::PinPivotAlignment(ImVec2(1.0f, 0.5f));
+				renderPinSocket("##exec_out_pin", "Exec output: drag to another node's input to connect",
+					pinColor(2));
+				ed::EndPin();
+			}
+			ImGui::PopID();
+		}
 		ImGui::EndTable();
 	}
 	if (strstr(node.params, "context_refs")) {
@@ -414,11 +444,17 @@ static void renderPalette(const PdWeaponGraphEditorDesc *desc,
 	ImGui::SetNextItemWidth(-1.0f);
 	ImGui::InputText("##node_filter", model->add_filter, sizeof(model->add_filter));
 	ImGui::Separator();
+	const char *lastGroup = NULL;
 	for (int i = 0; i < desc->module_count; i++) {
 		const PdWeaponGraphModuleDef &module = desc->modules[i];
 		if (!stringContainsNoCase(module.label, model->add_filter) &&
 				!stringContainsNoCase(module.kind, model->add_filter)) {
 			continue;
+		}
+		if (module.group && (!lastGroup || strcmp(lastGroup, module.group) != 0)) {
+			/* slice 8a: the designer groups, then the function records. */
+			ImGui::TextDisabled("%s", module.group);
+			lastGroup = module.group;
 		}
 		ImVec4 color = categoryColor(module.kind);
 		ImGui::PushStyleColor(ImGuiCol_Text, color);
@@ -553,14 +589,27 @@ static void renderInspectorConnectControls(const PdWeaponGraphEditorDesc *desc,
 		}
 		ImGui::EndCombo();
 	}
+	/* slice 8a: a gate links by its pass or its fail branch. */
+	const char *fromKind = model->nodes[selected].kind;
+	if (weaponGraphNodeOutputCount(fromKind) > 1) {
+		static const char *const kBranches[] = { "pass", "fail" };
+		if (model->edge_port_pick < 0 || model->edge_port_pick > 1) model->edge_port_pick = 0;
+		ImGui::SetNextItemWidth(-1.0f);
+		ImGui::Combo("Branch", &model->edge_port_pick, kBranches, 2);
+	}
 	if (ImGui::Button("Connect Selected", ImVec2(-1.0f, 0.0f))) {
 		if (target < 0 || target >= model->node_count) {
 			editorSetStatus(result, false, "Choose a node to connect to");
 		} else if (edgeExists(model, selected, target)) {
 			editorSetStatus(result, false, "That graph link already exists");
+		} else if (weaponGraphNodeIsProgram(fromKind) != weaponGraphNodeIsProgram(model->nodes[target].kind)
+				|| !weaponGraphNodeTakesExec(model->nodes[target].kind)) {
+			editorSetStatus(result, false, "Program nodes link only to program nodes that take an input");
 		} else {
 			outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_EDGE,
 				selected, target);
+			edgePortFor(fromKind, weaponGraphNodeOutputCount(fromKind) > 1 && model->edge_port_pick == 1 ? 5 : 2,
+				result->port, sizeof(result->port));
 			editorSetStatus(result, true, "Graph link added");
 		}
 	}
@@ -817,7 +866,7 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 		const PdWeaponGraphEdgeEdit &edge = model->edges[i];
 		if (!edgeVisibleForScope(desc, model, edge)) continue;
 		ed::Link(linkEditorId(edge),
-			nodePinId(model->nodes[edge.from], 2),
+			nodePinId(model->nodes[edge.from], edgeStartPinKind(edge)),
 			nodePinId(model->nodes[edge.to], 1),
 			linkColorForPinKind(2), 4.0f);
 	}
@@ -838,11 +887,11 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 			int endKind = pinKindFromPin(endPin);
 			int fromNode = findNodeByEditorId(model, editorIdFromPin(startPin));
 			int toNode = findNodeByEditorId(model, editorIdFromPin(endPin));
-			if (startKind == 1 && endKind == 2) {
+			if (startKind == 1 && (endKind == 2 || endKind == 5)) {
 				std::swap(startKind, endKind);
 				std::swap(fromNode, toNode);
 			}
-			if (fromNode < 0 || toNode < 0 || startKind != 2 || endKind != 1 ||
+			if (fromNode < 0 || toNode < 0 || (startKind != 2 && startKind != 5) || endKind != 1 ||
 					!pdguiGameplayGraphPinsCompatible(
 						pinTypeForWeaponPinKind(startKind),
 						PDGAMEPLAY_GRAPH_PIN_OUTPUT,
@@ -860,9 +909,15 @@ static void renderCanvas(const PdWeaponGraphEditorDesc *desc,
 			} else if (edgeExists(model, fromNode, toNode)) {
 				ed::RejectNewItem(ImVec4(1.0f, 0.28f, 0.22f, 1.0f), 2.0f);
 				editorSetStatus(result, false, "That graph link already exists");
+			} else if (weaponGraphNodeIsProgram(model->nodes[fromNode].kind)
+					!= weaponGraphNodeIsProgram(model->nodes[toNode].kind)) {
+				/* slice 8a: a function's program and its record link apart. */
+				ed::RejectNewItem(ImVec4(1.0f, 0.28f, 0.22f, 1.0f), 2.0f);
+				editorSetStatus(result, false, "Program nodes link only to program nodes");
 			} else if (ed::AcceptNewItem(ImVec4(0.46f, 0.92f, 0.50f, 1.0f), 2.0f)) {
 				outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_ADD_EDGE,
 					fromNode, toNode);
+				edgePortFor(model->nodes[fromNode].kind, startKind, result->port, sizeof(result->port));
 				editorSetStatus(result, true, "Graph link added");
 			}
 		}

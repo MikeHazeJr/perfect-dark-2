@@ -683,3 +683,82 @@ extern "C" char *weaponGraphEditorCompose(const char *primary_json, const char *
         return nullptr;
     }
 }
+
+/* ---- held-weapon-events.md slice 8a: the designer nodes ---------------- */
+
+static const weapon_graph_designer_node_t s_WeaponGraphDesignerNodes[] = {
+    { "event.weapon.trigger_pressed", "On trigger pressed", "Events" },
+    { "event.weapon.ready_while_held", "On trigger held", "Events" },
+    { "event.weapon.trigger_released", "On trigger released", "Events" },
+    { "event.weapon.clip_empty", "On clip empty", "Events" },
+    { "event.weapon.reload_done", "On reload done", "Events" },
+    { "event.weapon.aiming", "While aiming", "Events" },
+    { "gate.weapon.has_ammo", "Has ammo", "Checks" },
+    { "gate.weapon.has_reserve", "Has reserve ammo", "Checks" },
+    { "gate.weapon.ready_to_fire", "Ready to fire", "Checks" },
+    { "gate.weapon.state_is", "State is", "Checks" },
+    { "og.weapon.fire_once", "Fire once", "Trigger" },
+    { "og.weapon.burst", "Burst", "Trigger" },
+    { "og.weapon.automatic", "Automatic", "Trigger" },
+    { "og.weapon.charge", "Charge then release", "Trigger" },
+    { "og.weapon.cook", "Hold to cook", "Trigger" },
+    { "og.weapon.use_ammo", "Use ammo", "Ammo" },
+    { "og.weapon.reload", "Reload", "Ammo" },
+    { "og.weapon.dry_fire", "Dry fire click", "Ammo" },
+    { "og.weapon.hitscan", "Hitscan shot", "Shot" },
+    { "og.weapon.beam", "Beam", "Shot" },
+    { "og.weapon.launch", "Launch projectile", "Shot" },
+    { "og.weapon.throw", "Throw", "Shot" },
+    { "og.weapon.melee", "Melee strike", "Shot" },
+    { "og.weapon.special", "Special action", "Shot" },
+    { "og.weapon.mode_toggle", "Mode toggle", "Shot" },
+    { "og.weapon.lock_on", "Lock-on", "Aim" },
+    { "og.weapon.recoil", "Recoil", "Feel" },
+    { "og.weapon.casing", "Casing", "Feel" },
+    { "og.weapon.muzzle_flash", "Muzzle flash", "Feel" },
+    { "og.weapon.shot_sound", "Shot sound", "Feel" },
+    { "og.weapon.play_animation", "Play animation", "Feel" },
+    { "og.weapon.set_state", "Set state", "State" },
+};
+
+extern "C" s32 weaponGraphDesignerNodeCount(void)
+{
+    return (s32)(sizeof(s_WeaponGraphDesignerNodes) / sizeof(s_WeaponGraphDesignerNodes[0]));
+}
+
+extern "C" const weapon_graph_designer_node_t *weaponGraphDesignerNodeAt(s32 index)
+{
+    return index >= 0 && index < weaponGraphDesignerNodeCount() ? &s_WeaponGraphDesignerNodes[index] : nullptr;
+}
+
+extern "C" const weapon_graph_designer_node_t *weaponGraphDesignerNodeFor(const char *kind)
+{
+    if (!kind) return nullptr;
+    for (s32 i = 0; i < weaponGraphDesignerNodeCount(); i++) {
+        if (std::strcmp(s_WeaponGraphDesignerNodes[i].kind, kind) == 0) return &s_WeaponGraphDesignerNodes[i];
+    }
+    return nullptr;
+}
+
+extern "C" s32 weaponGraphNodeIsProgram(const char *kind)
+{
+    return kind && isProgramKind(kind) ? 1 : 0;
+}
+
+extern "C" s32 weaponGraphNodeTakesExec(const char *kind)
+{
+    return !weaponGraphNodeIsProgram(kind) || std::strncmp(kind, "event.weapon.", 13) != 0 ? 1 : 0;
+}
+
+extern "C" s32 weaponGraphNodeOutputCount(const char *kind)
+{
+    return weaponGraphNodeIsProgram(kind) && std::strncmp(kind, "gate.weapon.", 12) == 0 ? 2 : 1;
+}
+
+extern "C" const char *weaponGraphNodeOutputName(const char *kind, s32 index)
+{
+    if (index < 0 || index >= weaponGraphNodeOutputCount(kind)) return nullptr;
+    if (!weaponGraphNodeIsProgram(kind)) return "";
+    if (std::strncmp(kind, "gate.weapon.", 12) == 0) return index == 0 ? "pass" : "fail";
+    return "out";
+}

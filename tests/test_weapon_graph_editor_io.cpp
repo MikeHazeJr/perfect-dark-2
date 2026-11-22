@@ -18,6 +18,7 @@ extern "C" {
 #include "modarchive.h"
 #include "modasset_json.h"
 #include "weapon_graph_runtime.h"
+#include "weapon_rules.h"
 }
 #include "../port/external/imgui-node-editor/crude_json.h"
 #include "modasset_gltf_document.h"
@@ -29,6 +30,7 @@ extern "C" {
 #include <fstream>
 #include <iterator>
 #include <memory>
+#include <set>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -988,4 +990,70 @@ TEST_CASE("weapon editor keeps a function's program through compose and split",
 		!= std::string::npos);
 	doc = charged("", "base:weapon_program"); // builds while selected, fired by the trigger
 	CHECK(weaponGraphValidateJson(ASSET_WEAPON, doc.data(), static_cast<u32>(doc.size()), err, sizeof(err)) == 0);
+}
+
+// held-weapon-events.md slice 8a: the creator's designer nodes are exactly
+// the program nodes the runtime runs, each with a designer name and group,
+// and each node has its own execution ports.
+TEST_CASE("the creator's designer nodes are the runtime's program nodes, with their ports",
+	"[weapon-graph][editor][held-weapon]")
+{
+	std::set<std::string> runtime;
+	for (s32 m = 0; m < WEAPON_MODULE_COUNT; m++) runtime.insert(weaponRulesModuleKind(1u << m));
+	for (s32 g = 0; g < WEAPON_GATE_COUNT; g++) runtime.insert(weaponRulesGateKind(WEAPON_RULE_GATE_HAS_AMMO << g));
+	for (s32 e = 0; weaponRulesEventAt(e) >= 0; e++) runtime.insert(weaponRulesEventName(weaponRulesEventAt(e)));
+	const std::set<std::string> groups = { "Events", "Checks", "Trigger", "Ammo", "Shot", "Aim", "Feel", "State" };
+	std::set<std::string> designer;
+	for (s32 i = 0; i < weaponGraphDesignerNodeCount(); i++) {
+		const weapon_graph_designer_node_t *node = weaponGraphDesignerNodeAt(i);
+		REQUIRE(node != nullptr);
+		INFO(node->kind);
+		CHECK(designer.insert(node->kind).second);
+		CHECK(node->label[0] != '\0');
+		CHECK(groups.count(node->group) == 1);
+		CHECK(weaponGraphDesignerNodeFor(node->kind) == node);
+		CHECK(weaponGraphNodeIsProgram(node->kind) == 1);
+	}
+	CHECK(designer == runtime);
+	CHECK(weaponGraphDesignerNodeAt(weaponGraphDesignerNodeCount()) == nullptr);
+	CHECK(weaponGraphDesignerNodeAt(-1) == nullptr);
+	CHECK(weaponGraphDesignerNodeFor("fire.hitscan") == nullptr);
+	CHECK(weaponGraphDesignerNodeFor(nullptr) == nullptr);
+	CHECK(std::string(weaponGraphDesignerNodeFor("og.weapon.automatic")->label) == "Automatic");
+	CHECK(std::string(weaponGraphDesignerNodeFor("og.weapon.automatic")->group) == "Trigger");
+
+	// An event has no input; a gate leaves by pass or fail; a module by out;
+	// a record node keeps its one unnamed link.
+	CHECK(weaponGraphNodeTakesExec("event.weapon.trigger_pressed") == 0);
+	CHECK(weaponGraphNodeOutputCount("event.weapon.trigger_pressed") == 1);
+	CHECK(std::string(weaponGraphNodeOutputName("event.weapon.trigger_pressed", 0)) == "out");
+	CHECK(weaponGraphNodeTakesExec("gate.weapon.has_ammo") == 1);
+	CHECK(weaponGraphNodeOutputCount("gate.weapon.has_ammo") == 2);
+	CHECK(std::string(weaponGraphNodeOutputName("gate.weapon.has_ammo", 0)) == "pass");
+	CHECK(std::string(weaponGraphNodeOutputName("gate.weapon.has_ammo", 1)) == "fail");
+	CHECK(weaponGraphNodeOutputName("gate.weapon.has_ammo", 2) == nullptr);
+	CHECK(weaponGraphNodeTakesExec("og.weapon.automatic") == 1);
+	CHECK(weaponGraphNodeOutputCount("og.weapon.automatic") == 1);
+	CHECK(std::string(weaponGraphNodeOutputName("og.weapon.automatic", 0)) == "out");
+	CHECK(weaponGraphNodeIsProgram("fire.hitscan") == 0);
+	CHECK(weaponGraphNodeTakesExec("fire.hitscan") == 1);
+	CHECK(weaponGraphNodeOutputCount("fire.hitscan") == 1);
+	CHECK(std::string(weaponGraphNodeOutputName("fire.hitscan", 0)).empty());
+	CHECK(weaponGraphNodeOutputName("fire.hitscan", -1) == nullptr);
+
+	// The canvas draws each node's own ports and links a gate's branches
+	// apart; the hub lists the designer nodes first and keeps the port of a
+	// link it adds.
+	const std::string canvas = ioReadFile(fs::path(PD_SOURCE_DIR) / "port/fast3d/pdgui_weapon_graph_node_editor.cpp");
+	REQUIRE(canvas.find("ed::BeginPin(nodePinId(node, row == 0 ? 2 : 5), ed::PinKind::Output);") != std::string::npos);
+	REQUIRE(canvas.find("if (row == 0 && takesExec) {") != std::string::npos);
+	REQUIRE(canvas.find("nodePinId(model->nodes[edge.from], edgeStartPinKind(edge)),") != std::string::npos);
+	REQUIRE(canvas.find("edgePortFor(model->nodes[fromNode].kind, startKind, result->port, sizeof(result->port));")
+		!= std::string::npos);
+	REQUIRE(canvas.find("\"Program nodes link only to program nodes\"") != std::string::npos);
+	const std::string hub = ioReadFile(fs::path(PD_SOURCE_DIR) / "port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(hub.find("desc.modules = weaponGraphPalette().data();") != std::string::npos);
+	REQUIRE(hub.find("weaponGraphBuilderAddEdge(result.a, result.b, false, result.port);") != std::string::npos);
+	REQUIRE(hub.find("row.group = \"Function record\";") != std::string::npos);
+	CHECK(hub.find("desc.modules = s_WeaponGraphModules;") == std::string::npos);
 }

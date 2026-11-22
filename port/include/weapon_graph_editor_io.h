@@ -68,6 +68,35 @@ char *weaponGraphEditorCompose(const char *primary_json, const char *secondary_j
 		const char *shared_context_json, const char *asset_id,
 		char *err, size_t err_cap);
 
+/*
+ * held-weapon-events.md slice 8a: the creator's designer nodes. Every node a
+ * function's program can hold (weapon_rules.h: the weapon events, the gates
+ * and the modules), in palette order, with the name and the group a designer
+ * sees it under. A record node (a function's own, `fire.hitscan`) is none of
+ * these.
+ */
+typedef struct weapon_graph_designer_node {
+	const char *kind;   /* "og.weapon.automatic" */
+	const char *label;  /* "Automatic" */
+	const char *group;  /* "Events", "Checks", "Trigger", "Ammo", "Shot", "Aim", "Feel" or "State" */
+} weapon_graph_designer_node_t;
+
+s32 weaponGraphDesignerNodeCount(void);
+const weapon_graph_designer_node_t *weaponGraphDesignerNodeAt(s32 index);
+/* NULL when the kind is not a program node. */
+const weapon_graph_designer_node_t *weaponGraphDesignerNodeFor(const char *kind);
+
+/*
+ * A node's execution ports. A program node other than an event takes an
+ * execution input, and its outputs are "out", a gate's "pass" and "fail". A
+ * record node keeps the one unnamed input and output of its record links.
+ */
+s32 weaponGraphNodeIsProgram(const char *kind);
+s32 weaponGraphNodeTakesExec(const char *kind);
+s32 weaponGraphNodeOutputCount(const char *kind);
+/* The output's port: "" for a record node's; NULL past the last. */
+const char *weaponGraphNodeOutputName(const char *kind, s32 index);
+
 #ifdef __cplusplus
 }
 
