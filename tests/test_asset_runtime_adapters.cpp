@@ -1988,6 +1988,61 @@ static int admitGraphVehicle(const char *dirName, const std::string &behavior,
 	return ok;
 }
 
+/* B-1313: a vehicle nested in a mod package (the bundled Maian Hover ships
+ * as mod.vehicle_maian_hover.pdmod with its .pdvehicle inside) finds its
+ * behavior/variables.json in its own archive, beside its behavior graph, and
+ * not at the package's root. The test build reads "a::b" as the folder a/b. */
+TEST_CASE("Vehicle graph v1: a vehicle nested in a mod package finds its variables (B-1313)",
+          "[modding][pdxxx][runtime][vehicle-graph]") {
+	const auto writeText = [](const std::filesystem::path &file, const std::string &text) {
+		std::filesystem::create_directories(file.parent_path());
+		std::ofstream out(file, std::ios::binary);
+		out << text;
+	};
+	TempRuntimeDir dir("pd2_vehicle_nested_variables");
+	const std::filesystem::path pack = std::filesystem::temp_directory_path() / "pd2_vehicle_nested_variables"
+		/ "mod.vehicle_nested.pdmod";
+	const std::filesystem::path vehicle = pack / "vehicle_nested.pdvehicle";
+	const std::filesystem::path mesh = vehicle / "dependencies" / "assets" / "models" / "hover.pdmesh";
+	writeText(vehicle / "behavior.graph.json", adapterGraph());
+	writeText(vehicle / "behavior" / "variables.json", adapterVariables());
+	writeText(mesh / "model.nodes.json",
+		"{\"schema\":\"pd2.mesh.nodes.v1\",\"nodes\":[{\"id\":0,\"type\":2},{\"id\":1,\"type\":18}]}");
+	writeText(mesh / "model.parts.json",
+		"{\"schema\":\"pd2.mesh.parts.v1\",\"parts\":[{\"partnum\":5,\"node\":0},{\"partnum\":140,\"node\":1}]}");
+	const std::string packPath = pack.generic_string();
+	const std::string model = packPath + "::vehicle_nested.pdvehicle::dependencies/assets/models/hover.pdmesh";
+	const std::string behavior = packPath + "::vehicle_nested.pdvehicle::behavior.graph.json";
+
+	char path[1024] = { 0 };
+	REQUIRE(assetRuntimeVehicleVariablesPath(model.c_str(), behavior.c_str(), path, sizeof(path)) == 1);
+	CHECK(std::string(path) == packPath + "::vehicle_nested.pdvehicle::behavior/variables.json");
+	char err[320] = { 0 };
+	assetRuntimeReset();
+	CHECK(assetRuntimeVehicleGraphAdmits(model.c_str(), behavior.c_str(), "mod:vehicle_boosted", err,
+		sizeof(err)) == 1);
+	INFO(err);
+	CHECK(std::string(err).empty());
+
+	// Without its variables, a graph that names one is refused by the
+	// variable's name, as the candidate's log showed.
+	std::filesystem::remove(vehicle / "behavior" / "variables.json");
+	CHECK(assetRuntimeVehicleGraphAdmits(model.c_str(), behavior.c_str(), "mod:vehicle_boosted", err,
+		sizeof(err)) == 0);
+	CHECK(std::string(err).find("uses unknown variable '$boost_speed'") != std::string::npos);
+
+	// A bare graph member keeps the model's sibling rule (the unpacked layout),
+	// and a single archive's member path its own archive.
+	REQUIRE(assetRuntimeVehicleVariablesPath("dir/model.gltf", "behavior.graph.json", path, sizeof(path)) == 1);
+	CHECK(std::string(path) == "dir/behavior/variables.json");
+	REQUIRE(assetRuntimeVehicleVariablesPath("v.pdvehicle::dependencies/assets/models/m.pdmesh",
+		"v.pdvehicle::behavior.graph.json", path, sizeof(path)) == 1);
+	CHECK(std::string(path) == "v.pdvehicle::behavior/variables.json");
+	char tiny[8];
+	CHECK(assetRuntimeVehicleVariablesPath(model.c_str(), behavior.c_str(), tiny, sizeof(tiny)) == 0);
+	assetRuntimeReset();
+}
+
 TEST_CASE("Vehicle graph v1: the behavior graph compiles when the catalog hydrates the vehicle",
           "[modding][pdxxx][runtime][vehicle-graph]") {
 	SECTION("a v2 behavior is retired: refused, with the reason") {

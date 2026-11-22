@@ -45,7 +45,8 @@ param(
     [switch]$DryRun,
     [switch]$Prerelease,
     [switch]$SkipBuild,   # Skip cmake reconfigure+build (caller already built; artifacts must exist in Build/)
-    [switch]$ForceCommitNoVerify  # If commit hooks fail, retry commit with --no-verify
+    [switch]$ForceCommitNoVerify,  # If commit hooks fail, retry commit with --no-verify
+    [switch]$KeepOldReleases  # Step 6 deletes no older Dev release (its rolling window is skipped)
 )
 
 $ErrorActionPreference = "Stop"
@@ -1407,12 +1408,13 @@ Write-Host ""
 Write-Host "[6/8] Pruning old Dev releases..." -ForegroundColor Yellow
 
 $DevReleaseKeep = 10
-$shouldPrune = $Prerelease -and -not $SkipPush -and -not $DryRun -and $hasGh -and ($script:ReleasePublishOk -eq $true)
+$shouldPrune = $Prerelease -and -not $SkipPush -and -not $DryRun -and -not $KeepOldReleases -and $hasGh -and ($script:ReleasePublishOk -eq $true)
 
 if (-not $shouldPrune) {
     $reason = "skipped"
     if     (-not $Prerelease)                              { $reason = "stable release -- pruning skipped" }
     elseif ($DryRun)                                       { $reason = "[DRY RUN]" }
+    elseif ($KeepOldReleases)                              { $reason = "-KeepOldReleases: older Dev releases kept" }
     elseif ($SkipPush)                                     { $reason = "push skipped" }
     elseif (-not $hasGh)                                   { $reason = "gh CLI not found" }
     elseif (-not ($script:ReleasePublishOk -eq $true))     { $reason = "release publish failed -- leaving prior Dev releases alone" }

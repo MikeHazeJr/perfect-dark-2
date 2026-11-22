@@ -286,6 +286,29 @@ static s32 s_fontSourceComplete(const asset_runtime_binding_t *binding)
     return 1;
 }
 
+#ifdef PD_TESTS
+/* B-1313: the test build reads an archive member path ("a::b", "a::b::c")
+ * as the folder path a/b/c, so tests can lay nested archives out as
+ * folders; the game reads real archives (fsFileLoad). 0 when it does not
+ * fit. */
+static s32 s_testPathFor(const char *path, char *out, size_t cap)
+{
+    size_t n = 0;
+
+    for (const char *p = path; *p; p++) {
+        if (n + 1 >= cap) return 0;
+        if (p[0] == ':' && p[1] == ':') {
+            out[n++] = '/';
+            p++;
+        } else {
+            out[n++] = *p;
+        }
+    }
+    out[n] = '\0';
+    return 1;
+}
+#endif
+
 static s32 s_primaryFileSize(const char *path)
 {
     if (!path || !path[0]) {
@@ -294,7 +317,8 @@ static s32 s_primaryFileSize(const char *path)
 #ifdef PD_TESTS
     {
         struct stat st;
-        if (stat(path, &st) != 0) {
+        char local[FS_MAXPATH];
+        if (!s_testPathFor(path, local, sizeof(local)) || stat(local, &st) != 0) {
             return -1;
         }
         return (s32)st.st_size;
@@ -319,7 +343,11 @@ static void *s_primaryFileLoad(const char *path, u32 *out_size)
         return NULL;
     }
 
-    f = fopen(path, "rb");
+    {
+        char local[FS_MAXPATH];
+
+        f = s_testPathFor(path, local, sizeof(local)) ? fopen(local, "rb") : NULL;
+    }
     if (!f) {
         return NULL;
     }
@@ -1410,20 +1438,47 @@ static vehicle_model_parts_t *s_loadVehicleModelParts(const char *model_path,
     return parts;
 }
 
+/* B-1313: a vehicle's behavior/variables.json is a member of the archive its
+ * behavior graph is in (asset_runtime.h). */
+s32 assetRuntimeVehicleVariablesPath(const char *model_path, const char *behavior_path,
+                                     char *out, size_t out_cap)
+{
+    static const char member[] = "behavior/variables.json";
+    const char *last = NULL;
+    size_t prefix;
+
+    if (!out || out_cap == 0) return 0;
+    out[0] = '\0';
+    for (const char *p = behavior_path ? strstr(behavior_path, "::") : NULL; p; p = strstr(p + 2, "::")) {
+        last = p;
+    }
+    if (!last) {
+        return s_sourceMemberPath(model_path, member, out, out_cap);
+    }
+    prefix = (size_t)(last - behavior_path) + 2;
+    if (prefix + sizeof(member) > out_cap) return 0;
+    memcpy(out, behavior_path, prefix);
+    memcpy(out + prefix, member, sizeof(member));
+    return 1;
+}
+
 /*
  * Compiles a vehicle's pd.vehicle_graph.v1 graph with its
  * behavior/variables.json, and checks the parts it shows and hides against
  * the model's part tables (CORE's rule: a part the model does not have, or
  * one that is not a toggle, refuses the graph here, when the catalog registers
  * the vehicle, not when the vehicle is first used). model_path is the
- * vehicle's model as the catalog holds it. NULL with the reason when refused.
+ * vehicle's model as the catalog holds it, behavior_path its behavior graph's
+ * (B-1313: the variables are found beside it). NULL with the reason when
+ * refused; a graph that names a "$variable" with no variables file is refused
+ * by the variable's name.
  */
 static vehicle_graph_program_t *s_compileVehicleGraph(const char *model_path,
+                                                      const char *behavior_path,
                                                       const char *catalog_id,
                                                       const char *graph, u32 graph_size,
                                                       char *err, size_t err_cap)
 {
-    static const char member[] = "behavior/variables.json";
     char path[FS_MAXPATH];
     char parts_err[160];
     char *variables = NULL;
@@ -1432,9 +1487,16 @@ static vehicle_graph_program_t *s_compileVehicleGraph(const char *model_path,
     vehicle_graph_program_t *program;
 
     if (err && err_cap) err[0] = '\0';
-    if (s_sourceMemberPath(model_path, member, path, sizeof(path)) &&
+    if (assetRuntimeVehicleVariablesPath(model_path, behavior_path, path, sizeof(path)) &&
             s_primaryFileSize(path) >= 0) {
-        variables = s_loadVehicleMember(model_path, member, &variables_size);
+        void *bytes = s_primaryFileLoad(path, &variables_size);
+
+        variables = bytes ? (char *)malloc((size_t)variables_size + 1u) : NULL;
+        if (variables) {
+            if (variables_size) memcpy(variables, bytes, variables_size);
+            variables[variables_size] = '\0';
+        }
+        free(bytes);
         if (!variables) {
             if (err && err_cap) snprintf(err, err_cap, "behavior/variables.json could not be read");
             return NULL;
@@ -1474,7 +1536,7 @@ s32 assetRuntimeVehicleGraphAdmits(const char *model_path, const char *behavior_
         free(graph);
         return 1; /* a v2 behavior file is not a graph */
     }
-    program = s_compileVehicleGraph(model_path, catalog_id, graph, graph_size, err, err_cap);
+    program = s_compileVehicleGraph(model_path, behavior_member, catalog_id, graph, graph_size, err, err_cap);
     free(graph);
     if (!program) {
         if (err && err_cap && !err[0]) snprintf(err, err_cap, "vehicle graph refused");
@@ -1489,7 +1551,7 @@ static s32 s_hydrateVehicleGraph(asset_runtime_binding_t *binding,
 {
     char err[320];
 
-    binding->vehicle_graph = s_compileVehicleGraph(binding->primary_path, binding->id,
+    binding->vehicle_graph = s_compileVehicleGraph(binding->primary_path, binding->dependency_b, binding->id,
         graph, graph_size, err, sizeof(err));
     if (!binding->vehicle_graph) {
         return s_refuseVehicleAs(binding, 1, err[0] ? err : "vehicle graph refused");

@@ -1,5 +1,35 @@
 # Bug Tracker
 
+## 2026-11-22 B-1313 A vehicle nested in a mod package looked for its behavior/variables.json at the package's root, so the bundled Maian Hover was refused (T-MODDING-011, fixed on week-pd/core-weapons-b1313, found in Integration's finalization run on candidate 3b)
+
+On candidate 3b `authored_bundled_first_run_smoke` saw the bundled Maian Hover refused at catalog admission:
+`PDVEHICLE.MODEL.REJECT ... source=...mods/bundled/mod.vehicle_maian_hover.pdmod::vehicle_maian_hover.pdvehicle
+error=behavior graph refused: node 'boost' (og.vehicle.boost_heat) param 'boost_speed' uses unknown variable
+'$boost_speed'`, then the package's transactional admission failed. The archive does carry
+`behavior/variables.json` with `boost_speed` (MP-RULES read the code; Integration's receipt
+`20261122T145159702291Z-authored_bundled_first_run_smoke-3546f99f`).
+
+Cause: `s_compileVehicleGraph` (`port/src/asset_runtime.c`) built the variables' path from the vehicle's MODEL path
+through `s_sourceMemberPath`, which takes everything before the FIRST "::". The bundled samples ship as `.pdmod`
+packages (PR 33), so the vehicle's members sit two archives deep (`pack.pdmod::vehicle.pdvehicle::...`) and the
+lookup named `pack.pdmod::behavior/variables.json`, which does not exist; it then compiled silently with no
+variables. The behavior graph itself loaded, from the catalog row's own full `::` path. Admission and the hydrate
+step both compiled this way. A vehicle archive that is itself the root (dev-mods, the vehicle smokes) has one "::",
+which is why nothing caught it, and `tests/test_maian_hover_vehicle.cpp` hands the variables to the compiler
+directly.
+
+Fix: the variables are the behavior graph's archive's member: the graph's path up to its LAST "::", plus
+`behavior/variables.json` (`assetRuntimeVehicleVariablesPath`); a bare graph member keeps the old sibling-of-the-
+model rule. Admission passes its behavior path and the hydrate step its `dependency_b`. A graph that names a
+`$variable` with no variables file is still refused by the variable's name. The test build now reads an archive
+member path `a::b` as the folder `a/b`, so pd-tests admit the bundled layout through `assetRuntimeVehicleGraphAdmits`
+(`tests/test_asset_runtime_adapters.cpp`, B-1313 case).
+
+Propagation: `s_sourceMemberPath`'s first-"::" rule is the class (a nested archive's sibling member resolved in the
+outermost archive). Its other users take full `::` member paths from the catalog row (the vehicle's physics and
+behavior files, part tables read inside the `.pdmesh` itself), so only the variables lookup was hit; a nested
+package's relative sibling members would be, if any appear.
+
 ## 2026-11-22 B-1310 D-052's four ledge and tabletop smokes cannot pass as written (T-ENGINE-006, open, found in Integration's finalization run R3)
 
 The four fixtures landed with D-052 (386a9389) never ran; their first admission was refused for disk space. On
@@ -46,7 +76,53 @@ timed out at 420 s, and the end-screen wait never started. The hosted twin passe
 does not sit through that intro.
 
 Fix (fixture only): `--debug-end-mission 100:complete`, which leaves about 36 s of play after an unskipped intro
-and also works if the assist does skip it. Not yet rerun.
+and also works if the assist does skip it. Rerun R8 (candidate 3, checkout 11cb964d) failed the same way, for the
+reason in B-1312: the timing was only half of it.
+
+## 2026-11-22 B-1312 A co-op mission started from the solo Room ran under the Room's menu input layer when the Room owned it (T-MENUS-009, T-NETWORKING-007, fixed on week-pd/mp-rules-b1312, found in Integration's finalization run R8)
+
+In R8 (candidate 3), with B-1311's fixture in place, Defection's intro ended at 84.3 s, the buddy spawned and the
+mission ended at 100 s to its results. Still, `offline_gameplay_ready` began its stability window only once, in
+CI before the Room opened. INPUTCTX shows why:
+- `gameplay` was at depth 1. At 16.97 the offline Room pushed `imgui_menu` at depth 2
+  (`MENUPOOL: acquired room ... ctx=imgui_menu(owned)`) and the mouse went to absolute mode.
+- Nothing popped it until the end screen took the slot at 02:00.33 ("marked for deferred removal", then "restored
+  relative mode for gameplay"). There was no input reset at the stage change.
+- The readiness wait needs the gameplay layer on top, so it could not hold.
+
+Cause: the offline Campaign start, `pdguiRoomStartOfflineCoop` (`pdgui_bridge.c`), was the one gameplay start that
+released no menu-pool slot. The Room's Combat Simulator start goes through `mpStartMatch`, which releases the whole
+pool before it asks for its stage (B-1076). The end screen's Retry and Next Mission release it after the same
+`menuhandlerAcceptMission` call, and Solo Missions pops `imgui_menu` itself. Both solo Room starts then called
+`pdguiSoloRoomClose()`, which only clears the Room's flags; Leave releases `MENU_TYPE_ROOM` first. A Room opened without
+the Main Menu's push (B-1278's `--launch-offline-room`) owns the layer. Its slot is PC-only
+(`menupoolLegacyStackOptional`), so the per-frame watchdog that reclaims leaked legacy-stack slots skips it. Same class
+as B-1042, which fixed the listen host's lobby only.
+
+Fix: `pdguiRoomStartOfflineCoop` releases every menu-pool slot after the mission start
+(`SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL`, "room offline coop"), as the end screen's starts do. It first checks the
+stage archive repair status, as Solo Missions does: a stage not yet repaired returns -4 and the Room stays open, so the
+pool is never released without a stage request (before this, the Room closed with no mission started). Both solo Room
+starts also release `MENU_TYPE_ROOM` before `pdguiSoloRoomClose()`, as Leave does, so the Room never closes holding its
+slot. The release is idempotent, and a shared slot does not pop. Propagation: every caller of `pdguiSoloRoomClose()`
+releases first. Networked starts release at the lobby state boundary (B-1042) and in
+`netServerPrepareInClientStageTransition` (B-1076). Tests: `[b1312]` in `tests/test_net_mission_end_static.cpp`. Not yet
+seen with a human in normal play; the rerun is `coop_ai_buddies_offline_smoke` on candidate 4.
+
+Severity: high in play. This is from code, not a run:
+- Which starts. The layer stays only when the Room owns it. That happens on a co-op start from a Room the player came
+  back to from a Combat Simulator match's results. The CI reload pushes the legacy Combat Simulator dialog, which
+  attaches no input context, so the Room is first to claim `imgui_menu`. On a first visit from the Main Menu, the
+  Main Menu owns the layer. `menuReset` at the stage load empties the legacy stack, and the first `menuTick`'s watchdog
+  frees the Main Menu's slot, so that start recovers within a frame.
+- What the player sees. Every gameplay control is dead for the whole mission, on keyboard, mouse and pad, and the
+  mouse cursor is free (`gameplayInputSuppressed`; the gameplay input maps are ignored).
+- Ways out. A controller's Start still pauses: it is bound in the menu map too, and the pause menu's
+  `menuPushRootDialog` releases every slot, so Resume recovers. Keyboard Esc does not pause: Esc is bound to pause only
+  in the gameplay map, so keyboard and mouse players stay stuck until the mission ends.
+
+Combat Simulator starts were never affected. Integration carries this to Mike for v0.1.106's notes (candidate 3 ships
+without the fix).
 
 ## 2026-11-22 B-1309 `release.ps1` would commit Codex's memory from a fresh clone of this public repository (T-RELEASE-006, open: Mike's decision)
 
