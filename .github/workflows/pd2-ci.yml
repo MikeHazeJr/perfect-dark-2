@@ -76,6 +76,9 @@ jobs:
       - name: Check smoke fixture isolation
         run: python -B tools/tests/test_smoke_fixture_isolation.py -v
 
+      - name: Check PowerShell never opens a file by its type (B-1283, SP-100)
+        run: python -B tools/tests/test_powershell_open_by_type.py -v
+
       - name: Check isolated smoke storage contracts
         # Match the native Windows interpreter required by Storage-Harness.ps1.
         shell: pwsh
