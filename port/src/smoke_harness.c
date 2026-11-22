@@ -142,8 +142,9 @@
  *        each frame's look input (bmoveTick). Logs SMOKE.AIM begin (los, the
  *        eye and the point), override, lost and end (held_ms, on_target_ms:
  *        the time the look picker, which the lock takes from, chose it).
- *        An override is any change of the view between two aim frames,
- *        whatever made it: look input, or the game's own (Look Ahead
+ *        An override is look input the aim cleared (the turn and pitch
+ *        speeds, which it zeroes while it holds) or any other change of the
+ *        view between two aim frames (the game's own, such as Look Ahead
  *        re-centring the pitch while walking, which aim mode turns off). A
  *        smoke that forbids overrides keeps player 0 still or aiming.
  *
@@ -682,22 +683,36 @@ void smokeHarnessAimApply(void)
         smokeAimEnd("lost");
         return;
     }
-    /* Integration's point 4: the view moved since the aim set it, and the
-     * aim wins; the first time is logged. What moved it is not told apart:
-     * this frame's look input, or the game's own view change (Look Ahead
-     * re-centring the pitch while walking, off in aim mode). */
-    if (s_SmokeAim.frames > 0) {
-        const f32 dtheta = player->vv_theta - s_SmokeAim.theta;
-        const f32 dverta = player->vv_verta - s_SmokeAim.verta;
+    /* Integration's point 4 (and Codex on PR 56): the aim wins over the
+     * frame's look input. bmoveProcessInput has added the pitch it read
+     * (speedverta) and leaves the turn in speedtheta, which bwalkUpdateTheta
+     * adds after this call, so both speeds are cleared below while the aim
+     * holds; a nonzero one is look input. A view that moved between two aim
+     * frames is an override too, whatever moved it (the game's own view
+     * changes, such as Look Ahead re-centring the pitch while walking, off in
+     * aim mode). The first override is logged. */
+    {
+        const s32 input = player->speedtheta != 0.0f || player->speedverta != 0.0f;
+        s32 moved = 0;
 
-        if (dtheta > 0.01f || dtheta < -0.01f || dverta > 0.01f || dverta < -0.01f) {
+        if (s_SmokeAim.frames > 0) {
+            const f32 dtheta = player->vv_theta - s_SmokeAim.theta;
+            const f32 dverta = player->vv_verta - s_SmokeAim.verta;
+
+            moved = dtheta > 0.01f || dtheta < -0.01f || dverta > 0.01f || dverta < -0.01f;
+        }
+        if (input || moved) {
             if (s_SmokeAim.overrides == 0) {
                 sysLogPrintf(LOG_NOTE,
-                    "SMOKE.AIM: override input theta=%.2f verta=%.2f aim theta=%.2f verta=%.2f at_ms=%d",
-                    player->vv_theta, player->vv_verta, s_SmokeAim.theta, s_SmokeAim.verta, s_SmokeAimNowMs);
+                    "SMOKE.AIM: override input=%d speedtheta=%.3f speedverta=%.3f theta=%.2f verta=%.2f "
+                    "aim_theta=%.2f aim_verta=%.2f at_ms=%d",
+                    input, player->speedtheta, player->speedverta, player->vv_theta, player->vv_verta,
+                    s_SmokeAim.theta, s_SmokeAim.verta, s_SmokeAimNowMs);
             }
             s_SmokeAim.overrides++;
         }
+        player->speedtheta = 0.0f;
+        player->speedverta = 0.0f;
     }
     smokeAimEye(player, &eye);
     smokeAimPoint(s_SmokeAim.prop, &point);

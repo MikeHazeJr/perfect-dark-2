@@ -1786,7 +1786,10 @@ TEST_CASE("aim_at holds player 0's view on its target after the look input",
     requireContains(apply, "if (!s_SmokeAim.active || g_Vars.currentplayernum != 0 || player == NULL || player->prop == NULL\n"
         "            || player->bondmovemode == MOVEMODE_CUTSCENE) {");
     requireContains(apply, "\"SMOKE.AIM: lost target=%s slot=%d chrnum=%d pad=%d at_ms=%d\"");
-    requireContains(apply, "\"SMOKE.AIM: override input theta=%.2f verta=%.2f aim theta=%.2f verta=%.2f at_ms=%d\"");
+    requireContains(apply, "\"SMOKE.AIM: override input=%d speedtheta=%.3f speedverta=%.3f theta=%.2f verta=%.2f \"");
+    // Codex on PR 56: bwalkUpdateTheta adds speedtheta after the hook, so the
+    // aim clears the look speeds while it holds.
+    requireContains(apply, "        player->speedtheta = 0.0f;\n        player->speedverta = 0.0f;\n");
     requireContains(harness, "player->lookingatprop.prop == s_SmokeAim.prop");
     requireContains(harness, "\"SMOKE.AIM: begin target=%s slot=%d chrnum=%d pad=%d dist=%.0f los=%d \"");
     requireContains(harness, "CDTYPE_BG, GEOFLAG_BLOCK_SIGHT) ? 1 : 0;");
