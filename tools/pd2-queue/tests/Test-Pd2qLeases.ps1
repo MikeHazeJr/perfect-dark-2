@@ -50,6 +50,8 @@ try {
     [IO.Directory]::CreateDirectory((Join-Path $dev 'src')) | Out-Null
     [IO.File]::WriteAllText((Join-Path $dev 'src\a.c'), "int a(void) { return 1; }`n")
     [IO.File]::WriteAllText((Join-Path $dev 'README.md'), "dev`n")
+    [IO.Directory]::CreateDirectory((Join-Path $dev 'docs')) | Out-Null
+    [IO.File]::WriteAllText((Join-Path $dev 'docs\Dev Window.txt'), "a tracked name with a space, like devtools/Dev Window.bat`n")
     & $git -C $dev init -q -b dev; & $git -C $dev config user.name t; & $git -C $dev config user.email t@t; & $git -C $dev config core.autocrlf false
     & $git -C $dev add -A; & $git -C $dev commit -q -m base
     $start = [datetime]::UtcNow
@@ -172,6 +174,7 @@ try {
     $na = LeaseNumber $r.Out
     $file = (Q @('edit', 'src/a.c', '-Session', 'claude-a')).Out.Trim()
     [IO.File]::WriteAllText($file, "int a(void) { return 6; }`n")
+    [void](Q @('edit', 'docs/Dev Window.txt', '-Session', 'claude-a', '-Delete'))
     $r = Q @('checkpoint', 'T-UNIT-006', '-Lease', $na, '-Note', 'changed a to 6, tests next')
     Check ($r.Code -eq 0) 'checkpoint'
     Stop-Process -Id $o3.Id -Force; $o3.WaitForExit()
@@ -186,6 +189,7 @@ try {
     Check ($r.Code -eq 0 -and $r.Out -match 'Restored the saved work') 'the other agent claims and gets the saved patch'
     $nb = LeaseNumber $r.Out
     Check ((Get-Content -LiteralPath (Join-Path $root 'scratch\codex-b\src\a.c') -Raw) -match 'return 6') 'the restored scratch holds the edit'
+    Check (@(Get-Content -LiteralPath (Join-Path $root 'scratch\codex-b\.pd2q-deleted') -ErrorAction SilentlyContinue) -contains 'docs/Dev Window.txt') 'and the deletion of a name with a space (the next patch keeps it)'
     $r = Q @('submit', 'T-UNIT-006', '-Lease', $nb, '-Title', 'Tooling - T-UNIT-006: Return six')
     Check ($r.Code -ne 0 -and $r.Out -match 'not validated') 'an unvalidated task cannot be submitted'
     $r = Q @('validate', 'T-UNIT-006', '-Lease', $nb, '-Result', 'keep', '-Note', 'read the note and the diff; keep')
@@ -194,6 +198,8 @@ try {
     Check ($r.Code -eq 0) 'after validation it submits'
     $job6 = ([regex]::Match($r.Out, 'q\d+-\d{8}')).Value
     Check ((Get-Content -LiteralPath (Join-Path $root "queue\journal\$job6.jsonl") -Raw) -match '"agent":"codex"') 'the job records the agent'
+    $patch6 = Get-Content -LiteralPath (Join-Path $root "queue\journal\$job6.patch") -Raw
+    Check ($patch6 -match 'deleted file mode' -and $patch6 -match 'Dev Window\.txt' -and $patch6 -match 'return 6') "the submitted patch still deletes the spaced name after the handoff"
     [void](Q @('cancel', $job6, '-Reason', 'unit test'))
 
     # Agent codex off refuses a Codex claim and frees Codex leases; -Until.
@@ -254,6 +260,21 @@ try {
         Check ($r.Code -ne 0 -and $r.Out -match "commit-msg check" -and $r.Out -match 'does not exist in the Workbench roadmap') "submit runs the repository's commit-msg check (an unknown item is refused)`n$($r.Out)"
         [void](Q @('release', 'T-UNIT-011', '-Lease', $nm))
     } else { $checks.Add("commit-msg check at submit skipped: no main checkout or Python here") }
+
+    # submit -Patch declares both sides of a rename, names with spaces included,
+    # so the worker's touched-files check accepts the rename's destination.
+    [void](& $git -C $dev mv README.md 'docs/Read Me.md')
+    $renamePatch = Join-Path $root 'rename.patch'
+    [IO.File]::WriteAllBytes($renamePatch, [Text.Encoding]::UTF8.GetBytes(((& $git -C $dev diff --cached -M --binary) -join "`n") + "`n"))
+    [void](& $git -C $dev reset -q --hard)
+    $o8 = Owner; $owners += $o8
+    $r = Q @('claim', 'T-UNIT-014', '-Session', 'claude-p', '-OwnerPid', $o8.Id); $np = LeaseNumber $r.Out
+    $r = Q @('submit', 'T-UNIT-014', '-Lease', $np, '-Title', 'Tooling - T-UNIT-014: Move the readme', '-Patch', $renamePatch)
+    Check ($r.Code -eq 0) "a rename patch submits`n$($r.Out)"
+    $job14 = ([regex]::Match($r.Out, 'q\d+-\d{8}')).Value
+    $req14 = (Get-Content -LiteralPath (Join-Path $root "queue\journal\$job14.jsonl") | Select-Object -First 1) | ConvertFrom-Json
+    Check (@($req14.files) -contains 'README.md' -and @($req14.files) -contains 'docs/Read Me.md') "the request names both sides of the rename: $(@($req14.files) -join ' | ')"
+    [void](Q @('cancel', $job14, '-Reason', 'unit test'))
 
     # The worker's -Root wins over PD2Q_ROOT (set for this whole test), so an
     # installed worker serves the root it was installed for; the installer passes it.

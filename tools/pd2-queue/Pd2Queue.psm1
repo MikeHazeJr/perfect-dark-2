@@ -445,6 +445,47 @@ function Invoke-Pd2qGitBytes([string] $Dir, [string[]] $GitArgs, [switch] $Allow
     return $ms.ToArray()
 }
 
+function Get-Pd2qPatchPaths([string] $PatchFile) {
+    # Every path a patch touches, both sides of a rename or copy included, as git
+    # itself reads them: git apply --numstat -z writes them verbatim (no quoting,
+    # spaces kept), and a rename's empty name field is followed by its old and
+    # new paths.
+    $bytes = Invoke-Pd2qGitBytes (Get-Pd2qPaths).Dev @('apply', '--numstat', '-z', [IO.Path]::GetFullPath($PatchFile))
+    $tokens = [Text.Encoding]::UTF8.GetString($bytes).Split([char]0)
+    $found = [Collections.Generic.List[string]]::new()
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+        if (-not $tokens[$i]) { continue }
+        $parts = $tokens[$i] -split "`t", 3
+        if ($parts.Count -lt 3) { continue }
+        if ($parts[2]) { $found.Add($parts[2]) }
+        elseif ($i + 2 -lt $tokens.Count) { $found.Add($tokens[$i + 1]); $found.Add($tokens[$i + 2]); $i += 2 }
+    }
+    # git apply's numstat names only a rename's or copy's new side. The old side
+    # is in the section's "rename from" / "copy from" line, the whole rest of the
+    # line, C-quoted only when it holds special characters.
+    foreach ($line in [IO.File]::ReadAllLines([IO.Path]::GetFullPath($PatchFile))) {
+        if ($line -match '^(?:rename|copy) from (.+)$') { $found.Add((ConvertFrom-Pd2qGitQuoted $Matches[1])) }
+    }
+    return @($found | Select-Object -Unique)
+}
+
+function ConvertFrom-Pd2qGitQuoted([string] $Name) {
+    # git quotes a path as "..." with C escapes (octal bytes for UTF-8) when it
+    # holds special characters; anything else is the plain name.
+    if ($Name.Length -lt 2 -or -not ($Name.StartsWith('"') -and $Name.EndsWith('"'))) { return $Name }
+    $bytes = [Collections.Generic.List[byte]]::new()
+    $s = $Name.Substring(1, $Name.Length - 2)
+    for ($i = 0; $i -lt $s.Length; $i++) {
+        $c = $s[$i]
+        if ($c -ne '\' -or $i + 1 -ge $s.Length) { foreach ($b in [Text.Encoding]::UTF8.GetBytes([string]$c)) { $bytes.Add($b) }; continue }
+        $n = $s[++$i]
+        if ($n -match '[0-7]' -and $i + 2 -lt $s.Length) { $bytes.Add([Convert]::ToByte($s.Substring($i, 3), 8)); $i += 2; continue }
+        $map = @{ 'n' = 10; 't' = 9; 'r' = 13; 'a' = 7; 'b' = 8; 'f' = 12; 'v' = 11 }
+        if ($map.ContainsKey([string]$n)) { $bytes.Add([byte]$map[[string]$n]) } else { foreach ($b in [Text.Encoding]::UTF8.GetBytes([string]$n)) { $bytes.Add($b) } }
+    }
+    return [Text.Encoding]::UTF8.GetString($bytes.ToArray())
+}
+
 function Get-Pd2qDevHead {
     return Invoke-Pd2qGit (Get-Pd2qPaths).Dev @('rev-parse', 'HEAD')
 }

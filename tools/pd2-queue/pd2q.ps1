@@ -86,13 +86,11 @@ function Restore-TaskPatch($Task, [string] $SessionId) {
     $patchFile = Join-Path $paths.Tasks "$($Task.issue).patch"
     $out = & (Get-Pd2qGitExe) -C $dir apply --whitespace=nowarn $patchFile 2>&1
     if ($LASTEXITCODE -ne 0) { throw "Saved patch of $($Task.issue) did not restore into scratch: $(($out | Out-String).Trim())" }
-    $deleted = @(Get-Content -LiteralPath $patchFile | Where-Object { $_ -match '^deleted file mode' }).Count
-    if ($deleted) {
-        # git apply removed them; remember them so the next patch deletes them too.
-        $names = @(Select-String -LiteralPath $patchFile -Pattern '^diff --git a/(\S+) b/' | ForEach-Object { $_.Matches[0].Groups[1].Value } |
-            Where-Object { -not (Test-Path -LiteralPath (Join-Path $dir $_)) })
-        [IO.File]::WriteAllLines((Join-Path $dir '.pd2q-deleted'), $names)
-    }
+    # Paths the patch removed (a rename's old side included) are gone from the
+    # scratch now; remember them so the next patch deletes them too. git reads
+    # the patch's paths, so names with spaces survive the handoff.
+    $names = @(Get-Pd2qPatchPaths $patchFile | Where-Object { -not (Test-Path -LiteralPath (Join-Path $dir $_)) })
+    if ($names) { [IO.File]::WriteAllLines((Join-Path $dir '.pd2q-deleted'), [string[]]$names) }
 }
 
 switch ($Command) {
@@ -287,7 +285,8 @@ switch ($Command) {
             if ($Patch) {
                 $patchBytes = [IO.File]::ReadAllBytes([IO.Path]::GetFullPath($Patch))
                 $base = Get-Pd2qDevHead
-                $files = @(Select-String -LiteralPath $Patch -Pattern '^diff --git a/(\S+) b/' | ForEach-Object { $_.Matches[0].Groups[1].Value })
+                # Both sides of a rename, and names with spaces, as git reads them.
+                $files = @(Get-Pd2qPatchPaths $Patch)
             } else {
                 $made = New-Pd2qPatchFromScratch $h.Lease.holder.session
                 $patchBytes = $made.Patch; $base = $made.Base; $files = $made.Files
