@@ -54,7 +54,10 @@ extern "C" {
 #define MODE_SEAM_TOKEN_DROPPED   17 /* droppedtokenfunc: its carrier dropped it */
 #define MODE_SEAM_PROP_ACTIVATED  18 /* activatedpropfunc: an object is used (the terminal) */
 #define MODE_SEAM_PLAYER_DIED     19 /* playerdiedfunc: a player or simulant died */
-#define MODE_SEAM_COUNT           20
+/* Slice 7: the simulants' mode commands (bot.c). */
+#define MODE_SEAM_BOT_COMMAND     20 /* botcommandfunc: the command a simulant picks with no human teammate */
+#define MODE_SEAM_BOT_IDLE        21 /* botidlefunc: what a simulant does with no command */
+#define MODE_SEAM_COUNT           22
 
 /* The owner of a default module: the code a dispatcher runs for a mode
  * without the callback (kills minus suicides for the score, the general

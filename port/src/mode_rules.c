@@ -15,7 +15,7 @@ static const char *const s_SeamNames[MODE_SEAM_COUNT] = {
 	"init", "num_props", "init_props", "tick", "tick_chr", "hud", "score",
 	"radar_extra", "radar_chr", "highlight_prop", "spawn", "max_teams",
 	"room_lights", "save", "stage_reset", "intro_pad", "token_picked_up",
-	"token_dropped", "prop_activated", "player_died",
+	"token_dropped", "prop_activated", "player_died", "bot_command", "bot_idle",
 };
 
 /* The mode programs' events, in kind order (mission_graph_runner.h). */
@@ -35,6 +35,8 @@ static const struct {
 	{ "event.mode.token_dropped", MISSION_GRAPH_EVENT_MODE_TOKEN_DROPPED },
 	{ "event.mode.prop_activated", MISSION_GRAPH_EVENT_MODE_PROP_ACTIVATED },
 	{ "event.mode.player_died", MISSION_GRAPH_EVENT_MODE_PLAYER_DIED },
+	{ "event.mode.bot_command", MISSION_GRAPH_EVENT_MODE_BOT_COMMAND },
+	{ "event.mode.bot_idle", MISSION_GRAPH_EVENT_MODE_BOT_IDLE },
 };
 #define MODE_RULES_EVENT_COUNT ((s32)(sizeof(s_Events) / sizeof(s_Events[0])))
 
@@ -65,6 +67,8 @@ static const struct {
 	{ "og.mode.htb.stage_reset", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_STAGE_RESET },
 	{ "og.mode.htb.intro_pad", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_INTRO_PAD },
 	{ "og.mode.htb.token_picked_up", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_TOKEN_PICKED_UP },
+	{ "og.mode.htb.bot_command", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_BOT_COMMAND },
+	{ "og.mode.htb.bot_idle", MPSCENARIO_HOLDTHEBRIEFCASE, MODE_SEAM_BOT_IDLE },
 
 	{ "og.mode.htm.init", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_INIT },
 	{ "og.mode.htm.num_props", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_NUM_PROPS },
@@ -80,6 +84,8 @@ static const struct {
 	{ "og.mode.htm.intro_pad", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_INTRO_PAD },
 	{ "og.mode.htm.token_picked_up", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_TOKEN_PICKED_UP },
 	{ "og.mode.htm.prop_activated", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_PROP_ACTIVATED },
+	{ "og.mode.htm.bot_command", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_BOT_COMMAND },
+	{ "og.mode.htm.bot_idle", MPSCENARIO_HACKERCENTRAL, MODE_SEAM_BOT_IDLE },
 
 	{ "og.mode.pac.init", MPSCENARIO_POPACAP, MODE_SEAM_INIT },
 	{ "og.mode.pac.init_props", MPSCENARIO_POPACAP, MODE_SEAM_INIT_PROPS },
@@ -90,6 +96,8 @@ static const struct {
 	{ "og.mode.pac.radar_chr", MPSCENARIO_POPACAP, MODE_SEAM_RADAR_CHR },
 	{ "og.mode.pac.highlight_prop", MPSCENARIO_POPACAP, MODE_SEAM_HIGHLIGHT_PROP },
 	{ "og.mode.pac.player_died", MPSCENARIO_POPACAP, MODE_SEAM_PLAYER_DIED },
+	{ "og.mode.pac.bot_command", MPSCENARIO_POPACAP, MODE_SEAM_BOT_COMMAND },
+	{ "og.mode.pac.bot_idle", MPSCENARIO_POPACAP, MODE_SEAM_BOT_IDLE },
 
 	{ "og.mode.koh.init", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_INIT },
 	{ "og.mode.koh.init_props", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_INIT_PROPS },
@@ -101,6 +109,7 @@ static const struct {
 	{ "og.mode.koh.save", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_SAVE },
 	{ "og.mode.koh.stage_reset", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_STAGE_RESET },
 	{ "og.mode.koh.intro_pad", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_INTRO_PAD },
+	{ "og.mode.koh.bot_command", MPSCENARIO_KINGOFTHEHILL, MODE_SEAM_BOT_COMMAND },
 
 	{ "og.mode.ctc.init", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_INIT },
 	{ "og.mode.ctc.num_props", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_NUM_PROPS },
@@ -118,6 +127,8 @@ static const struct {
 	{ "og.mode.ctc.intro_pad", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_INTRO_PAD },
 	{ "og.mode.ctc.token_picked_up", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_TOKEN_PICKED_UP },
 	{ "og.mode.ctc.token_dropped", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_TOKEN_DROPPED },
+	{ "og.mode.ctc.bot_command", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_BOT_COMMAND },
+	{ "og.mode.ctc.bot_idle", MPSCENARIO_CAPTURETHECASE, MODE_SEAM_BOT_IDLE },
 };
 #define MODE_RULES_MODULE_COUNT ((s32)(sizeof(s_Modules) / sizeof(s_Modules[0])))
 
@@ -211,6 +222,8 @@ s32 modeRulesSeamEvent(s32 seam)
 	case MODE_SEAM_TOKEN_DROPPED: return MISSION_GRAPH_EVENT_MODE_TOKEN_DROPPED;
 	case MODE_SEAM_PROP_ACTIVATED: return MISSION_GRAPH_EVENT_MODE_PROP_ACTIVATED;
 	case MODE_SEAM_PLAYER_DIED: return MISSION_GRAPH_EVENT_MODE_PLAYER_DIED;
+	case MODE_SEAM_BOT_COMMAND: return MISSION_GRAPH_EVENT_MODE_BOT_COMMAND;
+	case MODE_SEAM_BOT_IDLE: return MISSION_GRAPH_EVENT_MODE_BOT_IDLE;
 	default: return -1;
 	}
 }

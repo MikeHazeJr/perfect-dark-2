@@ -220,6 +220,9 @@ const struct {
 	{ "event.mode.token_dropped", MISSION_GRAPH_EVENT_MODE_TOKEN_DROPPED },
 	{ "event.mode.prop_activated", MISSION_GRAPH_EVENT_MODE_PROP_ACTIVATED },
 	{ "event.mode.player_died", MISSION_GRAPH_EVENT_MODE_PLAYER_DIED },
+	// Slice 7: the simulants' mode commands.
+	{ "event.mode.bot_command", MISSION_GRAPH_EVENT_MODE_BOT_COMMAND },
+	{ "event.mode.bot_idle", MISSION_GRAPH_EVENT_MODE_BOT_IDLE },
 };
 
 // The mode event kind of a node kind, or 0 for none.
@@ -1137,5 +1140,5 @@ extern "C" mission_graph_program_t *missionGraphProgramCompileMode(const char *j
 extern "C" s32 missionGraphEventIsMode(s32 event_kind)
 {
 	return event_kind >= MISSION_GRAPH_EVENT_MODE_CHOSEN &&
-		event_kind <= MISSION_GRAPH_EVENT_MODE_PLAYER_DIED ? 1 : 0;
+		event_kind <= MISSION_GRAPH_EVENT_MODE_BOT_IDLE ? 1 : 0;
 }

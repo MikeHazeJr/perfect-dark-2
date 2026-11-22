@@ -38,7 +38,9 @@ extern "C" {
 #define MODE_EVENT_TOKEN_DROPPED    9  /* scenarioHandleDroppedToken */
 #define MODE_EVENT_PROP_ACTIVATED  10  /* scenarioHandleActivatedProp: the Hacker Central terminal */
 #define MODE_EVENT_PLAYER_DIED     11  /* mpstatsRecordDeathByRuntimeIndex */
-#define MODE_EVENT_COUNT           12
+#define MODE_EVENT_BOT_COMMAND     12  /* scenarioBotChooseCommand (slice 7) */
+#define MODE_EVENT_BOT_IDLE        13  /* scenarioBotIdleAction (slice 7) */
+#define MODE_EVENT_COUNT           14
 
 /* who: the seam's number for the event's player or simulant, or -1. */
 void modeEventRecord(s32 kind, s32 who);

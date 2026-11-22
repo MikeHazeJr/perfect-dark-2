@@ -16,7 +16,7 @@
 static const char *const s_ModeEventNames[MODE_EVENT_COUNT] = {
 	"chosen", "stage_reset", "intro_pad", "props_init", "tick", "chr_tick",
 	"score", "spawn", "token_picked_up", "token_dropped", "prop_activated",
-	"player_died",
+	"player_died", "bot_command", "bot_idle",
 };
 
 static s32 s_ModeEventTotals[MODE_EVENT_COUNT];
@@ -122,7 +122,7 @@ void modeEventsReport(const char *why)
 	sysLogPrintf(LOG_NOTE,
 		"MODE.EVENTS: %s mode=%s chosen=%d stage_reset=%d intro_pad=%d props_init=%d"
 		" tick=%d chr_tick=%d score=%d spawn=%d token_picked_up=%d token_dropped=%d"
-		" prop_activated=%d player_died=%d",
+		" prop_activated=%d player_died=%d bot_command=%d bot_idle=%d",
 		why ? why : "report", modeEventModeId(scenario),
 		s_ModeEventTotals[MODE_EVENT_CHOSEN],
 		s_ModeEventTotals[MODE_EVENT_STAGE_RESET],
@@ -135,7 +135,9 @@ void modeEventsReport(const char *why)
 		s_ModeEventTotals[MODE_EVENT_TOKEN_PICKED_UP],
 		s_ModeEventTotals[MODE_EVENT_TOKEN_DROPPED],
 		s_ModeEventTotals[MODE_EVENT_PROP_ACTIVATED],
-		s_ModeEventTotals[MODE_EVENT_PLAYER_DIED]);
+		s_ModeEventTotals[MODE_EVENT_PLAYER_DIED],
+		s_ModeEventTotals[MODE_EVENT_BOT_COMMAND],
+		s_ModeEventTotals[MODE_EVENT_BOT_IDLE]);
 	memset(s_ModeEventTotals, 0, sizeof(s_ModeEventTotals));
 	memset(s_ModeEventSeen, 0, sizeof(s_ModeEventSeen));
 }

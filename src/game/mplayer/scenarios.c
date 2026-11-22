@@ -23,6 +23,7 @@
 #include "game/radar.h"
 #include "game/botcmd.h"
 #include "game/botinv.h"
+#include "game/bot.h"             /* gamemode-graphs.md slice 7: the simulants' mode commands */
 #include "game/challenge.h"
 #include "game/lang.h"
 #include "game/mplayer/mplayer.h"
@@ -111,6 +112,9 @@ struct mpscenario {
 	void (*droppedtokenfunc)(struct chrdata *chr, struct prop *prop);
 	void (*activatedpropfunc)(struct chrdata *chr, struct prop *prop);
 	void (*playerdiedfunc)(s32 aplayernum, s32 vplayernum);
+	/* gamemode-graphs.md slice 7: the simulants' mode commands (bot.c). */
+	void (*botcommandfunc)(struct chrdata *chr, s32 teamsize);
+	s32 (*botidlefunc)(struct chrdata *chr);
 };
 
 #if VERSION >= VERSION_JPN_FINAL
@@ -691,6 +695,8 @@ struct mpscenario g_MpScenarios[] = {
 		.resetfunc = htbReset,
 		.intropadfunc = htbIntroPad,
 		.pickuptokenfunc = htbPickUpToken,
+		.botcommandfunc = htbBotChooseCommand,
+		.botidlefunc = htbBotIdleAction,
 	},
 	[MPSCENARIO_HACKERCENTRAL] = {
 		.optionsdialog = &g_HtmOptionsMenuDialog,
@@ -708,6 +714,8 @@ struct mpscenario g_MpScenarios[] = {
 		.intropadfunc = htmIntroPad,
 		.pickuptokenfunc = htmPickUpToken,
 		.activatedpropfunc = htmActivateProp,
+		.botcommandfunc = htmBotChooseCommand,
+		.botidlefunc = htmBotIdleAction,
 	},
 	[MPSCENARIO_POPACAP] = {
 		.optionsdialog = &g_PacOptionsMenuDialog,
@@ -720,6 +728,8 @@ struct mpscenario g_MpScenarios[] = {
 		.radarchrfunc = pacRadarChr,
 		.highlightpropfunc = pacHighlightProp,
 		.playerdiedfunc = pacHandleDeath,
+		.botcommandfunc = pacBotChooseCommand,
+		.botidlefunc = pacBotIdleAction,
 	},
 	[MPSCENARIO_KINGOFTHEHILL] = {
 		.optionsdialog = &g_KohOptionsMenuDialog,
@@ -735,6 +745,7 @@ struct mpscenario g_MpScenarios[] = {
 		.writesavefunc = kohWriteSave,
 		.resetfunc = kohReset,
 		.intropadfunc = kohIntroPad,
+		.botcommandfunc = kohBotChooseCommand,
 	},
 	[MPSCENARIO_CAPTURETHECASE] = {
 		.optionsdialog = &g_CtcOptionsMenuDialog,
@@ -755,6 +766,8 @@ struct mpscenario g_MpScenarios[] = {
 		.intropadfunc = ctcIntroPad,
 		.pickuptokenfunc = ctcPickUpToken,
 		.droppedtokenfunc = ctcDropToken,
+		.botcommandfunc = ctcBotChooseCommand,
+		.botidlefunc = ctcBotIdleAction,
 	},
 };
 
@@ -882,6 +895,8 @@ static void scenarioNativeSeam(s32 scenario, s32 seam, s8 out[MODE_PLAN_MAX_PER_
 	case MODE_SEAM_TOKEN_DROPPED: has = row->droppedtokenfunc != NULL; break;
 	case MODE_SEAM_PROP_ACTIVATED: has = row->activatedpropfunc != NULL; break;
 	case MODE_SEAM_PLAYER_DIED: has = row->playerdiedfunc != NULL; break;
+	case MODE_SEAM_BOT_COMMAND: has = row->botcommandfunc != NULL; break;
+	case MODE_SEAM_BOT_IDLE: has = row->botidlefunc != NULL; break;
 	}
 	out[0] = MODE_PLAN_NONE;
 	out[1] = MODE_PLAN_NONE;
@@ -2955,6 +2970,60 @@ static void htmActivateProp(struct chrdata *chr, struct prop *prop)
 			obj->hidden |= OBJHFLAG_ACTIVATED_BY_BOND;
 		}
 	}
+}
+
+/**
+ * gamemode-graphs.md slice 7: a simulant on a team with no humans picks its
+ * command (bot.c, every 20 to 60 seconds): the plan's first command module.
+ */
+void scenarioBotChooseCommand(struct chrdata *chr, s32 teamsize)
+{
+	const mode_rules_plan_t *plan;
+	s32 k;
+
+	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
+		return;
+	}
+	plan = scenarioPlan(g_MpSetup.scenario);
+	scenarioPlanCompare(g_MpSetup.scenario, plan, MODE_SEAM_BOT_COMMAND);
+	modeEventRecord(MODE_EVENT_BOT_COMMAND, chr ? chr->chrnum : -1);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_BOT_COMMAND, k);
+		if (owner >= 0 && g_MpScenarios[owner].botcommandfunc) {
+			g_MpScenarios[owner].botcommandfunc(chr, teamsize);
+			return;
+		}
+	}
+}
+
+/**
+ * gamemode-graphs.md slice 7: what a simulant with no command does for the
+ * mode (follow a teammate with the briefcase, take a case home, go to the
+ * terminal): the first idle module of the plan that finds an action, or -1
+ * (the simulant then fights as in Combat).
+ */
+s32 scenarioBotIdleAction(struct chrdata *chr)
+{
+	const mode_rules_plan_t *plan;
+	s32 k;
+
+	if (!scenarioIndexIsValid(g_MpSetup.scenario)) {
+		return -1;
+	}
+	plan = scenarioPlan(g_MpSetup.scenario);
+	scenarioPlanCompare(g_MpSetup.scenario, plan, MODE_SEAM_BOT_IDLE);
+	modeEventRecord(MODE_EVENT_BOT_IDLE, chr ? chr->chrnum : -1);
+	for (k = 0; k < MODE_PLAN_MAX_PER_SEAM; k++) {
+		const s32 owner = scenarioPlanOwner(plan, MODE_SEAM_BOT_IDLE, k);
+		if (owner >= 0 && g_MpScenarios[owner].botidlefunc) {
+			const s32 action = g_MpScenarios[owner].botidlefunc(chr);
+			if (action >= 0) {
+				return action;
+			}
+		}
+	}
+
+	return -1;
 }
 
 /**

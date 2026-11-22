@@ -1607,7 +1607,7 @@ TEST_CASE("scenario stage payloads reject ROM fallback in source-only mode, part
 	        std::string::npos);
 	REQUIRE(lv_runtime.find("scenarioSourceLevelGraphRecordTick(\"lvTick.start\")") !=
 	        std::string::npos);
-	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings_vehiclegraph_modegraph_outside\"") !=
+	REQUIRE(meta_extractor.find("PDMETA_FAST_CACHE_KIND \"pdmeta_table_backed_v16_botprofile_manifest_objective_status_event_mission_endings_vehiclegraph_modegraph_outside_bots\"") !=
 	        std::string::npos);
 	REQUIRE(meta_extractor.find("PDMETA_SCENARIO_DEP_CACHE_KIND") !=
 	        std::string::npos);

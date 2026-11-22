@@ -69,6 +69,17 @@ bool botCanDoCriticalPickup(struct chrdata *chr);
 struct prop *botFindDefaultPickup(struct chrdata *chr);
 struct prop *botFindAnyPickup(struct chrdata *chr);
 s32 botGetTeamSize(struct chrdata *chr);
+/* gamemode-graphs.md slice 7: the per-mode simulant command choice and idle
+ * action (g_MpScenarios[] botcommandfunc and botidlefunc). */
+void htbBotChooseCommand(struct chrdata *chr, s32 teamsize);
+void htmBotChooseCommand(struct chrdata *chr, s32 teamsize);
+void pacBotChooseCommand(struct chrdata *chr, s32 teamsize);
+void kohBotChooseCommand(struct chrdata *chr, s32 teamsize);
+void ctcBotChooseCommand(struct chrdata *chr, s32 teamsize);
+s32 htbBotIdleAction(struct chrdata *chr);
+s32 pacBotIdleAction(struct chrdata *chr);
+s32 ctcBotIdleAction(struct chrdata *chr);
+s32 htmBotIdleAction(struct chrdata *chr);
 s32 botGetCountInTeamDoingCommand(struct chrdata *self, u32 command, bool includeself);
 s32 botIsChrsCtcTokenHeld(struct chrdata *chr);
 bool botShouldReturnCtcToken(struct chrdata *chr);
