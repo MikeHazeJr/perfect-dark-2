@@ -61,6 +61,7 @@
 #include "mod_author.h"
 #include "mod_author_runtime.h"
 #include "weapon_graph_editor_io.h"
+#include "crude_json.h" /* slice 8b: a projectile program's nodes */
 #include "weapon_graph_archive.h"
 #include "weapon_graph_runtime.h"
 #include "../external/stb_image.h"
@@ -460,6 +461,19 @@ static char s_WeaponTemplateEntityRef[CATALOG_ID_LEN] = "";
 static char s_WeaponGraphLoadError[192] = "";
 static char s_WeaponEditGraph[HUB_WEAPON_TEXT_PREVIEW_LEN] = "";
 static char s_WeaponEditNested[4096] = "";
+/* held-weapon-events.md slice 8b: the template's projectiles' programs,
+ * edited by their nodes' settings (the vehicle rocket's home filter) and
+ * saved into the mod's copy of each projectile (an override of its
+ * behavior.graph.json). */
+struct WeaponProjectileProgram {
+    std::string entry;   /* dependencies/assets/projectiles/homing_rocket.pdprojectile */
+    std::string graph;   /* its behavior.graph.json as edited */
+    bool changed;
+    bool valid;
+    std::string status;
+};
+static std::vector<WeaponProjectileProgram> s_WeaponProjectilePrograms;
+#define HUB_WEAPON_MAX_PROJECTILE_PROGRAMS 8
 static WeaponImportTarget s_WeaponImportTarget = WEAPON_IMPORT_NONE;
 static bool s_WeaponSaveModalOpen = false;
 static bool s_WeaponSaveComplete = false;
@@ -2702,6 +2716,39 @@ static void weaponListEmbeddedArchives(const char *archivePath, char *out, size_
     modArchiveClose(arc);
 }
 
+/* slice 8b: each embedded projectile's program, read from the template. */
+static void weaponLoadProjectilePrograms(const char *archivePath)
+{
+    s_WeaponProjectilePrograms.clear();
+    mod_archive_t *arc = archivePath && archivePath[0] ? modArchiveOpen(archivePath) : NULL;
+    if (!arc) return;
+    const s32 count = modArchiveGetEntryCount(arc);
+    for (s32 i = 0; i < count &&
+            s_WeaponProjectilePrograms.size() < HUB_WEAPON_MAX_PROJECTILE_PROGRAMS; i++) {
+        const char *name = modArchiveGetEntryName(arc, i);
+        const size_t n = name ? strlen(name) : 0;
+        if (!name || strncmp(name, "dependencies/", 13) != 0 || n < 13 ||
+                strcmp(name + n - 13, ".pdprojectile") != 0) {
+            continue;
+        }
+        u32 nestedSize = 0;
+        void *nested = modArchiveExtractAlloc(arc, i, &nestedSize);
+        if (!nested) continue;
+        u32 graphSize = 0;
+        void *graph = modArchiveExtractMemAlloc(nested, nestedSize, "behavior.graph.json", &graphSize);
+        free(nested);
+        if (!graph) continue;
+        WeaponProjectileProgram program;
+        program.entry = name;
+        program.graph.assign((const char *)graph, graphSize);
+        program.changed = false;
+        program.valid = true;
+        free(graph);
+        s_WeaponProjectilePrograms.push_back(program);
+    }
+    modArchiveClose(arc);
+}
+
 static void weaponToolStartTemplate(const asset_entry_t *e)
 {
     if (!e) {
@@ -2790,6 +2837,7 @@ static void weaponToolStartTemplate(const asset_entry_t *e)
     }
     weaponListEmbeddedArchives(s_WeaponEditTemplateArchive, s_WeaponEditNested,
                                sizeof(s_WeaponEditNested));
+    weaponLoadProjectilePrograms(s_WeaponEditTemplateArchive); /* slice 8b */
     snprintf(s_WeaponTemplateModelRef, sizeof(s_WeaponTemplateModelRef), "%s",
              s_WeaponEditModelRef);
     snprintf(s_WeaponTemplateTextureRef, sizeof(s_WeaponTemplateTextureRef), "%s",
@@ -2976,7 +3024,20 @@ static bool weaponToolSaveCustom(void)
         }
     }
 
-    asset_archive_clone_override_t overrides[4];
+    /* slice 8b: an edited projectile program must check out before it is
+     * saved into the mod's copy of its projectile. */
+    for (const WeaponProjectileProgram &program : s_WeaponProjectilePrograms) {
+        if (!program.changed) continue;
+        if (weaponGraphValidateJson(ASSET_PROJECTILE, program.graph.c_str(), (u32)program.graph.size(),
+                reason, sizeof(reason)) != 0) {
+            weaponGraphEditorSplitFree(&files);
+            snprintf(msg, sizeof(msg), "Projectile program %s does not check out: %s",
+                     program.entry.c_str(), reason);
+            return weaponSaveFail("PROJECTILE_FAIL", msg);
+        }
+    }
+
+    asset_archive_clone_override_t overrides[4 + HUB_WEAPON_MAX_PROJECTILE_PROGRAMS];
     u32 overrideCount = 0;
     memset(overrides, 0, sizeof(overrides));
     overrides[overrideCount].entry = "behavior/primary.graph.json";
@@ -3003,6 +3064,18 @@ static bool weaponToolSaveCustom(void)
         overrides[overrideCount].entry = s_WeaponEditTemplateModelFile;
         overrides[overrideCount].data = mesh.data();
         overrides[overrideCount++].len = (u32)mesh.size();
+    }
+
+    /* slice 8b: each edited projectile program replaces its projectile's
+     * behavior graph ("<projectile>::behavior.graph.json"). */
+    std::vector<std::string> projectileEntries;
+    projectileEntries.reserve(s_WeaponProjectilePrograms.size());
+    for (const WeaponProjectileProgram &program : s_WeaponProjectilePrograms) {
+        if (!program.changed || overrideCount >= sizeof(overrides) / sizeof(overrides[0])) continue;
+        projectileEntries.push_back(program.entry + "::behavior.graph.json");
+        overrides[overrideCount].entry = projectileEntries.back().c_str();
+        overrides[overrideCount].data = program.graph.data();
+        overrides[overrideCount++].len = (u32)program.graph.size();
     }
 
     mod_author_descriptor_value_t descriptor[1];
@@ -3556,6 +3629,81 @@ static void weaponRenderGraphBuilder(const char *scopeFilter,
     }
 }
 
+/* slice 8b: the template's projectiles' programs, each program node with
+ * settings shown with the inspector's named inputs. */
+static void weaponRenderProjectilePrograms(float scale)
+{
+    (void)scale;
+    if (s_WeaponProjectilePrograms.empty()) {
+        ImGui::TextDisabled("This weapon carries no projectile of its own.");
+        return;
+    }
+    ImGui::TextDisabled("How each projectile arms, flies and lands. Saved into the mod's copy of the projectile.");
+    for (size_t p = 0; p < s_WeaponProjectilePrograms.size(); p++) {
+        WeaponProjectileProgram &program = s_WeaponProjectilePrograms[p];
+        const char *name = strrchr(program.entry.c_str(), '/');
+        name = name ? name + 1 : program.entry.c_str();
+        ImGui::PushID((int)p);
+        if (ImGui::CollapsingHeader(name, ImGuiTreeNodeFlags_DefaultOpen)) {
+            crude_json::value root = crude_json::value::parse(program.graph);
+            if (!root.is_object() || !root.contains("nodes") || !root["nodes"].is_array()) {
+                ImGui::TextDisabled("Its program could not be read.");
+            } else {
+                for (crude_json::value &item : root["nodes"].get<crude_json::array>()) {
+                    if (!item.is_object() || !item.contains("id") || !item.contains("kind") ||
+                            !item["id"].is_string() || !item["kind"].is_string()) {
+                        continue;
+                    }
+                    const std::string id = item["id"].get<crude_json::string>();
+                    const std::string kind = item["kind"].get<crude_json::string>();
+                    if (!weaponGraphNodeIsProgram(kind.c_str()) ||
+                            weaponGraphDesignerSettings(kind.c_str(), NULL, 0) == 0) {
+                        continue;
+                    }
+                    const weapon_graph_designer_node_t *designer = weaponGraphDesignerNodeFor(kind.c_str());
+                    ImGui::PushID(id.c_str());
+                    if (ImGui::TreeNode("##program_node", "%s (%s)",
+                            designer ? designer->label : kind.c_str(), id.c_str())) {
+                        char err[192];
+                        char *settings = weaponGraphEditorNodeSettings(program.graph.c_str(), id.c_str(),
+                            err, sizeof(err));
+                        static char extra[PDGUI_WEAPON_GRAPH_PARAM_LEN];
+                        if (settings && strlen(settings) < sizeof(extra)) {
+                            snprintf(extra, sizeof(extra), "%s", settings);
+                            if (pdguiWeaponGraphRenderNodeSettings(kind.c_str(), extra, sizeof(extra))) {
+                                char *next = weaponGraphEditorSetNodeSettings(program.graph.c_str(),
+                                    id.c_str(), extra, err, sizeof(err));
+                                if (next) {
+                                    program.graph = next;
+                                    program.changed = true;
+                                    program.valid = weaponGraphValidateJson(ASSET_PROJECTILE,
+                                        program.graph.c_str(), (u32)program.graph.size(),
+                                        err, sizeof(err)) == 0;
+                                    program.status = program.valid ? "Program checks out" : err;
+                                    free(next);
+                                } else {
+                                    program.status = err;
+                                }
+                            }
+                        } else if (!settings) {
+                            ImGui::TextDisabled("%s", err);
+                        }
+                        free(settings);
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+            }
+            if (!program.status.empty()) {
+                ImGui::TextColored(program.valid ? ImVec4(0.55f, 0.95f, 0.55f, 1.0f)
+                                                 : ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+                                   "%s", program.status.c_str());
+            }
+        }
+        ImGui::PopID();
+    }
+}
+
 static void weaponRenderTemplateEditor(float scale)
 {
     ImGui::PushStyleColor(ImGuiCol_Text, pdguiVec4TitleGlow());
@@ -3647,6 +3795,11 @@ static void weaponRenderTemplateEditor(float scale)
 
         if (ImGui::BeginTabItem("Secondary Graph")) {
             weaponRenderGraphBuilder("secondary", "Secondary Graph", scale);
+            ImGui::EndTabItem();
+        }
+
+        if (ImGui::BeginTabItem("Projectile Programs")) {
+            weaponRenderProjectilePrograms(scale);
             ImGui::EndTabItem();
         }
 

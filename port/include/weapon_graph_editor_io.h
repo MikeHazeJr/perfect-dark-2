@@ -83,13 +83,19 @@ typedef struct weapon_graph_designer_node {
 
 s32 weaponGraphDesignerNodeCount(void);
 const weapon_graph_designer_node_t *weaponGraphDesignerNodeAt(s32 index);
-/* NULL when the kind is not a program node. */
+/* slice 8b: the designer nodes of a projectile's program (projectile_rules.h:
+ * its events, gates and modules), for the creator's projectile canvas. */
+s32 weaponGraphProjectileDesignerNodeCount(void);
+const weapon_graph_designer_node_t *weaponGraphProjectileDesignerNodeAt(s32 index);
+/* A weapon's or a projectile's designer node; NULL when the kind is not a
+ * program node. */
 const weapon_graph_designer_node_t *weaponGraphDesignerNodeFor(const char *kind);
 
 /*
- * A node's execution ports. A program node other than an event takes an
- * execution input, and its outputs are "out", a gate's "pass" and "fail". A
- * record node keeps the one unnamed input and output of its record links.
+ * A node's execution ports. A program node (a weapon's or a projectile's)
+ * other than an event takes an execution input, and its outputs are "out", a
+ * gate's "pass" and "fail". A record node keeps the one unnamed input and
+ * output of its record links.
  */
 s32 weaponGraphNodeIsProgram(const char *kind);
 s32 weaponGraphNodeTakesExec(const char *kind);
@@ -119,11 +125,28 @@ typedef struct weapon_graph_designer_setting {
 /*
  * A designer node's settings, in the order the inspector lists them: the
  * rule table's for a module (weaponRulesSettingAt), has_ammo's rounds,
- * state_is's and set_state's key and value, and the lock's target filter.
+ * state_is's and set_state's key and value, and the lock's target filter;
+ * slice 8b: a projectile module's (the thrust's, the trail's, the hit
+ * sound's, the bounce smoke's, the explosion's, the home's and the
+ * proximity arm's target filter).
  * Fills up to `cap` of `out` (which may be NULL) and returns how many there
  * are.
  */
 s32 weaponGraphDesignerSettings(const char *kind, weapon_graph_designer_setting_t *out, s32 cap);
+
+/*
+ * held-weapon-events.md slice 8b: one node's settings in a graph's text (a
+ * projectile's program, edited outside the canvas): the members it carries
+ * besides id, kind, subgraph and params, written as the editor keeps them
+ * ("\"kinds\": \"vehicle\", ..."; "" for none). Returns malloc'd text, or
+ * NULL with a reason when the graph does not parse or has no such node.
+ */
+char *weaponGraphEditorNodeSettings(const char *graph_json, const char *node_id, char *err, size_t err_cap);
+/* The graph's text with that node's settings replaced by `settings` (the
+ * same form; "" for none) and everything else kept. Returns malloc'd text,
+ * or NULL with a reason. */
+char *weaponGraphEditorSetNodeSettings(const char *graph_json, const char *node_id, const char *settings,
+		char *err, size_t err_cap);
 
 #ifdef __cplusplus
 }

@@ -18,6 +18,9 @@ extern "C" {
 #include "modarchive.h"
 #include "modasset_json.h"
 #include "weapon_graph_runtime.h"
+#include "constants.h"
+#include "mission_graph_runner.h"
+#include "projectile_rules.h"
 #include "weapon_rules.h"
 }
 #include "../port/external/imgui-node-editor/crude_json.h"
@@ -1273,4 +1276,192 @@ TEST_CASE("the creator's machine-gun pistol: Fire once replaced by Automatic", "
 	const std::string canvas = ioReadFile(fs::path(PD_SOURCE_DIR) / "port/fast3d/pdgui_weapon_graph_node_editor.cpp");
 	REQUIRE(canvas.find("outputAction(result, PD_WEAPON_GRAPH_EDITOR_ACTION_REPLACE_NODE, nodeIndex, i);")
 		!= std::string::npos);
+}
+
+// held-weapon-events.md slice 8b: a projectile's designer nodes are exactly
+// the program nodes its runtime runs, with their ports, and each setting the
+// inspector offers parses as the projectile's own settings do.
+TEST_CASE("the creator's projectile designer nodes are the runtime's, with settings it parses",
+	"[weapon-graph][editor][held-weapon]")
+{
+	std::set<std::string> runtime;
+	for (s32 m = 0; m < PROJECTILE_MODULE_COUNT; m++) runtime.insert(projectileRulesModuleKind(1u << m));
+	for (s32 g = 0; g < PROJECTILE_GATE_COUNT; g++) runtime.insert(projectileRulesGateKind(PROJECTILE_RULE_GATE_FUSE_ARMED << g));
+	for (s32 e = 0; projectileRulesEventAt(e) >= 0; e++) runtime.insert(projectileRulesEventName(projectileRulesEventAt(e)));
+	const std::set<std::string> groups = { "Events", "Checks", "Arm", "Flight", "Impact" };
+	std::set<std::string> designer;
+	for (s32 i = 0; i < weaponGraphProjectileDesignerNodeCount(); i++) {
+		const weapon_graph_designer_node_t *node = weaponGraphProjectileDesignerNodeAt(i);
+		REQUIRE(node != nullptr);
+		INFO(node->kind);
+		CHECK(designer.insert(node->kind).second);
+		CHECK(node->label[0] != '\0');
+		CHECK(groups.count(node->group) == 1);
+		CHECK(weaponGraphDesignerNodeFor(node->kind) == node);
+		CHECK(weaponGraphNodeIsProgram(node->kind) == 1);
+	}
+	CHECK(designer == runtime);
+	CHECK(weaponGraphProjectileDesignerNodeAt(weaponGraphProjectileDesignerNodeCount()) == nullptr);
+	// Ports: a projectile event has no input, a gate leaves by pass or fail.
+	CHECK(weaponGraphNodeTakesExec("event.projectile.in_flight") == 0);
+	CHECK(std::string(weaponGraphNodeOutputName("event.projectile.in_flight", 0)) == "out");
+	CHECK(weaponGraphNodeOutputCount("gate.projectile.damage_not_blast") == 2);
+	CHECK(std::string(weaponGraphNodeOutputName("gate.projectile.damage_not_blast", 1)) == "fail");
+	CHECK(weaponGraphNodeTakesExec("og.projectile.home") == 1);
+	CHECK(weaponGraphNodeIsProgram("projectile.homing") == 0);
+
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	weapon_graph_designer_setting_t settings[32];
+	for (s32 m = 0; m < PROJECTILE_MODULE_COUNT; m++) {
+		const u32 bit = 1u << m;
+		const char *kind = projectileRulesModuleKind(bit);
+		const s32 count = weaponGraphDesignerSettings(kind, settings, 32);
+		REQUIRE(count <= 32);
+		for (s32 i = 0; i < count; i++) {
+			const weapon_graph_designer_setting_t &s = settings[i];
+			INFO(kind << " " << s.key);
+			std::vector<std::string> values;
+			if (s.input == WEAPON_GRAPH_INPUT_CHOICE || s.input == WEAPON_GRAPH_INPUT_KINDS) {
+				std::string word;
+				for (const char *p = s.choices; ; p++) {
+					if (*p == '|' || *p == '\0') {
+						values.push_back(word);
+						word.clear();
+						if (*p == '\0') break;
+					} else {
+						word += *p;
+					}
+				}
+			} else if (s.input == WEAPON_GRAPH_INPUT_SWITCH) {
+				values = { "true", "false" };
+			} else if (s.input == WEAPON_GRAPH_INPUT_WHOLE) {
+				values = { std::to_string((int)s.lo), std::to_string((int)s.hi) };
+			} else if (s.input == WEAPON_GRAPH_INPUT_NUMBER) {
+				char hi[32];
+				std::snprintf(hi, sizeof(hi), "%g", (double)s.hi);
+				values = { hi };
+			}
+			REQUIRE_FALSE(values.empty());
+			for (const std::string &value : values) {
+				INFO(value);
+				Texts texts;
+				texts.values = { { s.key, value } };
+				if (bit == PROJECTILE_MODULE_EXPLODE) {
+					const s32 type = projectileRulesExplosionFromText(value.c_str());
+					CHECK(type != PROJECTILE_EXPLOSION_OWN);
+					CHECK(type != PROJECTILE_EXPLOSION_REFUSED);
+				} else if (bit == PROJECTILE_MODULE_ARM_PROXIMITY) {
+					projectile_arm_t arm;
+					std::memset(&arm, 0, sizeof(arm));
+					CHECK(projectileRulesArmSettings(bit, Texts::get, &texts, &arm, nullptr) == 1);
+				} else {
+					projectile_flight_t flight;
+					projectileRulesNativeFlight(WEAPON_HOMINGROCKET, FUNC_PRIMARY, &flight);
+					CHECK(projectileRulesFlightSettings(bit, Texts::get, &texts, &flight, nullptr) == 1);
+				}
+			}
+		}
+	}
+	CHECK(weaponGraphDesignerSettings("og.projectile.thrust", settings, 32) == 2);
+	CHECK(weaponGraphDesignerSettings("og.projectile.home", settings, 32) == 7);
+	CHECK(weaponGraphDesignerSettings("og.projectile.arm_proximity", settings, 32) == 6);
+	CHECK(weaponGraphDesignerSettings("og.projectile.woosh", settings, 32) == 0);
+	CHECK(weaponGraphDesignerSettings("projectile.homing", settings, 32) == 0);
+}
+
+// held-weapon-events.md slice 8b: Mike's second example's rocket half, as
+// the creator edits it: the homing rocket's home node gets the "Enemy
+// vehicles" filter through its settings, everything else in its program
+// stays, and the program still compiles with settings the home parses.
+TEST_CASE("the creator sets a projectile node's settings in its program's text", "[weapon-graph][editor][held-weapon]")
+{
+	const std::string graph = R"({
+  "schema": "pd.projectile_graph.v2",
+  "nodes": [
+    { "id": "motion", "kind": "projectile.motion", "params": {} },
+    { "id": "in_flight", "kind": "event.projectile.in_flight" },
+    { "id": "in_flight_home", "kind": "og.projectile.home" },
+    { "id": "in_flight_trail", "kind": "og.projectile.trail", "smoke": "homing", "while": "flying" }
+  ],
+  "edges": [
+    { "from": "in_flight", "output": "out", "to": "in_flight_home", "input": "exec" },
+    { "from": "in_flight_home", "output": "out", "to": "in_flight_trail", "input": "exec" }
+  ]
+})";
+	char err[256] = "";
+	IoText home(weaponGraphEditorNodeSettings(graph.c_str(), "in_flight_home", err, sizeof(err)), &std::free);
+	INFO(err);
+	REQUIRE(home.get() != nullptr);
+	CHECK(std::string(home.get()).empty());
+	IoText trail(weaponGraphEditorNodeSettings(graph.c_str(), "in_flight_trail", err, sizeof(err)), &std::free);
+	REQUIRE(trail.get() != nullptr);
+	CHECK(std::string(trail.get()) == "\"smoke\": \"homing\", \"while\": \"flying\"");
+	CHECK(weaponGraphEditorNodeSettings(graph.c_str(), "nothing", err, sizeof(err)) == nullptr);
+	CHECK(std::string(err).find("the graph has no node nothing") != std::string::npos);
+
+	IoText edited(weaponGraphEditorSetNodeSettings(graph.c_str(), "in_flight_home",
+		"\"kinds\": \"vehicle\", \"relation\": \"enemy\", \"vehicles\": \"any\"", err, sizeof(err)), &std::free);
+	INFO(err);
+	REQUIRE(edited.get() != nullptr);
+	CHECK(ioStrict(edited.get()));
+	IoText after(weaponGraphEditorNodeSettings(edited.get(), "in_flight_home", err, sizeof(err)), &std::free);
+	REQUIRE(after.get() != nullptr);
+	CHECK(std::string(after.get()) == "\"kinds\": \"vehicle\", \"relation\": \"enemy\", \"vehicles\": \"any\"");
+	IoText trailAfter(weaponGraphEditorNodeSettings(edited.get(), "in_flight_trail", err, sizeof(err)), &std::free);
+	REQUIRE(trailAfter.get() != nullptr);
+	CHECK(std::string(trailAfter.get()) == std::string(trail.get()));
+	CHECK(std::string(edited.get()).find("\"kind\": \"projectile.motion\"") != std::string::npos);
+	// The home parses them as the Enemy vehicles filter.
+	struct Texts {
+		std::map<std::string, std::string> values;
+		static const char *get(const char *key, void *user)
+		{
+			const auto &values = static_cast<Texts *>(user)->values;
+			const auto it = values.find(key);
+			return it == values.end() ? nullptr : it->second.c_str();
+		}
+	};
+	Texts texts;
+	texts.values = { { "kinds", "vehicle" }, { "relation", "enemy" }, { "vehicles", "any" } };
+	projectile_flight_t flight;
+	projectileRulesNativeFlight(WEAPON_HOMINGROCKET, FUNC_PRIMARY, &flight);
+	REQUIRE(projectileRulesFlightSettings(PROJECTILE_MODULE_HOME, Texts::get, &texts, &flight, nullptr) == 1);
+	CHECK(flight.home_filtered == 1);
+	// The edited program still compiles.
+	const auto known = [](const char *kind) -> s32 {
+		return projectileRulesModuleBit(kind) != 0 || projectileRulesGateBit(kind) != 0;
+	};
+	mission_graph_program_t *program = missionGraphProgramCompileProjectile(edited.get(), std::strlen(edited.get()),
+		known, err, sizeof(err));
+	INFO(err);
+	REQUIRE(program != nullptr);
+	missionGraphProgramFree(program);
+	// Settings cleared, and settings that would rename the node refused.
+	IoText cleared(weaponGraphEditorSetNodeSettings(edited.get(), "in_flight_home", "", err, sizeof(err)), &std::free);
+	REQUIRE(cleared.get() != nullptr);
+	IoText none(weaponGraphEditorNodeSettings(cleared.get(), "in_flight_home", err, sizeof(err)), &std::free);
+	REQUIRE(none.get() != nullptr);
+	CHECK(std::string(none.get()).empty());
+	CHECK(weaponGraphEditorSetNodeSettings(graph.c_str(), "in_flight_home", "\"id\": \"other\"", err, sizeof(err))
+		== nullptr);
+	CHECK(std::string(err).find("a setting cannot be named id") != std::string::npos);
+	CHECK(weaponGraphEditorSetNodeSettings(graph.c_str(), "in_flight_home", "\"kinds\": ", err, sizeof(err))
+		== nullptr);
+
+	// The creator shows these settings with the inspector's inputs and saves
+	// each edited program over its projectile's behavior graph, once it
+	// checks out.
+	const std::string hub = ioReadFile(fs::path(PD_SOURCE_DIR) / "port/fast3d/pdgui_menu_moddinghub.cpp");
+	REQUIRE(hub.find("projectileEntries.push_back(program.entry + \"::behavior.graph.json\");") != std::string::npos);
+	REQUIRE(hub.find("if (pdguiWeaponGraphRenderNodeSettings(kind.c_str(), extra, sizeof(extra))) {") != std::string::npos);
+	REQUIRE(hub.find("return weaponSaveFail(\"PROJECTILE_FAIL\", msg);") != std::string::npos);
+	REQUIRE(hub.find("weaponLoadProjectilePrograms(s_WeaponEditTemplateArchive); /* slice 8b */") != std::string::npos);
 }

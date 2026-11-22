@@ -127,6 +127,10 @@ struct PdWeaponGraphEditorDesc {
 };
 
 void pdguiWeaponGraphNodeEditorInit(void);
+/* held-weapon-events.md slice 8b: a program node's settings as the inspector
+ * edits them, for a node outside the canvas (a projectile's program).
+ * `extra` holds its settings members; true when they changed. */
+bool pdguiWeaponGraphRenderNodeSettings(const char *kind, char *extra, size_t extra_cap);
 void pdguiWeaponGraphNodeEditorShutdown(void);
 void pdguiWeaponGraphModelReset(PdWeaponGraphEditModel *model,
 		const PdWeaponGraphContextDef *contexts,

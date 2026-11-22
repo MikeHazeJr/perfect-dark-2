@@ -1296,6 +1296,22 @@ void pdguiWeaponGraphNodeEditorInit(void)
 	s_WeaponGraphEditor = ed::CreateEditor(&config);
 }
 
+bool pdguiWeaponGraphRenderNodeSettings(const char *kind, char *extra, size_t extra_cap)
+{
+	static PdWeaponGraphNodeEdit node;
+	PdWeaponGraphEditorResult result;
+
+	if (!kind || !extra || strlen(extra) >= sizeof(node.extra)) return false;
+	memset(&node, 0, sizeof(node));
+	memset(&result, 0, sizeof(result));
+	snprintf(node.kind, sizeof(node.kind), "%s", kind);
+	snprintf(node.extra, sizeof(node.extra), "%s", extra);
+	renderProgramSettings(node, &result);
+	if (!result.model_changed || strlen(node.extra) >= extra_cap) return false;
+	snprintf(extra, extra_cap, "%s", node.extra);
+	return true;
+}
+
 void pdguiWeaponGraphNodeEditorShutdown(void)
 {
 	if (!s_WeaponGraphEditor) return;
