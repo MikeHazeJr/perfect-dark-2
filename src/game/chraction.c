@@ -10641,7 +10641,10 @@ void chrTickShoot(struct chrdata *chr, s32 handnum)
 					}
 
 					normalshoot = false;
-				} else if (gset.weaponnum == WEAPON_MAULER && isaibot && gset.weaponfunc == FUNC_SECONDARY) {
+				} else if (isaibot && weaponWeaponCharge(gset.weaponnum, NULL) == gset.weaponfunc + 1) {
+					// The simulant's charge goes with the shot of the function
+					// that charges (bot.c builds it from the weapon program's
+					// og.weapon.charge; the Mauler's secondary, as the original)
 					gset.unk063a = (s32) (chr->aibot->maulercharge[handnum] * 10.0f);
 					chr->aibot->maulercharge[handnum] = 0;
 				}

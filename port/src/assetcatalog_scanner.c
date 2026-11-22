@@ -5729,6 +5729,29 @@ static s32 scanExternalDescriptorPath(const char *mod_dir,
 	return scanExternalDescriptorChildren(base_dir, leaf, expected, mod_id, batch);
 }
 
+/* A scenario archive's language bank as its manifest names it: the extractor
+ * writes "text_bank" there and the scenario walker reads it there (review of
+ * PR 28: a scenario inside a mod level is registered through its scenario.ini,
+ * so the manifest was never read for it). Returns 1 with the id in out, or 0
+ * when the manifest names none. */
+static s32 scenarioArchiveManifestTextBank(const void *bytes, u32 size, char *out, size_t out_n)
+{
+	u32 manifest_size = 0;
+	char *manifest = modArchiveExtractMemAlloc(bytes, size,
+		ASSET_ARCHIVE_META_MANIFEST_PATH, &manifest_size);
+	s32 found;
+
+	if (!manifest && modArchiveLastError() == MODARCHIVE_ERR_NOTFOUND) {
+		manifest = modArchiveExtractMemAlloc(bytes, size,
+			ASSET_ARCHIVE_META_MANIFEST, &manifest_size);
+	}
+	found = manifest
+		&& loaderWalkerEnvelopeStrCopy(manifest, manifest_size, "text_bank", out, out_n)
+		&& out[0];
+	free(manifest);
+	return found;
+}
+
 /*
  * Forge F1: the scenario inside a mod level.
  *
@@ -5858,9 +5881,18 @@ static s32 registerArenaEmbeddedScenario(const char *arena_id, const char *mod_i
 		goto done;
 	}
 	row->grid_offer_only = grid_offer_only;
+	/* The manifest's language bank wins; a scenario.ini field of the same
+	 * name, bound with the rest of the descriptor, answers when it names none. */
+	{
+		char text_bank[sizeof(row->ext.scenario.text_bank)];
+
+		if (scenarioArchiveManifestTextBank(bytes, size, text_bank, sizeof(text_bank))) {
+			memcpy(row->ext.scenario.text_bank, text_bank, sizeof(text_bank));
+		}
+	}
 	sysLogPrintf(LOG_NOTE,
-		"PDARENA.SCENARIO: owner=%s id=%s stagenum=0x%02x source=%s",
-		owner, scenario_id, row->ext.scenario.stagenum, chain);
+		"PDARENA.SCENARIO: owner=%s id=%s stagenum=0x%02x source=%s text_bank='%s'",
+		owner, scenario_id, row->ext.scenario.stagenum, chain, row->ext.scenario.text_bank);
 	result = 1;
 
 done:
