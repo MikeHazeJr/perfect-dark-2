@@ -1,5 +1,250 @@
 # Bug Tracker
 
+## 2026-11-22 B-1313 A vehicle nested in a mod package looked for its behavior/variables.json at the package's root, so the bundled Maian Hover was refused (T-MODDING-011, fixed on week-pd/core-weapons-b1313, found in Integration's finalization run on candidate 3b)
+
+On candidate 3b `authored_bundled_first_run_smoke` saw the bundled Maian Hover refused at catalog admission:
+`PDVEHICLE.MODEL.REJECT ... source=...mods/bundled/mod.vehicle_maian_hover.pdmod::vehicle_maian_hover.pdvehicle
+error=behavior graph refused: node 'boost' (og.vehicle.boost_heat) param 'boost_speed' uses unknown variable
+'$boost_speed'`, then the package's transactional admission failed. The archive does carry
+`behavior/variables.json` with `boost_speed` (MP-RULES read the code; Integration's receipt
+`20261122T145159702291Z-authored_bundled_first_run_smoke-3546f99f`).
+
+Cause: `s_compileVehicleGraph` (`port/src/asset_runtime.c`) built the variables' path from the vehicle's MODEL path
+through `s_sourceMemberPath`, which takes everything before the FIRST "::". The bundled samples ship as `.pdmod`
+packages (PR 33), so the vehicle's members sit two archives deep (`pack.pdmod::vehicle.pdvehicle::...`) and the
+lookup named `pack.pdmod::behavior/variables.json`, which does not exist; it then compiled silently with no
+variables. The behavior graph itself loaded, from the catalog row's own full `::` path. Admission and the hydrate
+step both compiled this way. A vehicle archive that is itself the root (dev-mods, the vehicle smokes) has one "::",
+which is why nothing caught it, and `tests/test_maian_hover_vehicle.cpp` hands the variables to the compiler
+directly.
+
+Fix: the variables are the behavior graph's archive's member: the graph's path up to its LAST "::", plus
+`behavior/variables.json` (`assetRuntimeVehicleVariablesPath`); a bare graph member keeps the old sibling-of-the-
+model rule. Admission passes its behavior path and the hydrate step its `dependency_b`. A graph that names a
+`$variable` with no variables file is still refused by the variable's name. The test build now reads an archive
+member path `a::b` as the folder `a/b`, so pd-tests admit the bundled layout through `assetRuntimeVehicleGraphAdmits`
+(`tests/test_asset_runtime_adapters.cpp`, B-1313 case).
+
+Propagation: `s_sourceMemberPath`'s first-"::" rule is the class (a nested archive's sibling member resolved in the
+outermost archive). Its other users take full `::` member paths from the catalog row (the vehicle's physics and
+behavior files, part tables read inside the `.pdmesh` itself), so only the variables lookup was hit; a nested
+package's relative sibling members would be, if any appear.
+
+## 2026-11-22 B-1311 The offline AI-buddy smoke ended its mission the instant play began, so its gameplay wait never held (T-NETWORKING-007, fixed on week-pd/mp-rules-b1311, found in Integration's finalization run R5)
+
+The first game run of `coop_ai_buddies_offline_smoke` since B-1278 (candidate 3, dev 83d3aeb2, checkout fb107aef)
+failed 38/42. Everything in the game worked:
+- The offline Room opened and Start Match fired (`COOP.AIBUDDIES: offline start ... buddies=1 requested=2 max=1`).
+- Defection loaded and the buddy spawned (`spawned 1 of 1`).
+- `--debug-end-mission` ended the mission, and the end screen was up at 84.58 s (`MENUPOOL: acquired endscreen_solo`).
+
+The smoke missed all of it. Its first wait (`offline_gameplay_ready`, stable 2 s, with the cutscene-skip assist)
+starts at boot. The assist pressed and released in CI's fly-in (16.44 to 20.36 s) and never skipped Defection's
+intro of about 64 s. `--debug-end-mission 40:complete` counts stage time (`lvframe60`, intro included) and fires only
+in normal play, so it ended the mission at lvframe 3842, the instant play began. Play never held for 2 s, the wait
+timed out at 420 s, and the end-screen wait never started. The hosted twin passes because a networked co-op start
+does not sit through that intro.
+
+Fix (fixture only): `--debug-end-mission 100:complete`, which leaves about 36 s of play after an unskipped intro
+and also works if the assist does skip it. Rerun R8 (candidate 3, checkout 11cb964d) failed the same way, for the
+reason in B-1312: the timing was only half of it.
+
+## 2026-11-22 B-1312 A co-op mission started from the solo Room ran under the Room's menu input layer when the Room owned it (T-MENUS-009, T-NETWORKING-007, fixed on week-pd/mp-rules-b1312, found in Integration's finalization run R8)
+
+In R8 (candidate 3), with B-1311's fixture in place, Defection's intro ended at 84.3 s, the buddy spawned and the
+mission ended at 100 s to its results. Still, `offline_gameplay_ready` began its stability window only once, in
+CI before the Room opened. INPUTCTX shows why:
+- `gameplay` was at depth 1. At 16.97 the offline Room pushed `imgui_menu` at depth 2
+  (`MENUPOOL: acquired room ... ctx=imgui_menu(owned)`) and the mouse went to absolute mode.
+- Nothing popped it until the end screen took the slot at 02:00.33 ("marked for deferred removal", then "restored
+  relative mode for gameplay"). There was no input reset at the stage change.
+- The readiness wait needs the gameplay layer on top, so it could not hold.
+
+Cause: the offline Campaign start, `pdguiRoomStartOfflineCoop` (`pdgui_bridge.c`), was the one gameplay start that
+released no menu-pool slot. The Room's Combat Simulator start goes through `mpStartMatch`, which releases the whole
+pool before it asks for its stage (B-1076). The end screen's Retry and Next Mission release it after the same
+`menuhandlerAcceptMission` call, and Solo Missions pops `imgui_menu` itself. Both solo Room starts then called
+`pdguiSoloRoomClose()`, which only clears the Room's flags; Leave releases `MENU_TYPE_ROOM` first. A Room opened without
+the Main Menu's push (B-1278's `--launch-offline-room`) owns the layer. Its slot is PC-only
+(`menupoolLegacyStackOptional`), so the per-frame watchdog that reclaims leaked legacy-stack slots skips it. Same class
+as B-1042, which fixed the listen host's lobby only.
+
+Fix: `pdguiRoomStartOfflineCoop` releases every menu-pool slot after the mission start
+(`SCENE_STAGE_TRANSITION_RELEASE_MENU_POOL`, "room offline coop"), as the end screen's starts do. It first checks the
+stage archive repair status, as Solo Missions does: a stage not yet repaired returns -4 and the Room stays open, so the
+pool is never released without a stage request (before this, the Room closed with no mission started). Both solo Room
+starts also release `MENU_TYPE_ROOM` before `pdguiSoloRoomClose()`, as Leave does, so the Room never closes holding its
+slot. The release is idempotent, and a shared slot does not pop. Propagation: every caller of `pdguiSoloRoomClose()`
+releases first. Networked starts release at the lobby state boundary (B-1042) and in
+`netServerPrepareInClientStageTransition` (B-1076). Tests: `[b1312]` in `tests/test_net_mission_end_static.cpp`. Not yet
+seen with a human in normal play; the rerun is `coop_ai_buddies_offline_smoke` on candidate 4.
+
+Severity: high in play. This is from code, not a run:
+- Which starts. The layer stays only when the Room owns it. That happens on a co-op start from a Room the player came
+  back to from a Combat Simulator match's results. The CI reload pushes the legacy Combat Simulator dialog, which
+  attaches no input context, so the Room is first to claim `imgui_menu`. On a first visit from the Main Menu, the
+  Main Menu owns the layer. `menuReset` at the stage load empties the legacy stack, and the first `menuTick`'s watchdog
+  frees the Main Menu's slot, so that start recovers within a frame.
+- What the player sees. Every gameplay control is dead for the whole mission, on keyboard, mouse and pad, and the
+  mouse cursor is free (`gameplayInputSuppressed`; the gameplay input maps are ignored).
+- Ways out. A controller's Start still pauses: it is bound in the menu map too, and the pause menu's
+  `menuPushRootDialog` releases every slot, so Resume recovers. Keyboard Esc does not pause: Esc is bound to pause only
+  in the gameplay map, so keyboard and mouse players stay stuck until the mission ends.
+
+Combat Simulator starts were never affected. Integration carries this to Mike for v0.1.106's notes (candidate 3 ships
+without the fix).
+
+## 2026-11-22 B-1309 `release.ps1` would commit Codex's memory from a fresh clone of this public repository (T-RELEASE-006, open: Mike's decision)
+
+Found by claude-pd-integration-20261121 while preparing step 9's release in a fresh clone. Before
+building and again before pushing, `release.ps1` calls `Sync-ProjectMindState`
+(`devtools/project-state-sync.ps1`). That copies `%USERPROFILE%\.codex\memories\MEMORY.md` to
+`Tools/Workbench/exports/codex-memory-snapshot.md`; the script then runs `git add -A`, commits and pushes.
+No tracked rule ignores that path (a simulated clone with dev's ignore files did not ignore it), and the
+GitHub repository is public. Only the main checkout is protected, by an untracked
+`Tools/Workbench/exports/.gitignore` containing `*`, which ignores itself and so was never committed. The
+mirror has never been in any commit. The sync's commit body says code, Workbench state and Codex memory
+are meant to move together, so publishing it was once the design. Step 9's dry run and release use a
+clone that excludes `/Tools/Workbench/exports/` in `.git/info/exclude`. Open, for Mike: commit an ignore
+rule for the exports folder, stop the sync from copying the memory, or keep publishing it on purpose.
+
+## 2026-11-22 B-1308 The build queue's landing note targeted the job's issue, which the Workbench refuses when it is a bug id (T-TOOLING-020, fixed through the build queue)
+
+Found by claude-pd-integration-20261121 in Milestone 4: the worker's notes for q1 (B-1307) and q3
+(B-1304) were refused with HTTP 400, and the evidence update looked for a roadmap item of that id. The
+note and the evidence now go to the title's Workbench item (`Get-Pd2qLandingNoteTarget`), which the
+commit-msg check requires to be in the roadmap, and the note names the bug in its text. Test-Pd2qLeases.ps1
+checks both cases (86 checks). The two missed notes were added by hand (N-1209, N-1210).
+
+## 2026-11-22 B-1304 `release.ps1 -DryRun` still committed pending changes and pushed the branch (T-RELEASE-006, fixed through the build queue)
+
+Found by claude-pd-integration-20261121 while preparing step 9's dry run on the finalization candidate.
+Before building, and with `-SkipBuild` before packaging, `devtools/release.ps1` syncs project state, runs
+`git add -A`, commits "Tooling - c120: Sync live project state for release" and pushes the current branch.
+Neither block checked `-DryRun`, and the push ignored `-SkipPush`. A dry run therefore published whatever the
+working tree held: in a clean clone with untracked smoke storage that is gigabytes, and in the shared
+checkout it is every lane's uncommitted work. Fix: under `-DryRun` both blocks only say what they would do;
+under `-SkipPush` they commit but do not push. The later tag, push and release steps already honoured both.
+Still written by a dry run: the next version in CMakeLists.txt (local, for the build's version string).
+
+## 2026-11-22 B-1307 `pd2q edit -New` failed for every new file, and an empty file in dev read as missing (T-TOOLING-020, fixed through the build queue)
+
+Found by claude-pd-integration-20261121 when the build queue's Milestone 4 run stopped at its first
+`pd2q edit <new file> -New`, before submitting anything: "Exception calling WriteAllBytes ... Value cannot be
+null (Parameter 'bytes')". The command wrote `$(if ($null -eq $content) { [byte[]]@() } else { $content })`, and a
+PowerShell subexpression unrolls an empty array to `$null`. `Invoke-Pd2qGitBytes` had the same flaw: it
+returned its byte array unrolled, so an empty file or an empty diff reached the caller as `$null`. An empty
+file in dev then would not open without `-New`, and the scratch patch added it as a new file, which cannot
+apply to dev. Fix: the helper returns the array whole (`return , $ms.ToArray()`), and `edit` writes from a
+byte array variable. Test-Pd2qLeases.ps1 checks both (84 checks). The Milestone 3 worker test had passed
+because it ignores that command's exit code and writes the new file itself. Class: SP-102 (PowerShell
+unrolls an empty array to $null); the same reader in devtools/pdxxx-asset-tool.psm1 is left to its owner.
+
+## 2026-11-22 B-1302 Since D-052, simulants stall on stairs and ramps: Combat ends with no kill and a Hacker Central carrier never reaches the terminal (T-ENGINE-006, fixed on week-pd/mp-rules, found by Integration's finalization smokes)
+
+Found in Integration's group G1a on the step 9 candidate (dev 96882002, base 15), diagnosed by
+claude-pd-mp-rules-20261121. `mp_combat_local_scorelimit_smoke` (Felicity) ended by its 240 s time limit with
+no simulant kill. The stuck watchdog relocated its three simulants 20 times (`STUCK:`), and the one death was
+a suicide from the watchdog's 25% penalties. In `mp_hacker_central_local_smoke` (Complex) the uplink carrier
+walked back to the same spot, about 360 units from terminal pad 72, six times in 130 s and never downloaded.
+`MODE.PARITY` showed differ=0 in every run, and the B-1204 pad boxes were in effect. Combat passed on 11-16
+and 11-20 (base 14), before D-052 landed.
+
+Root cause: D-052 (386a9389, merged by PR 23 as 5cdacc72 on 11-21) turned Bot Jumping on by default. With it
+on, `chrFindMovementGround` (`src/game/chr.c`) gave a walking simulant `capsuleFindSupportForProp` from 20
+units over its feet (`manground + 20`) instead of the original search, which chr0f01f378 starts at
+`manground + 69`. While a chr climbs, manground trails the floor by up to 30 units (the sumground smoothing
+and its clamp), so on stairs and steeper ramps the floor was above the search. The lookup returned a lower
+floor, the simulant fell against the slope, and its horizontal collision held it there.
+
+Fix: walking simulants use the original search again, with the rendered-floor check. Where no tile is at
+their feet (a table, a prop, a lift after a jump), the new support may raise that ground, as the player's
+`bwalkUpdateVertical` does. Where the rendered floor already found that surface, the support supplies its room,
+flags and lift (Codex review: otherwise a simulant on a mesh-only lift kept the tile's metadata, and
+`liftIsVacant` could see the lift as empty). It never lowers the ground. The under-the-feet support
+(`manground + 0.5`) is used only during a jump, from its impulse to `botJumpOnLand` (`botJumpInFlight`).
+`chrStepSimulantAirborne` steps a jump and any simulant fall onto a ground under its feet. It clamps the
+last step of a long fall to the ground, where `chr0f01f264` would refuse a step the sweep finds blocked and
+leave the simulant hanging over the floor (Codex review). A ground at or over the feet keeps the original
+landing. A jump that ends on the ground without a landing now ends there too, so the next jump is not blocked.
+Propagation: the player's support only raises a legacy ground, and `botJumpProbeFlight` models
+the flight's own support, so neither is affected (SP-101). Tests: `[jump]` static pins in
+`tests/test_jump_two_stage_design.cpp`. Not yet checked in play: Integration reruns G1 (the six local mode
+smokes), G2 (the four ledge and tabletop smokes), G3 (co-op AI) and G4 (net simulants) on the fixed candidate.
+Severity high: every mode with simulants on any arena with stairs or ramps, since 11-21.
+
+## 2026-11-22 B-1306 The stuck watchdog moved simulants standing on station, such as a Capture the Case guard on its own case, with the 25% penalty each time (T-ENGINE-006, fixed on week-pd/mp-rules, found in Integration's finalization run R2)
+
+Integration's R2 (dev fbf2822d) passed, but `mp_capture_the_case_local_smoke` still logged 10 `STUCK:` lines. Nine
+were one simulant: simulant 2, team 2, command SAVECASE, relocated every 6 to 18 s from 42 s on. Cause (read from
+the code): with its case at home a SAVECASE simulant goes to the case's position, and within 20 units on each axis
+`botTickUnpaused` stands it there (`chrStand`) in `MA_AIBOTMAINLOOP`. The port's stuck watchdog (F.5, 2026-09-22)
+counts `MA_AIBOTMAINLOOP` as navigation intent, so after 3 s standing guard it moved the simulant away with the
+25% penalty, and the simulant walked back. A King of the Hill holder on its hill pad is moved the same way (R2's one
+KOH `STUCK:` line was a HOLDHILL simulant). Same class as B-1207 (a download at the terminal). Fix: the watchdog
+skips a simulant on station: in the main loop, not on a route (`actiontype != ACT_GOPOS`), and within 50 units xz
+and 200 in height of its `gotopos` (`botStuckIsOnStation`). A simulant wedged while routing (`ACT_GOPOS`), or standing
+anywhere but its last go-to, is still moved. Propagation: `MA_AIBOTDEFEND` (defend and hold), `MA_AIBOTFOLLOW` and
+`MA_AIBOTATTACK` were never in the intent list, and B-1207 took out `MA_AIBOTDOWNLOAD`. Tests:
+`[b1306]` in `tests/test_net_bot_pickup_static.cpp`. Not yet checked in play. Severity medium: guards teleported
+in front of players, and the penalty could kill them.
+
+## 2026-11-22 B-1305 Once simulants worked, two smoke assumptions failed: objective smokes expected a time-limit end, and the Combat score-limit smokes waited on a chance kill (T-MODDING-026, T-NETWORKING-011, fixed on week-pd/mp-rules, found by Integration's finalization rerun R1)
+
+Integration's R1 on dev fbf2822d (base 15, B-1302 fixed: no STUCK line in any run) showed two more fixture
+assumptions. (1) `mp_hacker_central_local_smoke` ended by the score limit: a simulant downloaded five times
+(43 s to 124 s, 2 points each) and reached Hacker Central's default 10 inside the 150 s match, so its required
+`MATCH: stage end reason=timelimit` was missing. All five objective smokes were written to end at 150 s when
+simulants rarely scored. (2) `mp_combat_local_scorelimit_smoke` ran its full 240 s with no kill. The simulants
+fought each other (21 hits: Falcon 2 for 1, MagSec 4 for 1.1, DY357 for 2, at the original cadence; no
+`WEAPON.RULE differs` line; `botact.c` unchanged since 11-20), but about 33 points of damage spread over three
+simulants that refill 8-point shields from Felicity's two shield pickups. A kill takes 16 points on one. Kills are
+rare in every local run on both candidates (0 to 2 a match), and August's Combat smokes injected kills for the same
+reason, so a first kill in 240 s is chance; it is not a team bug. Fix: the five objective smokes pass
+`--match-scorelimit 100 --match-teamscorelimit 400` (out of reach in 150 s) and require both boot lines. For Combat,
+PR 47 seeded One-Hit Kills (`--debug-mp-options 0x10200001`), and candidate 3's rerun showed that it cannot work:
+the seed was applied at boot, then `MATCH: options=0x10200000`. `mpStartMatch` strips `MPOPTION_ONEHITKILLS` on an
+offline start unless the profile unlocked it (`challengeIsFeatureUnlocked`, the original's rule), and a clean smoke
+install has not. An unlocked agent profile cannot fix that on the direct debug path either: the match starts as soon
+as the boot stage has a player, before `--launch-load-agent` fires at frame 4. That run still ended by a real kill,
+at about 220 s. So the local Combat smoke has no seed; its time limit is a 600 s backstop, with its end-screen wait
+(620 s) and runner timeout (720 s) grown to fit. The match still ends at the first kill, so a normal run is no
+longer. The networked smoke is back to its pre-B-1305 form, because its fixed 480 s exit leaves no room for a longer
+clock; it passed on 11-16. Tests: `[smokes]` in `tests/test_mode_graph_program.cpp`. Severity low (test only). If
+simulants still seem too passive in play, that is a tuning question for Mike, not this fixture.
+
+## 2026-11-22 B-1303 The six local mode smokes required a respawn, so a match where nobody died failed (T-MODDING-026, fixed on week-pd/mp-rules, found by Integration's finalization smokes)
+
+My gamemode-graphs slice 1 fixtures (`mp_*_local*_smoke.json`, six of them) required
+`spawn=[1-9][0-9]*` in the `MODE.EVENTS` stage-end line. `MODE_EVENT_SPAWN` counts respawns only
+(`scenarioChooseSpawnLocation`), so a match with no death logs spawn=0. Hold the Briefcase failed that way in
+G1a even though its holder scored 4, and a score-limit-1 Combat can end on its first kill before the victim
+respawns. Fix: `spawn=[0-9]+`. The `tick=` requirement, which shows the mode program ran, stays.
+Severity low (test only).
+
+## 2026-11-21 B-1293 A .pdpack import could write outside the mods folder, and into another mod's folder (CAT-C01, T-MODDING-022, fixed in code, no live caller)
+
+Found by the 2026-11-20 full audit (CAT-C01) and widened in the fix (claude-pd-authored-mods-20261121).
+`port/src/modpack.c` joined each component archive's member path to its destination verbatim, so `..`
+steps, absolute paths and Windows device names reached the filesystem; it joined the pack's own category
+and component id strings the same way; and its root was `fsGetModDir()`, which returns the first enabled
+mod's own folder, so an import landed inside another mod. Fix: every folder name a pack supplies must be
+one safe path component (`modpackArchiveNameIsSafe`, checked for the whole pack before anything is
+written); members go only through `pdcaExtractArchiveBegin` (the received-PDCA extractor's path and alias
+rules); every component is published, then all are committed together or all rolled back; sizes and the
+compression byte are checked; the root is `modmgrGetModsDir()`. CAT-C02 in the same file: members in
+sorted path order and no `created=` date, so the same components give the same pack
+(`port/src/modpack_archive.c`). Nothing in the game calls `modpackImport` or `modpackExport` today.
+Tests: `[modpack]` (`tests/test_modpack_archive.cpp`).
+
+## 2026-11-21 B-1294 Network distribution packs a loose mod's PDCA archive in directory order (T-MODDING-023 propagation, open, networking's file)
+
+Found while fixing CAT-C02 (claude-pd-authored-mods-20261121). `buildArchiveDir` in
+`port/src/net/netdistrib.c` appends a loose mod folder's files in `readdir` order, the order CAT-C02
+named for `.pdpack`, so two hosts can send different bytes for the same files. Harmless while nothing
+hashes that archive; it matters as soon as a digest covers it. Not changed here (networking's file).
+Fix: collect, sort by path, then append, as `modpackArchiveBuild` does.
+
 ## 2026-11-21 B-1283 Bare `cmd` in PowerShell opened a 3D-printing slicer about 260 times: it resolves to an extensionless msys script, which Windows opens by file type (T-TOOLING-017, fixed and guarded)
 
 Severity high: it crashed Claude on Shadowbane on 2026-11-21. Found by claude-pd-integration-20261121.

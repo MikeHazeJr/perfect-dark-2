@@ -8,9 +8,9 @@
   "descriptor": {
     "dual_wieldable": "0",
     "muzzlez": "1.0",
-    "posx": "9.5",
-    "posy": "-16.2",
-    "posz": "-23.0"
+    "posx": "10.5",
+    "posy": "-12.9",
+    "posz": "-24.5"
   },
   "overrides": [
     { "entry": "behavior/primary.graph.json", "file": "behavior/primary.graph.json" },

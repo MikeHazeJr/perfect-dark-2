@@ -1,0 +1,136 @@
+{
+  "scenario_name": "character_tool_play_smoke",
+  "description": "T-MODDING-024 (Mike 2026-11-21: prove the Characters tool makes a character in game with a stand-in body; the Maian veteran is shelved). One ordinary client launch: --debug-character-tool-create runs the functions the Characters tool's Use as Template and Create + Enable buttons call, on the extracted base Maian soldier character, and saves it as 'Standin_Veteran' (mod:character_standin_veteran). The character keeps its template's body and head, renamed into the mod's namespace: that base Maian body is the local stand-in (BYOR: it embeds the player's own extracted data, so it is not shared). The mod author writes, validates, enables and applies the mod; then --launch-mp-room seeds a Combat Simulator match in which the bots wear that character's body and head, one bot is placed in view, and the render audit sees it drawn. No mod exists before the launch. It does not pick the character from the Room's list (smokes cannot press ImGui menus, B-1281), and it does not click through the hub's windows.",
+  "tags": [
+    "modding",
+    "characters-tool",
+    "modding-hub",
+    "pdcharacter",
+    "body",
+    "head",
+    "combat-sim",
+    "match-start",
+    "smoke",
+    "pillar:modding",
+    "T-MODDING-024"
+  ],
+  "paths_of_interest": [
+    "port/fast3d/pdgui_menu_charactertool.cpp",
+    "port/src/character_tool.c",
+    "port/src/mod_author.c",
+    "port/src/mod_author_runtime.c",
+    "port/src/asset_archive_clone.c",
+    "port/src/assetcatalog_api.c",
+    "port/src/net/matchsetup.c",
+    "port/src/main.c"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods/Characters/character_standin_veteran"
+  ],
+  "fixtures": [
+    {
+      "src": "tools/smoke-verify/fixtures/no_mods_enabled.json",
+      "dst": "mods-enabled.json"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--debug-generated-mesh-render-audit",
+    "--debug-character-tool-create",
+    "base:character_maian_soldier",
+    "--debug-character-tool-name",
+    "Standin_Veteran",
+    "--launch-mp-room",
+    "base:arena_chicago",
+    "base:combat",
+    "4",
+    "--debug-bot-body",
+    "mod:character_standin_veteran__body_maian_soldier",
+    "--debug-bot-head",
+    "mod:character_standin_veteran__head_head_maian_s",
+    "--debug-place-bot-near-player",
+    "--debug-spawn-weapon",
+    "base:dy357",
+    "--debug-auto-start-match"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Boot; the creator runs once the catalog is initialised (a CLI fast path, before --launch-mp-room in the same dispatcher), saves, enables and applies the character mod; then the Combat Simulator config is seeded with the character's body and head on the bots and the match starts directly."
+    },
+    {
+      "at_ms": 150000,
+      "type": "exit",
+      "comment": "About 45 s of boot on the hard disk before the CLI fast paths, the save and apply, then the Chicago load, the bot spawn, the source model conversion and the render audit."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=character_tool_play_smoke",
+      "CHARMOD\\.DEBUG\\.CREATE\\.BEGIN template=base:character_maian_soldier display='Standin_Veteran' ",
+      "CHARMOD\\.TEMPLATE\\.START template=base:character_maian_soldier kind=character archive='.*base_character_maian_soldier\\.pdcharacter'",
+      "CHARMOD\\.SAVE\\.BEGIN kind=character catalog=mod:character_standin_veteran template=base:character_maian_soldier display='Standin_Veteran' ",
+      "MODAUTHOR\\.SAVE\\.OK kind=character catalog=mod:character_standin_veteran mod_id=mod\\.character_standin_veteran updated=0 ",
+      "MODAUTHOR\\.ENABLE\\.OK mod_id=mod\\.character_standin_veteran ",
+      "CHARMOD\\.SAVE\\.OK kind=character catalog=mod:character_standin_veteran mod_id=mod\\.character_standin_veteran ",
+      "CHARMOD\\.DEBUG\\.CREATE\\.RESULT result=OK catalog=mod:character_standin_veteran",
+      "BOOT: --debug-character-tool-create template=base:character_maian_soldier name='Standin_Veteran' result=OK",
+      "BOOT: --debug-bot-body 'mod:character_standin_veteran__body_maian_soldier' mpbody=\\d+",
+      "BOOT: --debug-bot-head 'mod:character_standin_veteran__head_head_maian_s' mphead=\\d+",
+      "BOOT: --debug-bot-appearance applied slot=\\d+ body='mod:character_standin_veteran__body_maian_soldier' head='mod:character_standin_veteran__head_head_maian_s' mpbody=\\d+ mphead=\\d+",
+      "MATCHSETUP: bot slot \\d+: .* body='mod:character_standin_veteran__body_maian_soldier' head='mod:character_standin_veteran__head_head_maian_s' mpbody=\\d+ mphead=\\d+",
+      "BOOT: --debug-auto-start-match consumed",
+      "BOOT: --launch-mp-room direct match start",
+      "BOOT: --debug-place-bot-near-player consumed: bot=.* result=OK .*",
+      "BOT\\.RENDER\\.AUDIT: stage=propsSort-included .* body=\\d+ head=\\d+ .*",
+      "BOT\\.RENDER\\.AUDIT: stage=chrRender-matrix-ondemand .* body=\\d+ head=\\d+ .*",
+      "BOT\\.RENDER\\.AUDIT: stage=chrRender-modelRender .* body=\\d+ head=\\d+ .*",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "MODAUTHOR\\.[A-Z.]*FAIL",
+      "CHARMOD\\.SAVE\\.[A-Z_]*FAIL",
+      "CHARMOD\\.SAVE\\.(NO_TEMPLATE|BAD_DISPLAY_NAME|BAD_FORM|NAME_TAKEN)",
+      "CHARMOD\\.DEBUG\\.CREATE\\.RESULT result=FAIL",
+      "BOOT: --debug-character-tool-create .* result=FAIL",
+      "BOOT: --debug-bot-(body|head) failed",
+      "mesh source bridge belongs to another catalog ID",
+      "native model bridge ownership collision",
+      "modmgr: mod\\.json validation failed for 'mod\\.character_standin_veteran'",
+      "BODY\\.IDENTITY",
+      "refusing slot-0 visual fallback",
+      "LOUDFAIL\\.FALLBACK",
+      "ASSET\\.FALLBACK",
+      "MATCHSETUP: bot slot \\d+: .* body='base:dark_combat'"
+    ],
+    "required_counts": [
+      {
+        "pattern": "CHARMOD\\.SAVE\\.OK kind=character catalog=mod:character_standin_veteran",
+        "min": 1,
+        "max": 1
+      },
+      {
+        "pattern": "BOOT: --debug-bot-appearance applied slot=\\d+ body='mod:character_standin_veteran__body_maian_soldier'",
+        "min": 1,
+        "max": 4
+      },
+      {
+        "pattern": "BOT\\.RENDER\\.AUDIT: stage=chrRender-modelRender",
+        "min": 1,
+        "max": 4
+      }
+    ]
+  }
+}

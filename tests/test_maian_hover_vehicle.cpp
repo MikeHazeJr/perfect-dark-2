@@ -248,3 +248,61 @@ TEST_CASE("the Maian hover vehicle recipe builds a vehicle with its own typed mo
 	}
 	CHECK(parts.find("\"partnum\": 129,") == std::string::npos);
 }
+
+/* The bundled sample (dev-mods/vehicle_maian_hover, a dev-mods.json release
+ * entry) is exactly what the game's mod author builds from the recipe, so
+ * the shipped package can never drift from its source. To regenerate it
+ * after changing the recipe or its files, run this case with
+ * PD2_TEST_ARTIFACT_DIR set and copy <dir>/vehicle_maian_hover/ over
+ * dev-mods/vehicle_maian_hover/. */
+TEST_CASE("the bundled Maian hover vehicle package is what its recipe builds",
+          "[modding][author][recipe][maian-vehicle][bundled][T-RELEASE-007]") {
+	const fs::path source = fs::path(PD_SOURCE_DIR) / "dev-mods";
+	HoverTempDir mods;
+	const std::string modsRoot = mods.path.string();
+
+	char err[512] = "";
+	std::unique_ptr<mod_author_recipe_t, HoverRecipeDeleter> recipe(
+		modAuthorRecipeLoadFile((source / "maian_hover_vehicle" / "recipe.json").string().c_str(),
+			err, sizeof(err)));
+	INFO("recipe: " << err);
+	REQUIRE(recipe);
+	mod_author_request_t request;
+	modAuthorRecipeToRequest(recipe.get(), nullptr, modsRoot.c_str(), &request);
+	auto result = std::make_unique<mod_author_result_t>();
+	REQUIRE(modAuthorSave(&request, result.get(), err, sizeof(err)) == MOD_AUTHOR_OK);
+
+	const std::string builtArchive = hoverReadFile(result->archive_path);
+	const std::string builtManifest = hoverReadFile(result->manifest_path);
+	REQUIRE_FALSE(builtArchive.empty());
+	REQUIRE_FALSE(builtManifest.empty());
+
+	/* The mod author's own folder is a package: its manifest and the archive. */
+	size_t files = 0;
+	for (const auto &entry : fs::recursive_directory_iterator(fs::path(result->archive_path).parent_path())) {
+		if (entry.is_regular_file()) files++;
+	}
+	CHECK(files == 2);
+
+	const fs::path bundled = source / "vehicle_maian_hover";
+	const std::string shippedArchive = hoverReadFile(bundled / "vehicle_maian_hover.pdvehicle");
+	const std::string shippedManifest = hoverReadFile(bundled / "mod.json");
+	const bool same = shippedArchive == builtArchive && shippedManifest == builtManifest;
+	if (!same) {
+		if (const char *keep = std::getenv("PD2_TEST_ARTIFACT_DIR")) {
+			if (keep[0]) {
+				std::error_code ec;
+				const fs::path out = fs::path(keep) / "vehicle_maian_hover";
+				fs::create_directories(out, ec);
+				fs::copy_file(result->archive_path, out / "vehicle_maian_hover.pdvehicle",
+					fs::copy_options::overwrite_existing, ec);
+				fs::copy_file(result->manifest_path, out / "mod.json",
+					fs::copy_options::overwrite_existing, ec);
+			}
+		}
+	}
+	INFO("dev-mods/vehicle_maian_hover differs from what the recipe builds; see the comment above");
+	CHECK(shippedArchive == builtArchive);
+	CHECK(shippedManifest == builtManifest);
+	CHECK(shippedManifest.find("\"id\": \"mod.vehicle_maian_hover\"") != std::string::npos);
+}

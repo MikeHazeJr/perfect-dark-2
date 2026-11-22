@@ -1,0 +1,104 @@
+{
+  "scenario_name": "authored_bundled_first_run_smoke",
+  "description": "T-RELEASE-007 (Mike 2026-11-21: bundle crystal_pistol, maian_hover_vehicle, blank_room, model_room and grid_two_rooms by default). An install that carries the bundled samples the way a release or a local build stages them (mods/bundled/<id>.pdmod and bundled-mods.sha256 from tools/stage_bundled_samples.py) and a profile with no saved mod choice: the mod manager enables all five verified packages on its own, and the catalog then loads the pistol, the hover vehicle and the three arenas by id. Before the run, stage the commit under test: python -B tools/stage_bundled_samples.py --install-root C:/Users/mikeh/Perfect-Dark-2/pd2-authored-smoke/stage. It does not open the weapon picker or the Grid's map list (smokes cannot press ImGui menus, B-1281).",
+  "tags": [
+    "modding",
+    "bundled-samples",
+    "release",
+    "first-run",
+    "smoke",
+    "pillar:modding",
+    "T-RELEASE-007"
+  ],
+  "paths_of_interest": [
+    "port/src/modmgr.c",
+    "port/src/modmgr_bundled_samples.c",
+    "tools/stage_bundled_samples.py",
+    "devtools/release.ps1",
+    "devtools/build-headless.ps1",
+    "dev-mods/dev-mods.json"
+  ],
+  "log_channel_mask": "all",
+  "verbose": 0,
+  "timeout_seconds": 300,
+  "install_state": "clean",
+  "remove_paths": [
+    "mods",
+    "mods-enabled.json",
+    "bundled-mods.sha256"
+  ],
+  "fixtures": [
+    {
+      "src": "../pd2-authored-smoke/stage/mods/bundled",
+      "dst": "mods/bundled"
+    },
+    {
+      "src": "../pd2-authored-smoke/stage/bundled-mods.sha256",
+      "dst": "bundled-mods.sha256"
+    },
+    {
+      "src": "tools/smoke-verify/fixtures/pdmod_migration_done.txt",
+      "dst": "mods/.pdmod-migration-done"
+    }
+  ],
+  "boot_args": [
+    "--no-update-check",
+    "--no-sound",
+    "--no-net",
+    "--portable",
+    "--skip-intro",
+    "--debug-exit-after-catalog-probes",
+    "--debug-load-catalog-assets",
+    "weapon=mod_crystal_pistol:crystal_pistol,vehicle=mod:vehicle_maian_hover,arena=mod_blank_room:arena_blank_room,arena=mod_model_room:arena_model_room,arena=mod_grid_two_rooms:arena_grid_two_rooms"
+  ],
+  "input_sequence": [
+    {
+      "at_ms": 0,
+      "type": "wait",
+      "comment": "Boot; the mod manager reads bundled-mods.sha256 with no saved choice and enables each verified package; the catalog probes run after the CLI fast paths and end the launch."
+    },
+    {
+      "at_ms": 200000,
+      "type": "exit",
+      "comment": "Fallback only: --debug-exit-after-catalog-probes normally ends the launch once the probes are done."
+    }
+  ],
+  "assertions": {
+    "required_lines": [
+      "SMOKE: scenario=authored_bundled_first_run_smoke",
+      "modmgr: selected bundled sample 'crystal_pistol'",
+      "modmgr: selected bundled sample 'mod\\.vehicle_maian_hover'",
+      "modmgr: selected bundled sample 'blank_room'",
+      "modmgr: selected bundled sample 'model_room'",
+      "modmgr: selected bundled sample 'grid_two_rooms'",
+      "modmgr: loading mod 'crystal_pistol' from archive '.*mods[/\\\\]bundled[/\\\\]crystal_pistol\\.pdmod'",
+      "modmgr: loading mod 'mod\\.vehicle_maian_hover' from archive '.*mods[/\\\\]bundled[/\\\\]mod\\.vehicle_maian_hover\\.pdmod'",
+      "modmgr: loading mod 'blank_room' from archive '.*mods[/\\\\]bundled[/\\\\]blank_room\\.pdmod'",
+      "modmgr: loading mod 'model_room' from archive '.*mods[/\\\\]bundled[/\\\\]model_room\\.pdmod'",
+      "modmgr: loading mod 'grid_two_rooms' from archive '.*mods[/\\\\]bundled[/\\\\]grid_two_rooms\\.pdmod'",
+      "BOOT: --debug-load-catalog-assets result type=weapon id='mod_crystal_pistol:crystal_pistol' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=vehicle id='mod:vehicle_maian_hover' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=arena id='mod_blank_room:arena_blank_room' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=arena id='mod_model_room:arena_model_room' result=OK",
+      "BOOT: --debug-load-catalog-assets result type=arena id='mod_grid_two_rooms:arena_grid_two_rooms' result=OK",
+      "SMOKE: result=scripted_exit"
+    ],
+    "forbidden_patterns": [
+      "EXCEPTION_ACCESS_VIOLATION",
+      "ACCESS_VIOLATION",
+      "FATAL: ",
+      "SMOKE: result=timeout",
+      "modmgr: ignored bundled sample inventory",
+      "modmgr: bundled sample '.*' not selected",
+      "modmgr: bundled sample '.*' no longer matched its package",
+      "BOOT: --debug-load-catalog-assets result type=[a-z]+ id='[^']*' result=(FAIL|MISSING)"
+    ],
+    "required_counts": [
+      {
+        "pattern": "modmgr: selected bundled sample '",
+        "min": 5,
+        "max": 5
+      }
+    ]
+  }
+}

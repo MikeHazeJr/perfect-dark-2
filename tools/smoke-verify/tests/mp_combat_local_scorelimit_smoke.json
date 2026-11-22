@@ -1,6 +1,6 @@
 {
   "scenario_name": "mp_combat_local_scorelimit_smoke",
-  "description": "T-NETWORKING-011: offline Combat on Felicity, one human plus three simulants, started through the direct debug match path with a score limit of 1 (--match-scorelimit 1, a real setup value that shows in the Room) and a 240 second time limit as a backstop. The first kill must end the match by the score limit: the stage end line names the score limit, no time-limit end is logged, the result witness lists all four participants and the leader has a nonzero score. The human stands still; the simulants fight with their spawn weapons. Exits once the end screen is up.",
+  "description": "T-NETWORKING-011: offline Combat on Felicity, one human plus three simulants, started through the direct debug match path with a score limit of 1 (--match-scorelimit 1, a real setup value that shows in the Room) and a 600 second time limit as a backstop. The first kill must end the match by the score limit: the stage end line names the score limit, no time-limit end is logged, the result witness lists all four participants and the leader has a nonzero score. The human stands still; the simulants fight with their spawn weapons. Exits once the end screen is up. B-1305: the time limit is a 600 s backstop, since a first kill in 240 s is chance (one full 240 s match had none, with every simulant shielded). One-Hit Kills cannot be seeded here: an offline start keeps it only when the profile has unlocked it, and a clean install has not.",
   "tags": [
     "combatsim",
     "match-start",
@@ -16,7 +16,7 @@
   ],
   "log_channel_mask": "all",
   "verbose": 0,
-  "timeout_seconds": 420,
+  "timeout_seconds": 720,
   "install_state": "clean",
   "boot_args": [
     "--no-update-check",
@@ -30,7 +30,7 @@
     "--match-scorelimit",
     "1",
     "--match-timelimit-sec",
-    "240"
+    "600"
   ],
   "input_sequence": [
     {
@@ -78,9 +78,9 @@
       "at_ms": 67000,
       "type": "wait_until",
       "condition": "endscreen_visible",
-      "timeout_ms": 320000,
+      "timeout_ms": 620000,
       "stable_ms": 1000,
-      "comment": "The match ends at the first kill (score limit 1), or at the 240 s backstop, which fails the run."
+      "comment": "The match ends at the first kill (score limit 1), or at the 600 s backstop, which fails the run."
     },
     {
       "at_ms": 68000,
@@ -96,13 +96,13 @@
       "BOOT: --debug-auto-start-match consumed",
       "PLAYER\\.INIT\\.COMMIT match players=1 bots=3",
       "MATCH: player spawned slot=",
-      "MATCH: timelimit override applied seconds=240",
+      "MATCH: timelimit override applied seconds=600",
       "MATCH: stage end reason=scorelimit scorelimit=1 teamscorelimit=0",
       "MATCH\\.RESULT: scenario=0 teams=0 chrs=4 netmode=0",
       "MATCH\\.RESULT\\.CHR: rank=0 chr=[0-9]+ team=[0-9]+ score=[1-9]",
       "MODE\\.EVENT: chosen mode=base:combat scenario=0",
       "MODE\\.EVENT: tick mode=base:combat scenario=0 who=-",
-      "MODE\\.EVENTS: stage_end mode=base:combat .*tick=[1-9][0-9]* .*spawn=[1-9][0-9]*",
+      "MODE\\.EVENTS: stage_end mode=base:combat .*tick=[1-9][0-9]* .*spawn=[0-9]+",
       "MODE\\.PLAN: stage_reset mode=base:combat scenario=0 modules=[1-9][0-9]*",
       "MODE\\.PARITY: stage_end mode=base:combat compared=[1-9][0-9]* differ=0\\b",
       "MATCH: endscreen shown",

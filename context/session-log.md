@@ -1,5 +1,35 @@
 # Session Log (Active)
 
+2026-11-21 INTEGRATION (claude-pd-integration-20261121), 23:25 UTC to 2026-11-22 (interim entry at 10:40 UTC), the successor of Session A after the Shadowbane crash. Mike's assignment: steps 7 to 9 (the smoke runner's prepare/execute boundary, the no-worktree build queue per his spec, the finalization smokes and the release), in the canonical checkout without switching its branch, no worktrees, never main. Done: **cleanup** (T-TOOLING-017: 130 folders, 118.5 GiB; B-1283, the bare `cmd` that opened Chitubox, fixed on dev f3e323ca, SP-100); **prepare/execute** (T-TOOLING-019, PR 35, dev b79ac511); **build timing** (Milestone 0, PR 38: `-Target full`, pd-tests at -g0, a cold clean build in 128 s); **the build queue** (T-TOOLING-020, `tools/pd2-queue`, PR 41 merged as d58efdfd after all 25 Codex findings were fixed; Milestones 1 to 6 in `context/evidence/2026-11-22-pd2q-milestones.md`; Milestone 4's jobs were its first real landings: q1 3f6e2cc0 B-1307, q2 a5a6e931 the evidence file, q3 1dc7a7b8 B-1304; the scheduled-task install and the reboot test wait for Mike); **B-1304** (`release.ps1 -DryRun` committed and pushed; fixed); **B-1307** (`pd2q edit -New` failed for every new file; SP-102, PowerShell unrolls an empty array to $null); **the release dry run** (a fresh clone of dev 1dc7a7b8: v0.1.106, 42 files, which are v0.1.105's 35 plus the five bundled samples, `bundled-mods.sha256` and `Open Mods Folder.lnk`; the BYOR and typed-archive checks pass; nothing committed or pushed). Step 9 smokes so far: on dev 96882002, G5a 3/3 and G5b 2/3 (the RCP120 miss was the smoke's; PR 46). On candidate 2, dev fbf2822d (PR 45, D-052's ground search), G1a 1/3 and G1b 3/3 (the misses were fixture assumptions: B-1305, PR 47). Candidate 3, dev 83d3aeb2 (PR 48, B-1306: the stuck watchdog relocated guards), is the release candidate: PerfectDark.exe sha256 6ac0a87c...115e, pd-tests 2,639 cases / 720,832 assertions. Found and open: **B-1308** (the worker's Workbench note targets the job's issue, and the Workbench refuses a bug id; fixed, landing through the queue), **B-1309** (`release.ps1`'s sync step would commit Codex's memory from any fresh clone of this public repository; the step 9 clone excludes it; Mike decides on a tracked rule). Next: the six G1 local modes, G2, G3, G4, the Authored Mods and Room singles and the startup A/B pair on candidate 3, then the v0.1.106 pre-release from a fresh clone. Core Weapons holds PR 44 and PR 49 until the release cut.
+
+2026-11-21 AUTHORED MODS (claude-pd-authored-mods-20261121), 04:29 to 05:15 UTC, then 23:24 UTC to
+03:50 UTC on 11-22, after the Shadowbane crash. Mike's order: seven items, canonical checkout, own branch
+`week-pd/authored-mods` from dev (temporary-index commits; HEAD and the shared index never switched),
+merge proven work to dev, smokes listed for Integration's finalization batch. Each commit is built
+from an exact export of itself (`C:\Users\mikeh\Perfect-Dark-2\authored-src`, the MP-RULES pattern).
+On dev with PR 33 (`96882002`, 2026-11-22): **bundled samples** (D-053 decided: A, widened to five;
+`crystal_pistol`, `mod.vehicle_maian_hover`, `blank_room`, `model_room`, `grid_two_rooms`, dev and
+release true; `tools/stage_bundled_samples.py` packs each from `mod.json` and its top-level typed
+archives into `mods/bundled/<id>.pdmod` and writes `bundled-mods.sha256`, for `release.ps1` and
+`build-headless.ps1` alike; `modmgr.c`'s pistol-only first-run enable is now the verified inventory,
+`modmgr_bundled_samples.c`; the hover vehicle ships as `dev-mods/vehicle_maian_hover`, byte-identical to
+what its recipe builds, pinned by `[maian-vehicle][bundled]`); **Crystal Pistol 0.2.1** (posx 10.5 and
+posz -24.5 from its own grip and bounds, no Phoenix values; rebuilt by the vault's `build_pdweapon.py`,
+only `weapon.ini` changed; the retired 0.1.0 recipe and its test take the same numbers); **Tripo**
+(README Credits: "Some 3D models in this project were created using Tripo3D"); **CAT-C01** (B-1293)
+and **CAT-C02** in `.pdpack` (`modpack_archive.c`); **Open Mods Folder** in `release.ps1` (N-1086; it
+starts `explorer.exe` by its full path, Mike's rule after the Chitubox crash); **startup A/B** generator,
+tests and finalization recipe (`tools/smoke-verify/STARTUP-AB.md`, inputs in
+`C:\Users\mikeh\Perfect-Dark-2\pd2-startup-ab`); **Characters tool** proof as
+`character_tool_play_smoke`. Codex review fixes: first-run flags are per sample (a player's own copy
+that won the scan can be enabled by hand), and `removeTree` in `pdca_extract_transaction.c` removes a
+junction or symbolic link without following it (netdistrib's received mods too). Proof at the landed
+head `27a30d95` (dev `b66065f8` merged in): exact export built (client, pd-tests), pd-tests 2,636 cases
+/ 720,734 assertions all passed, the guards and the CI workflow's Python checks pass, stager 9/9, A/B
+generator 4/4, Open Mods Folder 33 checks with the explorer start mocked, hosted CI green. Nothing run
+in a game. Open: the finalization smokes (week note entry, Integration's group G6), Mike's look at the
+pistol's held view, B-1294 (networking's file). Next in this lane: whatever those smokes report.
+
 2026-11-21/22 CORE WEAPONS (claude-pd-core-weapons-20261121), 21:00 UTC onward (after the morning's
 slices 1 and 2). Mike's assignment: held weapons on behavior graphs, the eight slices of the gun-code
 audit (artifact `7fgSVVLGzHGRddzXoUJ1Xz`), in the order 1-5, projectile slice 7, 6, 7, 8; own branches
@@ -73,6 +103,24 @@ rev-parse`), and heredocs for anything with doubled backslashes (Write or Edit i
 `MODE.PARITY ... differ=0`), the network mode smokes (protocol v67), `room_load_preset_smoke` and
 `room_quick_start_smoke` (PR 39), and any smoke on a re-extracted base for the six `MODE.GRAPH: program`
 lines and `LANG.STAGE ... source=archive`.
+Then (2026-11-22, 05:00 UTC onward) Integration's finalization groups G1a and G1b failed on candidate
+dev 96882002 (base 15), and the cause was mine. **B-1302**: since D-052, walking simulants searched for ground
+from only 20 units over their feet instead of the original 69, so stairs and ramps dropped out from under them
+while their ground height trailed the floor on a climb. Combat on Felicity ended with no kill (20 stuck
+relocations), the Hacker Central carrier stalled 360 units from the terminal, and Capture the Case and King of
+the Hill had 21 and 22 relocations. Fix: the original walking search again, the new support only raising it
+(tables and props, as the player's), and the under-the-feet support kept for a jump's flight
+(`botJumpInFlight`). PR 45's Codex review added two points: falls keep D-052's clamped step, and a mesh
+surface supplies its room, flags and lift. PR 45 landed as dev fbf2822d; Integration's rerun R1 showed no
+STUCK line, and **B-1305** fixed the two fixture assumptions it exposed (objective smokes now pass score limits
+100/400 to keep their time-limit end; the Combat One-Hit Kills seed was then found to be stripped at an
+offline start without the unlock, so the local Combat smoke has a 600 s backstop instead). R2 passed, and its
+Capture the Case STUCK lines gave **B-1306**: the stuck watchdog moved simulants standing on station (a SAVECASE
+guard on its own case, nine times in 150 s); it now skips a simulant in the main loop, off a route, within 50 of
+its go-to position. Integration takes B-1306 into candidate 3 before G2 to G4. **B-1303**: my six local mode fixtures required a respawn; they now accept `spawn=0`.
+Pattern SP-101. Integration holds G1 to G4 (everything with simulant movement) for the rerun; base 15 stays
+(no data change). Lesson: D-052 went on by default with only its own feature smokes listed; an option that
+changes every simulant's movement needs the ordinary mode smokes before it is the default.
 
 2026-11-20 MULTIPLAYER, 16:40 to 18:44 UTC. Repo cleanup on Mike's order (Codex disabled, the
 week sessions archived): push and merge all PD work, fix collisions, clean up before fresh sessions
