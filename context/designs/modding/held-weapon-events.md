@@ -998,6 +998,28 @@ Order: 8a, 8c, 8b. Files: the Weapons tool's part of
 Workbench before editing), the node editor, the editor IO, the rule
 headers, the runtime seams for 8c.
 
+**8a as written (2026-11-22, `week-pd/core-weapons-w8`):** the designer
+list lives in `weapon_graph_editor_io.cpp` (`weaponGraphDesignerNodeAt`,
+`weaponGraphDesignerNodeFor`; a test holds it to exactly the rule tables'
+events, gates and modules), with the node ports
+(`weaponGraphNodeTakesExec`, `weaponGraphNodeOutputName`: an event has no
+input, a gate leaves by pass or fail, a module by out, a record node keeps
+its one unnamed link). The palette lists the designer nodes by group, then
+the function records under "Function record"; the canvas draws each node's
+own pins (a gate's fail has its own), carries a new link's port to the hub,
+and refuses a link between a program node and a record node. The inspector
+shows a program node's settings as named inputs from
+`weaponGraphDesignerSettings` (the rule table's settings with designer
+labels, has_ammo's rounds, state_is's and set_state's key and value, the
+lock's target filter); a test checks every bound and choice against the
+runtime's own validator. A setting left out reads "the function's own" with
+Set; Reset leaves it out; "$name" settings stay text. Replace With swaps a
+designer node for another of its group, keeping its links and place and
+dropping its settings; Duplicate keeps a program node's settings. Mike's
+first example is a pd-tests case: the Falcon-like program with Fire once
+replaced by Automatic (rate 600, spin-up 0), as the hub writes it,
+validates, splits into a v2 primary file and compiles.
+
 ## Smokes for Integration's finalization batch
 
 Listed as each slice lands; none is run by Core Weapons.
@@ -1035,6 +1057,7 @@ Listed as each slice lands; none is run by Core Weapons.
 | 7b | `held_weapon_cadence_smoke` (or any smoke that fires a Falcon 2, a CMP150 and a Shotgun) | casings fly as before (standard, rifle, shotgun) and the flash shows; no `WEAPON.RULE differs` line |
 | 7b (sound) | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke` | the guns sound as before (the Falcon 2, the CMP150's stream, the Shotgun); their first `WEAPON.RULE` lines end with ` sound=N slot=N`, N above 0; no `WEAPON.RULE differs` line; simulants' shots sound as before (any simulant smoke) |
 | 7c | `held_weapon_cadence_smoke`, `held_weapon_shot_smoke`, any smoke that punches or throws a grenade | fire animations play as before (the Falcon 2's, the Shotgun's pump, the punch, a grenade's throw), and the attacks keep their timing; first `WEAPON.RULE` lines end with ` animation=invanim_...`; no `WEAPON.RULE differs` line |
+| 8a | a creator smoke (none written yet: Modding Hub, Weapons, open the base Falcon 2 as a template, right-click Fire once, Replace With, Automatic, Set rate to 600 and spin-up to 0, save the mod; then a match with the saved weapon, holding the trigger) | the palette lists the designer groups; the saved weapon's first `WEAPON.RULE: trigger_pressed ... modules=automatic` and a held trigger keeps firing; no `program refused` line |
 | 6c | a vehicle lock smoke with the sample above (none written yet: the Blank Room with a hoverbike, `--debug-forge-level-vehicle`, as `hoverbike_room_flow_smoke`) | aiming the secondary at the empty bike logs `SIGHT.LOCK: ... kind=vehicle occupied=0 relation=none`; the primary takes no lock on it; with a second player riding (split screen or a second client) the primary logs `occupied=1 relation=enemy`, and its rocket flies straight once the rider bails; `rules.differ=0` |
 | 6a, 6b | a lock smoke (none written yet: give `base:rocketlauncher`, aim at a simulant until it locks, fire the secondary; give `base:cmp150`, aim at two simulants on each function) | `WEAPON.RULE: aiming` lines for both weapons and functions with `lock` equal to `native_lock` (`locks=1` for the rocket launcher; `locks=4 ... sight_targets_only: true` for the CMP150, `aim_follows=true` on its secondary); `aiming=N` above 0 with `rules.differ=0`; the homing rocket flies to the locked simulant |
 

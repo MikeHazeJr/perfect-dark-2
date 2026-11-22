@@ -5,25 +5,22 @@ slices 1 and 2). Mike's assignment: held weapons on behavior graphs, the eight s
 audit (artifact `7fgSVVLGzHGRddzXoUJ1Xz`), in the order 1-5, projectile slice 7, 6, 7, 8; own branches
 from dev, committed through a temporary index (canonical HEAD and index untouched). On dev: **slices 1
 and 2** (PR 26), **slice 3** (PR 29), **slices 4a, 4b and 5** (PR 31, `10a5740b`, four Codex review
-rounds), **projectile slice 7a and 7b** (PR 40, `b66065f8`: the free's clean-ups; the flight rule,
-`event.projectile.in_flight`, `embedded.v22`). **Slice 6, the target filter, is done but held** (Integration
-asked to hold PR 44 until they post the release cut): 6a (PR 44 and `week-pd/core-weapons-w6a2`: six
-pickers on one filter, `port/include/target_filter.h`, each native filter compared with the original's
-inline tests over every combination), 6b and 6c (`week-pd/core-weapons-w6b`, `49205805`, pushed, no PR):
-the homing rocket's home re-checks its filter in flight; the held lock is `og.weapon.lock_on` at
-`event.weapon.aiming` (kind 41; locks, aim_follows, the filter with `sight_targets_only`; the rocket
-launcher's and the CMP150's locks written into their base programs, `embedded.v23`, cache `_heldlocks`;
-auto-aim's follow from the lock); a mine's arm names what sets it off (`og.projectile.arm_proximity`'s
-filter; a mod mine's record filters as its native filter, `not_owner`/`not_friend`); vehicles take
-their rider's side, and a lock that names vehicles seeks them (`SIGHT.LOCK` lines, `locks=N`).
-G5b's `held_weapon_shot_smoke` RCP120 failure was my smoke's input (the alt button toggles the
-RCP120's cloak itself under extended controls): PR 46 (tools only) fixes the smoke, for Integration to
-merge before the cut. Open for Mike: D-057 (projectile 7c), PR 31's pellet thread. Asked of Authored
-Mods: Mike's "Enemy vehicles" sample launcher (spec in `held-weapon-events.md`, 6c part 2). Next:
-weapon slice 7 (feel nodes: recoil, muzzle flash, casing, shot sound, fire animation; mod guns get
-jitter, casings and the fire animation), then slice 8 (value nodes and the creator), then a cloak log
-line and an RCP120 cloak smoke. Records and smokes: `context/designs/modding/held-weapon-events.md`,
-`context/designs/modding/projectile-events.md`.
+rounds), **projectile slice 7a and 7b** (PR 40, `b66065f8`), and PR 46 (`7dd064d0`, 2026-11-22 08:56 UTC:
+G5b's `held_weapon_shot_smoke` now taps the RCP120's primary; the alt button is its cloak under extended
+controls). **Held until Integration posts the release cut** (their ask), a stack of pushed branches:
+**slice 6**, the target filter (PR 44 `week-pd/core-weapons-w6` plus `w6a2`; `w6b` `93cbd77a`: home filter,
+`og.weapon.lock_on` at `event.weapon.aiming`, the mine's arm filter, lockable vehicles, `embedded.v23`);
+**slice 7**, feel (`w7` `d774e4e1`: `og.weapon.recoil`, `og.weapon.casing`, `og.weapon.muzzle_flash`,
+`og.weapon.shot_sound`, `og.weapon.play_animation`; players read the shot's plan, simulants and guards the
+press plan; an animation a function does not have plays only on a held model with a skeleton;
+`embedded.v24`, cache `_heldfeel`); **slice 8a**, the creator's designer palette (`w8` `300fb06a`: program
+nodes by designer name and group, their own ports, named inputs for their settings from the rule tables,
+Replace With; Mike's machine-gun pistol is one swap in the Falcon 2 template). Next: **8c** (value nodes,
+evaluated per shot) and **8b** (the weapon's projectile program in the creator, for the vehicle rocket);
+merge order after the cut: PR 44, then w6a2/w6b, w7, w8. Open for Mike: D-057 (projectile 7c), PR 31's
+pellet thread. Asked of Authored Mods: Mike's "Enemy vehicles" sample launcher; of MP-RULES:
+`botactGetShootInterval60` through `weaponProgramRecoilFrames`. Records and smokes:
+`context/designs/modding/held-weapon-events.md`, `context/designs/modding/projectile-events.md`.
 
 2026-11-21 MULTIPLAYER AND RULES (claude-pd-mp-rules-20261121), 04:30 to 05:15 and 21:27 UTC onward.
 Mike's order: six items, canonical checkout, own branch `week-pd/mp-rules` from dev (commits through a
