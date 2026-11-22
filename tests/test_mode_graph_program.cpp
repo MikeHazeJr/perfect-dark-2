@@ -605,6 +605,59 @@ TEST_CASE("the local mode smokes require the plan and no parity difference",
 	}
 }
 
+TEST_CASE("the mode smokes do not wait on chance once simulants can climb and fight (B-1305)",
+	"[gamemode-graphs][smokes][static]")
+{
+	// The objective smokes are ended by their 150 s time limit: score limits of
+	// 100 and 400 keep it that way now that simulants score (a Hacker Central
+	// simulant reached the default 10 at 124 s once B-1302 let it climb).
+	const std::vector<std::string> objective = {
+		"mp_hold_the_briefcase_local_smoke",
+		"mp_hacker_central_local_smoke",
+		"mp_pop_a_cap_local_smoke",
+		"mp_king_of_the_hill_local_smoke",
+		"mp_capture_the_case_local_smoke",
+	};
+	for (const auto &name : objective) {
+		INFO(name);
+		const std::string fixture = readRepoFile(("tools/smoke-verify/tests/" + name + ".json").c_str());
+		REQUIRE(!fixture.empty());
+		REQUIRE(fixture.find("\"--match-timelimit-sec\",\n    \"150\",") != std::string::npos);
+		REQUIRE(fixture.find("\"--match-scorelimit\",\n    \"100\",") != std::string::npos);
+		REQUIRE(fixture.find("\"--match-teamscorelimit\",\n    \"400\"") != std::string::npos);
+		REQUIRE(fixture.find("\"BOOT: --match-scorelimit applied: score=100\"") != std::string::npos);
+		REQUIRE(fixture.find("\"BOOT: --match-teamscorelimit applied: score=400\"") != std::string::npos);
+		REQUIRE(fixture.find("\"MATCH: stage end reason=timelimit\"") != std::string::npos);
+	}
+
+	// The Combat score-limit smokes end on a real first kill, which in 240 s is
+	// chance (simulants refill their shields). One-Hit Kills cannot be seeded:
+	// an offline start keeps it only when the profile has unlocked it, and a
+	// clean smoke install has not (candidate 3 logged the seed at boot, then
+	// "MATCH: options=0x10200000"). So the local smoke's time limit is a 600 s
+	// backstop, with its end-screen wait and runner timeout grown to fit.
+	const std::string mplayer = readRepoFile("src/game/mplayer/mplayer.c");
+	REQUIRE(mplayer.find("if (!challengeIsFeatureUnlocked(MPFEATURE_ONEHITKILLS)) {\n"
+		"\t\t\tg_MpSetup.options &= ~MPOPTION_ONEHITKILLS;") != std::string::npos);
+
+	const std::string local = readRepoFile("tools/smoke-verify/tests/mp_combat_local_scorelimit_smoke.json");
+	REQUIRE(!local.empty());
+	REQUIRE(local.find("\"--match-scorelimit\",\n    \"1\",") != std::string::npos);
+	REQUIRE(local.find("\"--match-timelimit-sec\",\n    \"600\"") != std::string::npos);
+	REQUIRE(local.find("\"MATCH: timelimit override applied seconds=600\"") != std::string::npos);
+	REQUIRE(local.find("\"MATCH: stage end reason=scorelimit scorelimit=1 teamscorelimit=0\"") !=
+		std::string::npos);
+	REQUIRE(local.find("\"timeout_ms\": 620000") != std::string::npos);
+	REQUIRE(local.find("\"timeout_seconds\": 720") != std::string::npos);
+	REQUIRE(local.find("--debug-mp-options") == std::string::npos);
+
+	// The networked one exits at a fixed 480 s, so it keeps its 240 s clock.
+	const std::string net = readRepoFile("tools/smoke-verify/tests/mp_combat_net_scorelimit_smoke.json");
+	REQUIRE(!net.empty());
+	REQUIRE(net.find("\"--match-scorelimit\",") != std::string::npos);
+	REQUIRE(net.find("--debug-mp-options") == std::string::npos);
+}
+
 TEST_CASE("the code outside the mode table runs through the plan",
 	"[gamemode-graphs][slice4][static]")
 {

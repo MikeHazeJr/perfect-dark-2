@@ -229,3 +229,5 @@ It might be possible to build and run the game on platforms that are not specifi
 * NicNamSam for the icon;
 * everyone who has submitted pull requests and issues to this repository and tested the port;
 * probably more I'm forgetting.
+
+Some 3D models in this project were created using Tripo3D.

@@ -551,6 +551,15 @@ static bool chrUsesSimulantSupport(const struct chrdata *chr)
 			&& chr->aibot && chr->aibot->aibotnum >= 0 && !botIsPuppetTick();
 }
 
+/* B-1302: a simulant in its jump's flight (botJumpTickEval to botJumpOnLand)
+ * and still above its ground. Only a flight looks for support under its feet
+ * alone; walking, a walk-off and a ramp's descent keep the original search. */
+static bool chrSimulantInFlight(const struct chrdata *chr)
+{
+	return chrUsesSimulantSupport(chr) && botJumpInFlight(chr)
+			&& (chr->fallspeed.y != 0.0f || chr->manground > chr->ground);
+}
+
 static f32 chrSweepVertical(struct chrdata *chr, const struct coord *pos,
 		RoomNum *rooms, f32 delta, f32 radius, f32 ymin, f32 ymax)
 {
@@ -596,11 +605,11 @@ static f32 chrFindMovementGround(struct chrdata *chr, struct coord *pos, RoomNum
 		u16 *flags, bool *inlift, struct prop **lift)
 {
 #if PC_CAPSULE_ENABLED
-	if (chrUsesSimulantSupport(chr)) {
-		const bool airborne = chr->fallspeed.y != 0.0f || chr->manground > chr->ground;
-		const f32 support_top = chr->manground + (airborne ? 0.5f : 20.0f);
+	/* D-052: in flight, only support under the feet can be landed on, so a
+	 * ledge beside the arc is not a floor yet. */
+	if (chrSimulantInFlight(chr)) {
 		const struct capsulesupport support = capsuleFindSupportForProp(chr->prop, pos,
-				chr->radius, rooms, support_top);
+				chr->radius, rooms, chr->manground + 0.5f);
 		chr->floorcol = support.colour;
 		chr->floortype = support.material;
 		chr->floorroom = support.room;
@@ -611,9 +620,13 @@ static f32 chrFindMovementGround(struct chrdata *chr, struct coord *pos, RoomNum
 	}
 #endif
 
+	/* B-1302: walking searches from where chr0f01f378 puts pos, 69 over the
+	 * feet. Climbing, manground trails the floor by up to 30, so a search
+	 * from 20 over the feet lost stairs and ramps and stalled simulants. */
 	f32 ground = cdFindGroundInfoAtCyl(pos, chr->radius, rooms, &chr->floorcol,
 			&chr->floortype, flags, &chr->floorroom, inlift, lift);
 #if PC_CAPSULE_ENABLED
+	const f32 tileground = ground;
 	f32 radius;
 	f32 ymax;
 	f32 ymin;
@@ -623,6 +636,29 @@ static f32 chrFindMovementGround(struct chrdata *chr, struct coord *pos, RoomNum
 			ymin - prop->pos.y, rooms, 240.0f, NULL);
 	if (rendered > ground + 1.0f && rendered <= ymin + 20.0f) {
 		ground = rendered;
+	}
+
+	/* B-1302: with no tile at its feet (a table, a prop, a lift after a jump),
+	 * a walking simulant stands on the support found from 20 over its feet,
+	 * as the player does (bwalkUpdateVertical). The support raises the ground,
+	 * and where the rendered floor already found its surface it names that
+	 * surface's room, flags and lift. It never lowers the ground. */
+	if (chrUsesSimulantSupport(chr) && (chr->manground > tileground + 2.0f || chr->floorroom < 0)) {
+		const f32 support_top = chr->manground + 20.0f;
+		const struct capsulesupport support = capsuleFindSupportForProp(chr->prop, pos,
+				chr->radius, rooms, support_top);
+		if (support.y > -30000.0f && support.y <= support_top && support.y >= ground - 1.0f
+				&& (support.y > tileground + 1.0f || chr->floorroom < 0)) {
+			if (support.y > ground) {
+				ground = support.y;
+			}
+			chr->floorcol = support.colour;
+			chr->floortype = support.material;
+			chr->floorroom = support.room;
+			*flags = support.flags;
+			*lift = support.lift;
+			*inlift = support.lift != NULL;
+		}
 	}
 #endif
 	return ground;
@@ -1051,7 +1087,13 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 
 						bool landed;
 #if PC_CAPSULE_ENABLED
-						if (chrUsesSimulantSupport(chr)) {
+						/* B-1302: a flight, and a simulant's fall onto a ground
+						 * under its feet, step against that ground, so the last
+						 * step of a long fall lands instead of being refused by
+						 * the sweep. A ground at or over the feet (the bottom of
+						 * a dip) is landed on as in the original. */
+						if (chrSimulantInFlight(chr)
+								|| (chrUsesSimulantSupport(chr) && chr->ground < chr->manground)) {
 							landed = chrStepSimulantAirborne(chr, arg2, spfc, yincrement, sp68);
 						} else
 #endif
@@ -1132,6 +1174,13 @@ bool chr0f01f378(struct model *model, struct coord *arg1, struct coord *arg2, f3
 							}
 						}
 					} else if (chr->manground <= chr->ground) {
+						/* B-1302: on the ground, a flight is over even when no
+						 * landing above ended it (a ceiling stopped the rise at
+						 * its support), so walking and the next jump go on. */
+						if (chr->aibot && !botIsPuppetTick()) {
+							botJumpOnLand(chr);
+						}
+
 						for (i = 0; i < g_Vars.lvupdate60; i++) {
 							chr->sumground = chr->sumground * (PAL ? 0.88120001554489f : 0.9f) + chr->ground;
 							chr->fallspeed.x *= (PAL ? 0.88120001554489f : 0.9f);

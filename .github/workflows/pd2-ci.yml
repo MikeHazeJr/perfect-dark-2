@@ -63,6 +63,8 @@ jobs:
       - name: Check modder workflow regressions
         run: |
           python -B tools/tests/test_pdxxx_modder_workflow.py -v
+          python -B tools/tests/test_stage_bundled_samples.py -v
+          python -B tools/tests/test_prepare_authored_mod_startup_ab.py -v
           python -B tools/tests/test_mod_manifest_parity.py -v
           python -B tools/tests/test_level_from_model.py -v
           python -B tools/tests/test_level_rules_conformance.py -v
@@ -102,6 +104,10 @@ jobs:
           powershell.exe -NoProfile -ExecutionPolicy Bypass -File tools/smoke-verify/test-prepare-execute.ps1
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           ./tools/smoke-verify/test-prepare-execute.ps1
+
+      - name: Check the build queue's leases and CLI (T-TOOLING-020)
+        shell: pwsh
+        run: ./tools/pd2-queue/tests/Test-Pd2qLeases.ps1
 
       - name: Configure (CMake + Ninja)
         run: cmake -G Ninja -B Build .

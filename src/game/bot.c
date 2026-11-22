@@ -133,6 +133,32 @@ struct botstuckstate {
 };
 static struct botstuckstate s_BotStuck[MAX_BOTS];
 
+/* B-1306: within 20 units of its go-to position the original stands a
+ * simulant there in the main loop (botTickUnpaused's chrStand), as a Capture
+ * the Case guard on its own case or a King of the Hill holder on a hill pad
+ * does. Standing there is its intent, so the watchdog must not move it (a
+ * case guard was moved nine times in 150 s, each with the penalty). */
+#define STUCK_ON_STATION_XZ 50.0f
+
+static bool botStuckIsOnStation(const struct chrdata *chr)
+{
+	const struct coord *goal = &chr->aibot->gotopos;
+	f32 dx;
+	f32 dy;
+	f32 dz;
+
+	if (chr->myaction != MA_AIBOTMAINLOOP || chr->actiontype == ACT_GOPOS) {
+		return false;
+	}
+
+	dx = chr->prop->pos.x - goal->x;
+	dy = chr->prop->pos.y - goal->y;
+	dz = chr->prop->pos.z - goal->z;
+
+	return dx * dx + dz * dz <= STUCK_ON_STATION_XZ * STUCK_ON_STATION_XZ
+		&& (dy < 0.0f ? -dy : dy) <= 200.0f;
+}
+
 enum bot_spawn_result {
 	BOT_SPAWN_OK = 0,
 	BOT_SPAWN_INVALID_CHARACTER,
@@ -1976,6 +2002,10 @@ s32 botTick(struct prop *prop)
 							|| chr->myaction == MA_AIBOTGETITEM
 							|| chr->myaction == MA_AIBOTGOTOPROP
 							|| chr->myaction == MA_AIBOTRUNAWAY);
+						/* B-1306: standing on station is not being stuck. */
+						if (hasIntent && botStuckIsOnStation(chr)) {
+							hasIntent = false;
+						}
 						if (bs->relocating) {
 							/* A relocation suppresses only the immediately following
 							 * audit. Clear the latch so continued AI intent can recover
@@ -3958,6 +3988,13 @@ void botJumpOnLand(struct chrdata *chr)
 	if (aibot && aibot->jumpcooldownuntil60 == BOT_JUMP_AWAITING_LANDING) {
 		aibot->jumpcooldownuntil60 = g_Vars.lvframe60 + BOT_JUMP_COOLDOWN_TICKS60;
 	}
+}
+
+/* B-1302: from botJumpTickEval's impulse to botJumpOnLand. chr.c gives only
+ * this flight the under-the-feet support; walking keeps the original search. */
+bool botJumpInFlight(const struct chrdata *chr)
+{
+	return chr && chr->aibot && chr->aibot->jumpcooldownuntil60 == BOT_JUMP_AWAITING_LANDING;
 }
 
 /* Budgeted scheduler. Each bot gets evaluated at most

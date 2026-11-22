@@ -35,15 +35,55 @@ default-inclusion flags:
 Per build (`build-headless.ps1` / `build-session.ps1`):
 
 ```
--DevMods ""        # default: include every mod whose "dev": true
+-DevMods ""        # default: every bundled sample plus every mod whose "dev": true
 -DevMods all       # include every listed mod regardless of flags
--DevMods none      # include no dev mods
+-DevMods none      # include nothing (and drop the build's old bundled samples)
 -DevMods needler   # include only the named mod(s), comma-separated
 ```
 
-Release packaging builds a `.pdmod` for each entry with `"release": true` and
-stages it under `mods/bundled/`. It verifies the editable typed archives
-survive the packaging round trip byte for byte.
+## Bundled samples (`"release": true`)
+
+An entry with `"release": true` is a bundled sample: it ships with the game and
+a fresh profile starts with it enabled. Today: `crystal_pistol`,
+`mod.vehicle_maian_hover` (folder `vehicle_maian_hover`), `blank_room`,
+`model_room` and `grid_two_rooms` (Mike, 2026-11-21).
+
+`tools/stage_bundled_samples.py` stages them, the same way for a release
+(`devtools/release.ps1`) and for a local build (`devtools/build-headless.ps1`):
+
+- Each sample is packed from its `mod.json` and its top-level typed archives
+  only (never build scripts, notes or authoring sources) into
+  `<install>/mods/bundled/<id>.pdmod`, through the release verifier
+  (`tools/verify_pdxxx_modder_workflow.py --release-package`). A folder with a
+  typed archive below its top level is refused: that is authoring input, not a
+  package.
+- `<install>/bundled-mods.sha256` is written last, one `<sha256> *<id>.pdmod`
+  line per sample in `dev-mods.json` order.
+- A bundled sample is never also copied loose: one id twice in one install
+  would be two mods.
+
+With no saved mod choice (no `mods-enabled.json`, an empty pd.ini list) and no
+`--moddir`, the mod manager enables each listed package while it is the only
+mod with that id and its bytes still match
+(`port/include/modmgr_bundled_samples.h`). A player's own copy of the same id
+in their mods folder always wins and is never enabled for them; a saved choice
+always takes over. The player's own mods live in
+`%LOCALAPPDATA%\perfectdark\mods`; the release's `Open Mods Folder.lnk` opens
+it.
+
+`vehicle_maian_hover` is the hover vehicle exactly as the game's mod author
+builds it from `maian_hover_vehicle/recipe.json`; pd-tests
+`"[maian-vehicle][bundled]"` fails if the two differ. After changing the recipe
+or its files, run that case with `PD2_TEST_ARTIFACT_DIR` set and copy
+`<dir>/vehicle_maian_hover/` over `dev-mods/vehicle_maian_hover/`.
+
+`crystal_pistol` is rebuilt from its source vault
+(`D:\Game Dev\PD2-Assets\crystal-pistol`, `source/scripts/build_pdweapon.py`);
+never hand-edit its archives. Its held view numbers are its own (posx 10.5,
+posy -12.9, posz -24.5), not an extracted weapon's.
+
+Some 3D models here were made with Tripo3D; the project's one credit line is in
+the top-level README.
 
 ## Adding a dev mod
 

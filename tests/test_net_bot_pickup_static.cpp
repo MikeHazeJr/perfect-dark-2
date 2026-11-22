@@ -600,6 +600,41 @@ TEST_CASE("bot stuck watchdog: a simulant downloading at a Hacker Central termin
 	REQUIRE(gated < relocate);
 }
 
+TEST_CASE("bot stuck watchdog: a simulant standing on station is not stuck",
+          "[bot][scenario][b1306]") {
+	// B-1306: within 20 units of its go-to position the original stands a
+	// simulant in the main loop (a Capture the Case guard on its own case, a
+	// hill holder on a hill pad); the watchdog counted that as stuck and moved
+	// the guard away nine times in 150 s, each with the 25% penalty.
+	const std::string bot = code_only(read_text_file("src/game/bot.c"));
+	const size_t fn = bot.find("static bool botStuckIsOnStation(const struct chrdata *chr)");
+	REQUIRE(fn != std::string::npos);
+	const size_t fnEnd = bot.find("\n}\n", fn);
+	REQUIRE(fnEnd != std::string::npos);
+	const std::string body = bot.substr(fn, fnEnd - fn);
+	// standing in the main loop, not on a route
+	REQUIRE(body.find("chr->myaction != MA_AIBOTMAINLOOP || chr->actiontype == ACT_GOPOS") != std::string::npos);
+	// at the place its last go-to led
+	REQUIRE(body.find("&chr->aibot->gotopos") != std::string::npos);
+	REQUIRE(body.find("dx * dx + dz * dz <= STUCK_ON_STATION_XZ * STUCK_ON_STATION_XZ") != std::string::npos);
+	// the original's arrival test is 20 units on each axis; the station covers it
+	REQUIRE(bot.find("if (xdist > 20 || zdist > 20 || (ydist > 200 && chr->inlift == 0)) {") != std::string::npos);
+	REQUIRE(bot.find("#define STUCK_ON_STATION_XZ 50.0f") != std::string::npos);
+
+	// The watchdog asks it after the intent list and before the relocation.
+	const size_t intent = bot.find("bool hasIntent = (chr->myaction == MA_AIBOTMAINLOOP");
+	REQUIRE(intent != std::string::npos);
+	const size_t listEnd = bot.find(");", intent);
+	const size_t station = bot.find("if (hasIntent && botStuckIsOnStation(chr)) {", intent);
+	const size_t gated = bot.find("} else if (hasIntent) {", intent);
+	REQUIRE(listEnd != std::string::npos);
+	REQUIRE(station != std::string::npos);
+	REQUIRE(gated != std::string::npos);
+	REQUIRE(listEnd < station);
+	REQUIRE(station < gated);
+	REQUIRE(bot.find("hasIntent = false;", station) < gated);
+}
+
 TEST_CASE("bot turn: a simulant waiting to download turns toward the terminal",
           "[bot][scenario][b1271]") {
 	// B-1271 (Mike 2026-11-16): a download starts only while the simulant faces

@@ -2202,8 +2202,11 @@ Theater must be watchable replay, not only ghost participant transforms.
 
 ## Milestone 3: sample graph-backed weapon
 
-- **T-MODDING-008, missing:** Ship one small public-source base-gun variant,
-  enabled by default, with a three-round burst or alternate projectile.
+- **T-MODDING-008, partial:** The sample is the Maian Crystal Pistol (a v1
+  graph weapon, 0.2.1, with its own held view numbers). Since 2026-11-21 it
+  is one of five bundled samples a fresh profile starts with enabled
+  (T-RELEASE-007). Open: the finalization smokes and Mike's look at the
+  held view.
 - **V-012, missing:** Prove discovery by permanent catalog ID, every supported
   custom weapon slot, setup save/reload, local gameplay, two-client
   listen-host parity, malformed-source rejection, and clean shutdown.
